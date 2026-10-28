@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ProFile Manager – Yanagi Academy</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#EEF1F4;--sf:#fff;--tx:#14213D;--mu:#5B6780;--ac:#1B2A4A;--ac2:#B8A24A;--ln:#D3D9E3;--er:#B3261E;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0E1626;--sf:#17233A;--tx:#E8ECF4;--mu:#9AA7C0;--ac:#8FA8DC;--ac2:#D6C26A;--ln:#2A3A58;--er:#FF8A80}}
+:root[data-theme="dark"]{--bg:#0E1626;--sf:#17233A;--tx:#E8ECF4;--mu:#9AA7C0;--ac:#8FA8DC;--ac2:#D6C26A;--ln:#2A3A58;--er:#FF8A80}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--tx);font:400 16px/1.5 "Zen Kaku Gothic New",system-ui,sans-serif;padding-bottom:56px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--ac2);outline-offset:2px}
+.wrap{max-width:960px;margin:0 auto;padding:16px}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:10px;padding:20px}
+.login{max-width:360px;margin:12vh auto 0}
+h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.2rem;margin:0 0 12px}
+.mu{color:var(--mu);font-size:.9rem}
+label{display:block;margin:12px 0 4px;font-size:.9rem;color:var(--mu)}
+input[type=text],input[type=password],input[type=search],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg)}
+.btn{background:var(--ac);color:var(--bg);border:0;border-radius:8px;padding:10px 16px;font-weight:700}
+.btn.ghost{background:transparent;color:var(--tx);border:1px solid var(--ln)}
+.btn.sm{padding:6px 10px;font-size:.85rem}
+.err{color:var(--er);min-height:1.4em;margin:8px 0 0;font-size:.9rem}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--ln);padding:10px 16px;display:flex;gap:10px;align-items:center}
+.top input{flex:1;min-width:0}
+.top .who{white-space:nowrap;font-size:.85rem;color:var(--mu)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:16px}
+.tile{background:var(--sf);border:1px solid var(--ln);border-left:4px solid var(--ac2);border-radius:10px;padding:18px 14px;text-align:left;min-height:96px;display:flex;flex-direction:column;justify-content:space-between}
+.tile b{font-size:1.05rem}
+.tile:hover{border-color:var(--ac)}
+.tile[disabled]{opacity:.45;cursor:not-allowed}
+.badge{font-size:.78rem;color:var(--mu)}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--ln)}
+.row:last-child{border:0}
+.res{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ln);padding:10px 0}
+.clock{position:fixed;right:0;bottom:0;padding:8px 16px calc(8px + env(safe-area-inset-bottom,0px));background:var(--sf);border-top:1px solid var(--ln);border-left:1px solid var(--ln);border-radius:10px 0 0 0;font-size:.9rem;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
+.scroll{overflow-x:auto}
+.bar{display:flex;gap:8px;align-items:center;margin:16px 0 12px;flex-wrap:wrap}
+.bar h2{margin:0;flex:1}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="clock" id="clock" aria-live="off"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+import {firebaseConfig} from "./firebase-config.js";
+
+const SEC=['Documenti','Mail','File importanti','Lezioni','Tecnici','Atleti','Eventi','Video','Foto'];
+const key=s=>s.toLowerCase().replace(/\s+/g,'-');
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',unsubs=[],unsubUsers=null,unsubMe=null;
+const page=s=>key(s)+'.html';
+const perm=s=>me?(me.admin?'w':((me.perms||{})[key(s)]||'n')):'n';
+const allItems=()=>SEC.flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s})));
+
+if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Apri index.html e incolla i dati del progetto Firebase in firebaseConfig. Poi ricarica la pagina.')}
+else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
+  onAuthStateChanged(auth,u=>{cleanup();uid=u?u.uid:null;me=null;if(!u){loginView();return}
+    unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
+
+function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
+function cleanup(){unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
+function onMe(){
+  unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
+  if(!me){app.innerHTML=box('Account non abilitato','Hai effettuato l’accesso ma un admin deve ancora abilitarti.','<p><button class="btn ghost" id="out">Esci</button></p>');$('#out').onclick=()=>signOut(auth);return}
+  SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=sn.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{}))});
+  if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));render()});
+  render();
+}
+function loginView(){
+  app.innerHTML=box('Accedi','Inserisci le credenziali fornite dall’admin.',`<label for="em">Email</label><input id="em" type="text" autocomplete="username"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password"><p class="err" id="er" role="alert"></p><button class="btn" id="go">Accedi</button>`);
+  const go=async()=>{try{await signInWithEmailAndPassword(auth,$('#em').value.trim(),$('#pw').value)}catch(e){$('#er').textContent='Email o password non corretti.'}};
+  $('#go').onclick=go;$('#pw').onkeydown=e=>{if(e.key==='Enter')go()};$('#em').focus();
+}
+function render(){
+  if(!me)return;const f=document.activeElement&&document.activeElement.id==='q';
+  if(view==='admin'&&me.admin)adminView();else{view='home';homeView()}
+  if(f){const i=$('#q');if(i){i.focus();i.setSelectionRange(q.length,q.length)}}
+}
+const topbar=()=>`<div class="top"><input id="q" type="search" placeholder="Cerca in tutte le sezioni" aria-label="Cerca" value="${esc(q)}"><a class="btn ghost sm" href="chat.html" style="text-decoration:none">Chat</a>${me.admin?'<button class="btn ghost sm" id="adm">Account</button>':''}<span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>`;
+function bindTop(){$('#q').oninput=e=>{q=e.target.value;if(view!=='home'){view='home';render()}else results()};
+  $('#out').onclick=()=>{q='';view='home';signOut(auth)};if($('#adm'))$('#adm').onclick=()=>{view='admin';render()}}
+function homeView(){app.innerHTML=topbar()+'<div class="wrap"><div id="body"></div></div>';bindTop();results()}
+function results(){
+  const t=q.trim().toLowerCase(),b=$('#body');
+  if(!t){b.innerHTML=`<div class="grid">${SEC.map(tile).join('')}</div>`;bindTiles();return}
+  const secs=SEC.filter(s=>perm(s)!=='n'&&s.toLowerCase().includes(t));
+  const hits=allItems().filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t));
+  b.innerHTML=`<div class="grid">${secs.map(tile).join('')}</div><div class="card" style="margin-top:16px"><h2>Risultati (${hits.length})</h2>${hits.length?hits.map(i=>`<button class="res" data-s="${esc(i.sec)}"><b>${esc(i.title)}</b><div class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</div></button>`).join(''):'<div class="mu">Nessun elemento trovato nelle sezioni a cui hai accesso.</div>'}</div>`;
+  bindTiles();b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
+}
+function tile(s){const p=perm(s),n=(items[key(s)]||[]).length;return`<button class="tile" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n:''}</span></button>`}
+function bindTiles(){document.querySelectorAll('.tile:not([disabled])').forEach(t=>t.onclick=()=>{location.href=page(t.dataset.s)})}
+function adminView(){
+  const adminsLeft=accounts.filter(a=>a.admin).length;
+  const opt=(a,s)=>`<select data-u="${esc(a.id)}" data-s="${esc(key(s))}" aria-label="${esc(a.name||a.email)} – ${esc(s)}" ${a.admin?'disabled':''}>${[['n','Nessuno'],['r','Lettura'],['w','Scrittura']].map(([v,l])=>`<option value="${v}" ${(a.admin?'w':((a.perms||{})[key(s)]||'n'))===v?'selected':''}>${l}</option>`).join('')}</select>`;
+  app.innerHTML=topbar()+`<div class="wrap"><div class="bar"><button class="btn ghost sm" id="bk">Indietro</button><h2>Gestione account</h2></div>
+  <div class="card scroll"><table><thead><tr><th>Utente</th><th>Admin</th>${SEC.map(s=>`<th>${esc(s)}</th>`).join('')}<th></th></tr></thead><tbody>${accounts.map(a=>`<tr><td><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></td><td><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''} aria-label="Admin ${esc(a.name||a.email)}"></td>${SEC.map(s=>`<td>${opt(a,s)}</td>`).join('')}<td><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></td></tr>`).join('')}</tbody></table>
+  <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le sezioni. Per impostare permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso; per cancellare anche il login usa la console Firebase.</p></div>
+  <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="na"> Admin</label><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
+  bindTop();$('#bk').onclick=()=>{view='home';render()};
+  document.querySelectorAll('select[data-u]').forEach(x=>x.onchange=()=>{const a=accounts.find(z=>z.id===x.dataset.u);updateDoc(doc(db,'users',a.id),{perms:{...(a.perms||{}),[x.dataset.s]:x.value}}).catch(()=>{})});
+  document.querySelectorAll('[data-a]').forEach(c=>c.onchange=()=>{if(!c.checked&&adminsLeft<2){c.checked=true;$('#er2').textContent='Deve restare almeno un admin.';return}updateDoc(doc(db,'users',c.dataset.a),{admin:c.checked}).catch(()=>{})});
+  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.x);if(a.admin&&adminsLeft<2){$('#er2').textContent='Non puoi rimuovere l’ultimo admin.';return}if(confirm('Revocare l’accesso a '+(a.name||a.email)+'?'))deleteDoc(doc(db,'users',a.id)).catch(()=>{})});
+  $('#cr').onclick=async()=>{const n=$('#nn2').value.trim(),e=$('#ne').value.trim(),p=$('#np').value,er=$('#er');
+    if(!n||!e||p.length<6){er.textContent='Inserisci nome, email e una password di almeno 6 caratteri.';return}
+    try{const sec=initializeApp(firebaseConfig,'sec'+Date.now()),sa=getAuth(sec);
+      const c=await createUserWithEmailAndPassword(sa,e,p);const nid=c.user.uid;await signOut(sa);
+      await setDoc(doc(db,'users',nid),{name:n,email:e,admin:$('#na').checked,perms:{}});
+      $('#nn2').value=$('#ne').value=$('#np').value='';er.textContent='';
+    }catch(x){er.textContent=x.code==='auth/email-already-in-use'?'Esiste già un account con questa email.':'Creazione non riuscita. Controlla i dati e riprova.'}};
+}
+function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
+tick();setInterval(tick,15000);
+</script>
+</body>
+</html>

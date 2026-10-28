@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function hasAccount() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin() { return hasAccount() && me().get('admin', false) == true; }
+    function level(sec) { return isAdmin() ? 'w' : me().get('perms', {}).get(sec, 'n'); }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+    match /sections/{sec}/meta/{id} {
+      allow read: if hasAccount() && level(sec) in ['r', 'w'];
+      allow write: if hasAccount() && level(sec) == 'w';
+    }
+    match /sections/{sec}/items/{id} {
+      allow read: if hasAccount() && level(sec) in ['r', 'w'];
+      allow create, update, delete: if hasAccount() && level(sec) == 'w';
+    }
+  }
+}

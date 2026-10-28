@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chat – ProFile Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#EEF1F4;--sf:#fff;--tx:#14213D;--mu:#5B6780;--ac:#1B2A4A;--ac2:#B8A24A;--ln:#D3D9E3;--er:#B3261E;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0E1626;--sf:#17233A;--tx:#E8ECF4;--mu:#9AA7C0;--ac:#8FA8DC;--ac2:#D6C26A;--ln:#2A3A58;--er:#FF8A80}}
+:root[data-theme="dark"]{--bg:#0E1626;--sf:#17233A;--tx:#E8ECF4;--mu:#9AA7C0;--ac:#8FA8DC;--ac2:#D6C26A;--ln:#2A3A58;--er:#FF8A80}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--tx);font:400 16px/1.5 "Zen Kaku Gothic New",system-ui,sans-serif;padding-bottom:56px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--ac2);outline-offset:2px}
+.wrap{max-width:960px;margin:0 auto;padding:16px}
+.card{background:var(--sf);border:1px solid var(--ln);border-radius:10px;padding:20px}
+.login{max-width:360px;margin:12vh auto 0}
+h1{font-size:1.5rem;margin:0 0 4px}h2{font-size:1.2rem;margin:0 0 12px}
+.mu{color:var(--mu);font-size:.9rem}
+label{display:block;margin:12px 0 4px;font-size:.9rem;color:var(--mu)}
+input[type=text],input[type=password],input[type=search],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg)}
+.btn{background:var(--ac);color:var(--bg);border:0;border-radius:8px;padding:10px 16px;font-weight:700}
+.btn.ghost{background:transparent;color:var(--tx);border:1px solid var(--ln)}
+.btn.sm{padding:6px 10px;font-size:.85rem}
+.err{color:var(--er);min-height:1.4em;margin:8px 0 0;font-size:.9rem}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--ln);padding:10px 16px;display:flex;gap:10px;align-items:center}
+.top input{flex:1;min-width:0}
+.top .who{white-space:nowrap;font-size:.85rem;color:var(--mu)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:16px}
+.tile{background:var(--sf);border:1px solid var(--ln);border-left:4px solid var(--ac2);border-radius:10px;padding:18px 14px;text-align:left;min-height:96px;display:flex;flex-direction:column;justify-content:space-between}
+.tile b{font-size:1.05rem}
+.tile:hover{border-color:var(--ac)}
+.tile[disabled]{opacity:.45;cursor:not-allowed}
+.badge{font-size:.78rem;color:var(--mu)}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--ln)}
+.row:last-child{border:0}
+.res{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ln);padding:10px 0}
+.clock{position:fixed;right:0;bottom:0;padding:8px 16px calc(8px + env(safe-area-inset-bottom,0px));background:var(--sf);border-top:1px solid var(--ln);border-left:1px solid var(--ln);border-radius:10px 0 0 0;font-size:.9rem;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
+.scroll{overflow-x:auto}
+.bar{display:flex;gap:8px;align-items:center;margin:16px 0 12px;flex-wrap:wrap}
+.bar h2{margin:0;flex:1}
+.msgs{height:55vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px}
+.m{max-width:80%;padding:8px 12px;border-radius:12px;background:var(--bg);border:1px solid var(--ln);overflow-wrap:anywhere}
+.m.out{align-self:flex-end;background:var(--ac);color:var(--bg);border-color:var(--ac)}
+.m small{display:block;opacity:.75;font-size:.75rem}
+.comp{display:flex;gap:8px;margin-top:12px}
+.warn{background:var(--bg);border:1px solid var(--ln);border-left:4px solid var(--ac2);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-top:12px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="clock" id="clock" aria-live="off"></div>
+<script type="module">
+/* === CONFIGURAZIONE TELEGRAM (da my.telegram.org → API development tools) === */
+const TG_API_ID="INSERISCI";      // numero
+const TG_API_HASH="INSERISCI";    // stringa
+const TG_GROUP="INSERISCI";       // nome esatto del gruppo (o @username se pubblico)
+
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const box=(t,m,extra='')=>`<div class="wrap"><div class="card login" style="max-width:420px"><h1>Chat</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${m}</div>${extra}<p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a></p></div></div>`;
+if(TG_API_ID==="INSERISCI"){app.innerHTML=box('Telegram non ancora collegato','Apri chat.html e inserisci api_id, api_hash e nome del gruppo in cima allo script. Poi ricarica la pagina.')}
+else main();
+
+function ask(title,hint,type,warn=''){return new Promise(res=>{
+  app.innerHTML=box(title,esc(hint),`<label for="v">${esc(title)}</label><input id="v" type="${type}" autocomplete="off"><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
+  const f=()=>{const v=$('#v').value.trim();if(v)res(v)};$('#ok').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()};$('#v').focus()})}
+const showErr=m=>{const e=$('#er');if(e)e.textContent=m};
+
+async function main(){
+  app.innerHTML=box('Connessione in corso…','');
+  let client,Api,entity,names={},msgs=[];
+  try{
+    const tg=await import("https://esm.sh/telegram");
+    const {StringSession}=await import("https://esm.sh/telegram/sessions");
+    const {NewMessage}=await import("https://esm.sh/telegram/events");
+    Api=tg.Api;
+    let saved='';try{saved=localStorage.getItem('tg_session')||''}catch(e){}
+    client=new tg.TelegramClient(new StringSession(saved),Number(TG_API_ID),TG_API_HASH,{connectionRetries:5});
+    await client.start({
+      phoneNumber:()=>ask('Numero di telefono','Inserisci il tuo numero Telegram con prefisso internazionale (es. +39…).','tel','<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
+      phoneCode:()=>ask('Codice di accesso','Telegram ti ha inviato un codice: inseriscilo qui.','text'),
+      password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password'),
+      onError:async e=>{showErr('Errore: '+(e&&e.message||'riprova'));return false}});
+    try{localStorage.setItem('tg_session',client.session.save())}catch(e){}
+    const dialogs=await client.getDialogs({limit:300});
+    const g=TG_GROUP.replace(/^@/,'');
+    const d=dialogs.find(x=>x.title===TG_GROUP||(x.entity&&x.entity.username===g));
+    if(!d){app.innerHTML=box('Gruppo non trovato','Controlla che tu sia nel gruppo e che il nome in TG_GROUP coincida esattamente.');return}
+    entity=d.entity;
+    const nameOf=async id=>{const k=String(id);if(names[k])return names[k];try{const e=await client.getEntity(id);names[k]=[e.firstName,e.lastName].filter(Boolean).join(' ')||e.title||e.username||'Utente'}catch(x){names[k]='Utente'}return names[k]};
+    const conv=async m=>({id:m.id,out:!!m.out,name:m.out?'Tu':(m.senderId?await nameOf(m.senderId):'Utente'),text:m.message||'[allegato]',date:m.date});
+    const hist=await client.getMessages(entity,{limit:50});
+    for(const m of hist.reverse())msgs.push(await conv(m));
+    const draw=()=>{const l=$('#ml');if(!l)return;l.innerHTML=msgs.map(m=>`<div class="m ${m.out?'out':''}"><small>${esc(m.name)} · ${new Date(m.date*1000).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</small>${esc(m.text)}</div>`).join('')||'<div class="mu">Nessun messaggio.</div>';l.scrollTop=l.scrollHeight};
+    app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><b style="flex:1">${esc(d.title||TG_GROUP)}</b><button class="btn ghost sm" id="lo">Esci dalla chat</button></div><div class="wrap"><div class="card"><div class="msgs" id="ml" aria-live="polite"></div><div class="comp"><input id="t" type="text" placeholder="Scrivi un messaggio" aria-label="Messaggio"><button class="btn" id="send">Invia</button></div><p class="err" id="er" role="alert"></p></div></div>`;
+    draw();
+    client.addEventHandler(async ev=>{const m=ev.message;if(!m||m.out)return;msgs.push(await conv(m));draw()},new NewMessage({chats:[entity]}));
+    const send=async()=>{const t=$('#t').value.trim();if(!t)return;$('#t').value='';
+      try{const r=await client.sendMessage(entity,{message:t});msgs.push({id:r.id,out:true,name:'Tu',text:t,date:r.date||Math.floor(Date.now()/1000)});draw();showErr('')}catch(e){$('#t').value=t;showErr('Invio non riuscito. Riprova.')}};
+    $('#send').onclick=send;$('#t').onkeydown=e=>{if(e.key==='Enter')send()};
+    $('#lo').onclick=async()=>{if(!confirm('Chiudere la sessione Telegram su questo dispositivo?'))return;
+      try{await client.invoke(new Api.auth.LogOut())}catch(e){}
+      try{localStorage.removeItem('tg_session')}catch(e){}
+      try{await client.disconnect()}catch(e){}location.href='index.html'};
+  }catch(e){app.innerHTML=box('Errore di collegamento','Impossibile collegarsi a Telegram. '+esc(e&&e.message||''),'<p><button class="btn" onclick="location.reload()">Riprova</button></p>')}
+}
+function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
+tick();setInterval(tick,15000);
+</script>
+</body>
+</html>
