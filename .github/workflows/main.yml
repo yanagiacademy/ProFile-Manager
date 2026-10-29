@@ -1,0 +1,62 @@
+  - uses: actions/setup-node@v4
+    with:
+      node-version: 20
+
+  - name: Prepara i file di compilazione
+    run: |
+      mkdir -p build
+      cat > build/package.json <<'JSON'
+      {
+        "name": "telegram-lib-build",
+        "private": true,
+        "type": "module",
+        "dependencies": {
+          "telegram": "2.26.22",
+          "esbuild": "^0.23.0",
+          "esbuild-plugins-node-modules-polyfill": "^1.6.0"
+        }
+      }
+      JSON
+      cat > build/entry.js <<'JS'
+      import * as tg from "telegram";
+      export default tg;
+      export const TelegramClient = tg.TelegramClient;
+      export const Api = tg.Api;
+      export const sessions = tg.sessions;
+      export const helpers = tg.helpers;
+      export const client = tg.client;
+      export const errors = tg.errors;
+      export const utils = tg.utils;
+      export const events = tg.events;
+      JS
+      cat > build/build.mjs <<'JS'
+      import { build } from "esbuild";
+      import { nodeModulesPolyfillPlugin } from "esbuild-plugins-node-modules-polyfill";
+      await build({
+        entryPoints: ["entry.js"],
+        bundle: true,
+        format: "esm",
+        platform: "browser",
+        target: "es2020",
+        outfile: "../telegram-lib.js",
+        minify: true,
+        define: { global: "globalThis" },
+        plugins: [nodeModulesPolyfillPlugin({ globals: { Buffer: true, process: true }, fallback: "empty" })],
+        logLevel: "info"
+      });
+      JS
+
+  - name: Compila
+    working-directory: build
+    run: |
+      npm install --no-audit --no-fund
+      node build.mjs
+      ls -l ../telegram-lib.js
+
+  - name: Salva telegram-lib.js nel repository
+    run: |
+      git config user.name "github-actions"
+      git config user.email "actions@users.noreply.github.com"
+      git add telegram-lib.js
+      git commit -m "Aggiorna telegram-lib.js" || echo "Nessuna modifica"
+      git push
