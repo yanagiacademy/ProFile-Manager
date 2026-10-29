@@ -1,6 +1,6 @@
-import {TG_API_ID,TG_API_HASH} from "./telegram-config.js";
+import {TG_API_ID,TG_API_HASH,TG_FILES} from "./telegram-config.js";
 let cache=null;
-export const tgConfigured=()=>TG_API_ID!=="INSERISCI";
+export const tgConfigured=()=>TG_API_ID!=="INSERISCI"&&TG_FILES!=="INSERISCI";
 export const hasSession=()=>{try{return !!localStorage.getItem('tg_session')}catch(e){return false}};
 export function tgClient(){
   if(cache)return cache;
@@ -16,7 +16,12 @@ export function tgClient(){
   cache.catch(()=>{cache=null});
   return cache;
 }
-export async function tgEntity(name){
+const ents={};
+export function tgEntity(name){
+  if(!ents[name]){ents[name]=tgEntity0(name);ents[name].catch(()=>{delete ents[name]})}
+  return ents[name];
+}
+async function tgEntity0(name){
   const {client}=await tgClient();
   const g=name.replace(/^@/,''),ds=await client.getDialogs({limit:300});
   const d=ds.find(x=>x.title===name||(x.entity&&x.entity.username===g));

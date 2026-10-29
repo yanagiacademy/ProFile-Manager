@@ -179,11 +179,11 @@ async function up1(file,parent){
 async function uploadMany(entries){
   if(!entries.length)return;
   if(tgConfigured()&&!hasSession()){modal('Collega Telegram','<div class="mu">I file vengono salvati su Telegram. Accedi prima dalla pagina Chat, poi torna qui.</div>',[{label:'Chiudi',cls:'ghost'},{label:'Vai alla Chat',fn:()=>{location.href='chat.html'}}]);return}
-  const p=$('#prog');let done=0,fail=0,idx=0;
+  const p=$('#prog');let done=0,fail=0,idx=0,lastErr='';
   const upd=()=>{p.style.display='block';p.textContent=`Caricamento ${done}/${entries.length}`+(fail?` · errori: ${fail}`:'')};upd();
-  const worker=async()=>{while(idx<entries.length){const e=entries[idx++];try{await up1(e.file,e.parent)}catch(x){fail++}done++;upd()}};
+  const worker=async()=>{while(idx<entries.length){const e=entries[idx++];try{await up1(e.file,e.parent)}catch(x){fail++;lastErr=(x&&x.message)||String(x);console.error(x)}done++;upd()}};
   await Promise.all([worker(),worker(),worker()]);
-  p.textContent=`Completato: ${entries.length-fail} file caricati`+(fail?`, ${fail} non riusciti (limite ${tgConfigured()?'500':'20'} MB a file)`:'');setTimeout(()=>{p.style.display='none'},4000)}
+  p.textContent=`Completato: ${entries.length-fail} file caricati`+(fail?`, ${fail} non riusciti (limite ${tgConfigured()?'500':'20'} MB a file; motivo: ${lastErr==='size'?'file troppo grande':lastErr==='NO_CHAT'?'gruppo dei file non trovato':lastErr==='NO_SESSION'?'accesso a Telegram scaduto':lastErr})`:'');setTimeout(()=>{p.style.display='none'},fail?15000:4000)}
 async function uploadFolder(files){
   const map={},entries=[];
   try{for(const f of files){const parts=(f.webkitRelativePath||f.name).split('/'),dirs=parts.slice(0,-1);let parent=cur,acc='';
