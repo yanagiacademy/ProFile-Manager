@@ -16,8 +16,8 @@
     <h1>Diagnostica Telegram</h1>
     <p class="mu">Controlla uno per uno i passaggi di collegamento. Se un passo fallisce, copia il risultato e mandalo.</p>
     <p><button class="btn" id="go">Avvia diagnostica</button> <button class="btn ghost" id="cp">Copia risultato</button></p>
-    <div id="inp" style="display:none"><label for="v" id="lbl"></label><input id="v" type="text" autocomplete="off"><p><button class="btn sm" id="okb">Continua</button></p></div>
     <div id="out"></div>
+    <div id="inp" style="display:none;border:2px solid var(--ac2);border-radius:8px;padding:10px;margin-top:12px"><label for="v" id="lbl"></label><input id="v" type="text" autocomplete="off"><p><button class="btn sm" id="okb">Continua</button></p></div>
     <div id="act" style="display:none;margin-top:12px">
       <button class="btn ghost sm" id="tmsg">Prova invio messaggio (Chat)</button>
       <button class="btn ghost sm" id="tfile">Prova upload file (Documenti)</button>
@@ -33,7 +33,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const report=[];
 function line(ok,t,d=''){report.push((ok?'[OK] ':'[ERRORE] ')+t+(d?' — '+d:''));
   $('#out').insertAdjacentHTML('beforeend',`<div class="st"><b class="${ok?'ok':'ko'}">${ok?'✓':'✗'}</b> ${esc(t)}${d?`<small>${esc(d)}</small>`:''}</div>`)}
-const ask=(label,type='text')=>new Promise(res=>{$('#lbl').textContent=label;$('#v').type=type;$('#v').value='';$('#inp').style.display='block';$('#v').focus();
+const ask=(label,type='text')=>new Promise(res=>{line(true,'In attesa di te: '+label);$('#lbl').textContent=label;$('#v').type=type;$('#v').value='';$('#inp').style.display='block';$('#v').focus();$('#inp').scrollIntoView({block:'center'});
   const f=()=>{const v=$('#v').value.trim();if(!v)return;$('#inp').style.display='none';res(v)};$('#okb').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()}});
 $('#cp').onclick=async()=>{try{await navigator.clipboard.writeText(report.join('\n'));$('#cp').textContent='Copiato ✓'}catch(e){prompt('Copia il testo:',report.join('\n'))}};
 let ctx={};
@@ -69,7 +69,7 @@ $('#go').onclick=async()=>{
     if(a)line(true,'Sessione già attiva');
     else{
       line(true,'Sessione assente: accesso con numero di telefono');
-      await T.tgLogin(client,{phone:()=>ask('Numero di telefono con prefisso (+39…)'),code:()=>ask('Codice ricevuto nell’app Telegram (chat “Telegram”)'),password:()=>ask('Password a due fattori','password')});
+      await T.tgLogin(client,{phone:()=>ask('Numero di telefono con prefisso (+39…)'),code:()=>(line(true,'Numero inviato a Telegram, attendo il codice'),ask('Codice ricevuto nell’app Telegram (chat “Telegram”)')),password:()=>ask('Password a due fattori','password')});
       line(true,'Accesso riuscito')}
   }catch(e){line(false,'Accesso',T.tgErrText(e)+' ['+(e&&e.message)+'] Log libreria: '+T.consoleLog.slice(-25).join(' | '));return}
   // 6 gruppi
