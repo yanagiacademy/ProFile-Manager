@@ -49,6 +49,8 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 .m small{display:block;opacity:.75;font-size:.75rem}
 .comp{display:flex;gap:8px;margin-top:12px}
 .warn{background:var(--bg);border:1px solid var(--ln);border-left:4px solid var(--ac2);padding:10px 12px;border-radius:8px;font-size:.85rem;margin-top:12px}
+.m .del{background:none;border:0;padding:0 0 0 10px;font-size:.75rem;text-decoration:underline;opacity:.8;float:right}
+.m .del:hover{opacity:1}
 </style>
 </head>
 <body>
@@ -65,6 +67,16 @@ const box=(t,m,extra='')=>`<div class="wrap"><div class="card login" style="max-
 function ask(title,hint,type,warn=''){return new Promise(res=>{
   app.innerHTML=box(title,esc(hint),`<label for="v">${esc(title)}</label><input id="v" type="${type}" autocomplete="off"><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
   const f=()=>{const v=$('#v').value.trim();if(v)res(v)};$('#ok').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()};$('#v').focus()})}
+function askPhone(warn=''){return new Promise(res=>{
+  app.innerHTML=box('Numero di telefono','Inserisci il tuo numero Telegram. Il prefisso internazionale è già impostato.',`<label for="v">Numero di telefono</label><div style="display:flex;align-items:center;gap:8px"><span id="pf" style="font-weight:600;white-space:nowrap">(+39)</span><input id="v" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="___ __________" maxlength="14" aria-describedby="pf" style="flex:1;min-width:0"></div><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
+  const inp=$('#v');
+  const digits=raw=>{let t=String(raw).trim().replace(/^(\+|00)39/,'');return t.replace(/\D/g,'').slice(0,10)};
+  const fmt=d=>d.length>3?d.slice(0,3)+' '+d.slice(3):d;
+  inp.oninput=()=>{inp.value=fmt(digits(inp.value))};
+  const f=()=>{const d=digits(inp.value);
+    if(d.length<9){showErr('Il numero deve avere 9 o 10 cifre.');return}
+    res('+39'+d)};
+  $('#ok').onclick=f;inp.onkeydown=e=>{if(e.key==='Enter')f()};inp.focus()})}
 const showErr=m=>{const e=$('#er');if(e)e.textContent=m};
 const logLines=[];
 const step=m=>{logLines.push(m);app.innerHTML=box('Connessione in corso…','<ol style="padding-left:18px;margin:8px 0">'+logLines.slice(-6).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>')};
@@ -84,7 +96,7 @@ async function main(){
     if(!authorized){
       if(saved)clearSession();
       await tgLogin(tg,client,{
-        phone:()=>ask('Numero di telefono','Inserisci il tuo numero Telegram con prefisso internazionale (es. +39…).','text','<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
+        phone:()=>askPhone('<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
         code:()=>ask('Codice di accesso','Telegram ti invia il codice come messaggio nell’app Telegram (chat “Telegram”), non via SMS. Inseriscilo qui.','text'),
         password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password')},()=>{});
     }
@@ -96,13 +108,17 @@ async function main(){
     const conv=async m=>({id:m.id,out:!!m.out,name:m.out?'Tu':(m.senderId?await nameOf(m.senderId):'Utente'),text:m.message||'[allegato]',date:m.date});
     const hist=await client.getMessages(entity,{limit:50});
     for(const m of hist.reverse())msgs.push(await conv(m));
-    const draw=()=>{const l=$('#ml');if(!l)return;l.innerHTML=msgs.map(m=>`<div class="m ${m.out?'out':''}"><small>${esc(m.name)} · ${new Date(m.date*1000).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</small>${esc(m.text)}</div>`).join('')||'<div class="mu">Nessun messaggio.</div>';l.scrollTop=l.scrollHeight};
+    const draw=(keep)=>{const l=$('#ml');if(!l)return;const y=l.scrollTop;l.innerHTML=msgs.map(m=>`<div class="m ${m.out?'out':''}"><small>${esc(m.name)} · ${new Date(m.date*1000).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} <button class="del" data-id="${m.id}" aria-label="Elimina messaggio">Elimina</button></small>${esc(m.text)}</div>`).join('')||'<div class="mu">Nessun messaggio.</div>';l.scrollTop=keep?y:l.scrollHeight};
     app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><b style="flex:1">${esc(d.title||TG_GROUP)}</b><button class="btn ghost sm" id="lo">Esci dalla chat</button></div><div class="wrap"><div class="card"><div class="msgs" id="ml" aria-live="polite"></div><div class="comp"><input id="t" type="text" placeholder="Scrivi un messaggio" aria-label="Messaggio"><button class="btn" id="send">Invia</button></div><p class="err" id="er" role="alert"></p></div></div>`;
     draw();
     const seen=new Set(msgs.map(m=>m.id));let busy=false;
-    setInterval(async()=>{if(busy||document.hidden)return;busy=true;try{const h=await client.getMessages(entity,{limit:20});let ch=false;for(const m of h.reverse()){if(seen.has(m.id))continue;seen.add(m.id);msgs.push(await conv(m));ch=true}if(ch)draw()}catch(e){}busy=false},3000);
+    setInterval(async()=>{if(busy||document.hidden)return;busy=true;try{const h=await client.getMessages(entity,{limit:20});let ch=false;if(h.length){const ids=new Set(h.map(m=>m.id)),lo=Math.min(...h.map(m=>m.id));const n0=msgs.length;msgs=msgs.filter(m=>m.id<lo||ids.has(m.id));if(msgs.length!==n0)ch=true}for(const m of h.reverse()){if(seen.has(m.id))continue;seen.add(m.id);msgs.push(await conv(m));ch=true}if(ch)draw(true)}catch(e){}busy=false},3000);
     const send=async()=>{const t=$('#t').value.trim();if(!t)return;$('#t').value='';
       try{const r=await client.sendMessage(entity,{message:t});seen.add(r.id);msgs.push({id:r.id,out:true,name:'Tu',text:t,date:r.date||Math.floor(Date.now()/1000)});draw();showErr('')}catch(e){$('#t').value=t;showErr('Invio non riuscito: '+tgErrText(e))}};
+    $('#ml').onclick=async e=>{const b=e.target.closest('.del');if(!b)return;const id=Number(b.dataset.id);
+      if(!confirm('Eliminare questo messaggio per tutti nel gruppo?'))return;
+      try{await client.deleteMessages(entity,[id],{revoke:true});msgs=msgs.filter(m=>m.id!==id);draw(true);showErr('')}
+      catch(er){const t=(er&&(er.errorMessage||er.message))||'';showErr(/DELETE_FORBIDDEN|ADMIN_REQUIRED|PERMISSION/.test(t)?'Non hai il permesso di eliminare questo messaggio: puoi eliminare solo i tuoi, a meno che tu sia amministratore del gruppo.':'Eliminazione non riuscita: '+tgErrText(er))}};
     $('#send').onclick=send;$('#t').onkeydown=e=>{if(e.key==='Enter')send()};
     $('#lo').onclick=async()=>{if(!confirm('Chiudere la sessione Telegram su questo dispositivo?'))return;
       try{await client.invoke(new Api.auth.LogOut())}catch(e){}
