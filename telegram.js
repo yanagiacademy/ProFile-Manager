@@ -1,6 +1,6 @@
 /* Telegram condiviso da Chat, Documenti e pagina di test. */
 import {TG_API_ID,TG_API_HASH,TG_GROUP,TG_FILES} from "./telegram-config.js";
-export const TG_BUILD="2026-10-29-d";
+export const TG_BUILD="2026-10-29-e";
 export const consoleLog=[];
 for(const k of ['log','info','warn','error','debug']){const o=console[k];console[k]=(...a)=>{try{consoleLog.push(k+': '+a.map(x=>x&&x.message?x.message:typeof x==='object'?JSON.stringify(x):String(x)).join(' ').slice(0,300));if(consoleLog.length>60)consoleLog.shift()}catch(e){}return o.apply(console,a)}}
 const ok=v=>typeof v==="string"||typeof v==="number"?String(v).trim()!==""&&String(v).trim()!=="INSERISCI":false;
@@ -15,10 +15,11 @@ export const withTimeout=(p,ms,msg)=>Promise.race([p,new Promise((_,rej)=>setTim
 
 /* La libreria viene caricata da esm.sh, provando più indirizzi in ordine. */
 export const SOURCES=[
+  "https://cdn.jsdelivr.net/npm/telegram@2.26.22/+esm",
   "https://esm.sh/telegram@2.26.22?bundle",
   "https://esm.sh/telegram@2.26.22",
-  "https://esm.sh/telegram?bundle",
-  "https://esm.sh/telegram"
+  "https://cdn.jsdelivr.net/npm/telegram/+esm",
+  "https://esm.sh/telegram?bundle"
 ];
 export let libSource='';
 let libP=null;
@@ -36,6 +37,14 @@ async function ensureShims(log){
 }
 export let shimError='';
 try{await ensureShims(()=>{})}catch(e){shimError=(e&&e.message)||String(e)}
+async function selfTest(tg,log){
+  const B=globalThis.Buffer,h=tg.helpers;
+  if(!h||typeof h.sha1!=='function'){log('Autotest crittografia saltato (helpers.sha1 assente)');return}
+  const r=await withTimeout(Promise.resolve(h.sha1(B.from('abc'))),10000,'timeout autotest');
+  const hex=B.from(r).toString('hex');
+  if(hex!=='a9993e364706816aba3e25717850c26c9cd0d89d')throw new Error('autotest sha1 errato: '+hex);
+  log('Autotest crittografia superato');
+}
 export function loadTg(log=()=>{}){
   if(libP)return libP;
   libP=(async()=>{
@@ -44,10 +53,11 @@ export function loadTg(log=()=>{}){
     for(const u of SOURCES){
       try{
         log('Carico la libreria: '+u);
-        const m=await withTimeout(import(u),30000,'timeout caricamento libreria');
+        const m=await withTimeout(import(u),60000,'timeout caricamento libreria');
         const tg=m.TelegramClient?m:(m.default&&m.default.TelegramClient?m.default:null);
         if(!tg)throw new Error('modulo senza TelegramClient (chiavi: '+Object.keys(m).slice(0,8).join(',')+')');
         if(!tg.sessions||!tg.sessions.StringSession)throw new Error('modulo senza sessions.StringSession');
+        await selfTest(tg,log);
         libSource=u;log('Libreria caricata da '+u);return tg;
       }catch(e){errs.push(u+' → '+(e&&e.message||e));log('Non riuscito: '+(e&&e.message||e))}
     }

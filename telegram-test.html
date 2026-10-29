@@ -40,7 +40,7 @@ let ctx={};
 
 $('#go').onclick=async()=>{
   $('#out').innerHTML='';report.length=0;$('#act').style.display='none';
-  line(true,'Versione telegram.js: '+T.TG_BUILD,'Buffer: '+(typeof globalThis.Buffer)+', process: '+(typeof globalThis.process)+(T.shimError?' · errore preparazione: '+T.shimError:''));
+  line(true,'Versione telegram.js: '+T.TG_BUILD+' · pagina test: e','Buffer: '+(typeof globalThis.Buffer)+', process: '+(typeof globalThis.process)+(T.shimError?' · errore preparazione: '+T.shimError:''));
   // 1 configurazione
   const idOk=/^\d+$/.test(String(TG_API_ID).trim()),hashOk=/^[0-9a-f]{32}$/i.test(String(TG_API_HASH).trim());
   line(idOk,'api_id',idOk?'numerico, ok':'deve essere un numero (ora: '+(String(TG_API_ID).trim()==='INSERISCI'?'ancora INSERISCI':'valore non numerico')+')');
@@ -57,7 +57,7 @@ $('#go').onclick=async()=>{
   catch(e){line(false,'Rete verso i server Telegram (WebSocket)',e.message+' — prova da un’altra rete o senza VPN/blocchi')}
   // 3 libreria
   let tg;
-  try{tg=await T.loadTg(m=>{});line(true,'Libreria Telegram caricata',T.libSource+' · classi: sessions='+!!tg.sessions+', Api='+!!tg.Api+', events='+!!tg.events+', client='+!!tg.client)}
+  try{tg=await T.loadTg(m=>line(true,m));line(true,'Libreria Telegram caricata',T.libSource+' · classi: sessions='+!!tg.sessions+', Api='+!!tg.Api+', events='+!!tg.events+', client='+!!tg.client)}
   catch(e){line(false,'Libreria Telegram',(e.details||[e.message]).join(' | '));return}
   // 4 connessione
   let client;
