@@ -55,39 +55,44 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <div id="app"></div>
 <div class="clock" id="clock" aria-live="off"></div>
 <script type="module">
-import {TG_API_ID,TG_API_HASH,TG_GROUP} from "./telegram-config.js";
+import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,findDialog,withTimeout,tgErrText} from "./telegram.js";
+import {TG_GROUP} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const box=(t,m,extra='')=>`<div class="wrap"><div class="card login" style="max-width:420px"><h1>Chat</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${m}</div>${extra}<p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a></p></div></div>`;
-if(TG_API_ID==="INSERISCI"){app.innerHTML=box('Telegram non ancora collegato','Apri chat.html e inserisci api_id, api_hash e nome del gruppo in cima allo script. Poi ricarica la pagina.')}
+const box=(t,m,extra='')=>`<div class="wrap"><div class="card login" style="max-width:420px"><h1>Chat</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${m}</div>${extra}<p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a> · <a href="telegram-test.html" class="mu">Diagnostica Telegram</a></p></div></div>`;
+if(!chatConfigured()){app.innerHTML=box('Telegram non ancora collegato','Compila api_id, api_hash e TG_GROUP in telegram-config.js, poi ricarica la pagina.')}
 else main();
 
 function ask(title,hint,type,warn=''){return new Promise(res=>{
   app.innerHTML=box(title,esc(hint),`<label for="v">${esc(title)}</label><input id="v" type="${type}" autocomplete="off"><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
   const f=()=>{const v=$('#v').value.trim();if(v)res(v)};$('#ok').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()};$('#v').focus()})}
 const showErr=m=>{const e=$('#er');if(e)e.textContent=m};
+const logLines=[];
+const step=m=>{logLines.push(m);app.innerHTML=box('Connessione in corso…','<ol style="padding-left:18px;margin:8px 0">'+logLines.slice(-6).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ol>')};
 
 async function main(){
-  app.innerHTML=box('Connessione in corso…','');
   let client,Api,entity,names={},msgs=[];
   try{
-    const tg=await import("https://esm.sh/telegram");
-    const {StringSession}=tg.sessions;
-    const {NewMessage}=tg.events;
+    step('Avvio');
+    const tg=await loadTg(step);
     Api=tg.Api;
     let saved='';try{saved=localStorage.getItem('tg_session')||''}catch(e){}
-    client=new tg.TelegramClient(new StringSession(saved),Number(TG_API_ID),TG_API_HASH,{connectionRetries:5});
-    await client.start({
-      phoneNumber:()=>ask('Numero di telefono','Inserisci il tuo numero Telegram con prefisso internazionale (es. +39…).','tel','<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
-      phoneCode:()=>ask('Codice di accesso','Telegram ti ha inviato un codice: inseriscilo qui.','text'),
-      password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password'),
-      onError:async e=>{showErr('Errore: '+(e&&e.message||'riprova'));return false}});
-    try{localStorage.setItem('tg_session',client.session.save())}catch(e){}
-    const dialogs=await client.getDialogs({limit:300});
-    const g=TG_GROUP.replace(/^@/,'');
-    const d=dialogs.find(x=>x.title===TG_GROUP||(x.entity&&x.entity.username===g));
-    if(!d){app.innerHTML=box('Gruppo non trovato','Controlla che tu sia nel gruppo e che il nome in TG_GROUP coincida esattamente.');return}
+    client=newClient(tg,saved);
+    step('Connessione ai server Telegram');
+    await withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');
+    step('Controllo accesso');
+    const authorized=await withTimeout(client.checkAuthorization(),20000,'TIMEOUT_AUTH');
+    if(!authorized){
+      if(saved)clearSession();
+      await tgLogin(client,{
+        phone:()=>ask('Numero di telefono','Inserisci il tuo numero Telegram con prefisso internazionale (es. +39…).','text','<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
+        code:()=>ask('Codice di accesso','Telegram ti invia il codice come messaggio nell’app Telegram (chat “Telegram”), non via SMS. Inseriscilo qui.','text'),
+        password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password')});
+    }
+    step('Ricerca del gruppo');
+    const {dialog:d,titles}=await findDialog(client,TG_GROUP);
+    if(!d){app.innerHTML=box('Gruppo non trovato','Nessun gruppo con il nome “'+esc(TG_GROUP)+'”. Controlla che tu faccia parte del gruppo e che il nome in telegram-config.js coincida esattamente.<br><br>Gruppi trovati: '+esc(titles.slice(0,30).join(', ')||'nessuno'),'<p><button class="btn" onclick="location.reload()">Riprova</button></p>');return}
     entity=d.entity;
     const nameOf=async id=>{const k=String(id);if(names[k])return names[k];try{const e=await client.getEntity(id);names[k]=[e.firstName,e.lastName].filter(Boolean).join(' ')||e.title||e.username||'Utente'}catch(x){names[k]='Utente'}return names[k]};
     const conv=async m=>({id:m.id,out:!!m.out,name:m.out?'Tu':(m.senderId?await nameOf(m.senderId):'Utente'),text:m.message||'[allegato]',date:m.date});
@@ -96,15 +101,16 @@ async function main(){
     const draw=()=>{const l=$('#ml');if(!l)return;l.innerHTML=msgs.map(m=>`<div class="m ${m.out?'out':''}"><small>${esc(m.name)} · ${new Date(m.date*1000).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</small>${esc(m.text)}</div>`).join('')||'<div class="mu">Nessun messaggio.</div>';l.scrollTop=l.scrollHeight};
     app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><b style="flex:1">${esc(d.title||TG_GROUP)}</b><button class="btn ghost sm" id="lo">Esci dalla chat</button></div><div class="wrap"><div class="card"><div class="msgs" id="ml" aria-live="polite"></div><div class="comp"><input id="t" type="text" placeholder="Scrivi un messaggio" aria-label="Messaggio"><button class="btn" id="send">Invia</button></div><p class="err" id="er" role="alert"></p></div></div>`;
     draw();
-    client.addEventHandler(async ev=>{const m=ev.message;if(!m||m.out)return;msgs.push(await conv(m));draw()},new NewMessage({chats:[entity]}));
+    const seen=new Set(msgs.map(m=>m.id));let busy=false;
+    setInterval(async()=>{if(busy||document.hidden)return;busy=true;try{const h=await client.getMessages(entity,{limit:20});let ch=false;for(const m of h.reverse()){if(seen.has(m.id))continue;seen.add(m.id);msgs.push(await conv(m));ch=true}if(ch)draw()}catch(e){}busy=false},3000);
     const send=async()=>{const t=$('#t').value.trim();if(!t)return;$('#t').value='';
-      try{const r=await client.sendMessage(entity,{message:t});msgs.push({id:r.id,out:true,name:'Tu',text:t,date:r.date||Math.floor(Date.now()/1000)});draw();showErr('')}catch(e){$('#t').value=t;showErr('Invio non riuscito. Riprova.')}};
+      try{const r=await client.sendMessage(entity,{message:t});seen.add(r.id);msgs.push({id:r.id,out:true,name:'Tu',text:t,date:r.date||Math.floor(Date.now()/1000)});draw();showErr('')}catch(e){$('#t').value=t;showErr('Invio non riuscito: '+tgErrText(e))}};
     $('#send').onclick=send;$('#t').onkeydown=e=>{if(e.key==='Enter')send()};
     $('#lo').onclick=async()=>{if(!confirm('Chiudere la sessione Telegram su questo dispositivo?'))return;
       try{await client.invoke(new Api.auth.LogOut())}catch(e){}
-      try{localStorage.removeItem('tg_session')}catch(e){}
+      clearSession();
       try{await client.disconnect()}catch(e){}location.href='index.html'};
-  }catch(e){app.innerHTML=box('Errore di collegamento','Impossibile collegarsi a Telegram. '+esc(e&&e.message||''),'<p><button class="btn" onclick="location.reload()">Riprova</button></p>')}
+  }catch(e){console.error(e);app.innerHTML=box('Errore di collegamento',esc(tgErrText(e))+'<br><br><span style="font-size:.8rem">Dettaglio tecnico: '+esc((e&&e.message)||String(e))+'</span>','<p><button class="btn" onclick="location.reload()">Riprova</button></p>')}
 }
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);

@@ -2,7 +2,7 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,Bytes,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
-import {tgConfigured,tgClient,tgEntity,hasSession} from "./telegram.js";
+import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -108,14 +108,11 @@ async function downloadTg(it){
     if(!m||!m.media)throw new Error('MISSING');
     const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>{p.textContent='Download: '+Math.round(Number(r)/Number(t)*100)+'%'}});
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
-  }catch(e){p.style.display='none';const t=e.message==='NO_SESSION'?'Accedi prima a Telegram dalla pagina Chat.':e.message==='NO_CHAT'?'Gruppo dei file non trovato: devi farne parte.':e.message==='MISSING'?'Il file non è più presente su Telegram.':'Impossibile scaricare il file da Telegram.';
+  }catch(e){p.style.display='none';console.error(e);const t=e.message==='MISSING'?'Il file non è più presente su Telegram.':'Download non riuscito: '+tgErrText(e);
     modal('Errore','<div class="mu">'+t+'</div>',[{label:'Chiudi'}])}}
 async function upTg(file){
   const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
-  const CustomFile=(tg.client&&tg.client.uploads&&tg.client.uploads.CustomFile)||(await import("https://esm.sh/telegram/client/uploads")).CustomFile;
-  const {Buffer}=await import("https://esm.sh/buffer");
-  const cf=new CustomFile(file.name,file.size,'',Buffer.from(await file.arrayBuffer()));
-  const r=await client.sendFile(ent,{file:cf,caption:file.name,forceDocument:true,workers:3,progressCallback:pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'}});
+  const r=await tgSendFile(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'});
   return r.id}
 async function download(it){
   if(it.kind==='text'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([it.text||''],{type:'text/plain'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);return}
@@ -181,9 +178,9 @@ async function uploadMany(entries){
   if(tgConfigured()&&!hasSession()){modal('Collega Telegram','<div class="mu">I file vengono salvati su Telegram. Accedi prima dalla pagina Chat, poi torna qui.</div>',[{label:'Chiudi',cls:'ghost'},{label:'Vai alla Chat',fn:()=>{location.href='chat.html'}}]);return}
   const p=$('#prog');let done=0,fail=0,idx=0,lastErr='';
   const upd=()=>{p.style.display='block';p.textContent=`Caricamento ${done}/${entries.length}`+(fail?` · errori: ${fail}`:'')};upd();
-  const worker=async()=>{while(idx<entries.length){const e=entries[idx++];try{await up1(e.file,e.parent)}catch(x){fail++;lastErr=(x&&x.message)||String(x);console.error(x)}done++;upd()}};
+  const worker=async()=>{while(idx<entries.length){const e=entries[idx++];try{await up1(e.file,e.parent)}catch(x){fail++;lastErr=(x&&x.message==='size')?'size':tgErrText(x);console.error(x)}done++;upd()}};
   await Promise.all([worker(),worker(),worker()]);
-  p.textContent=`Completato: ${entries.length-fail} file caricati`+(fail?`, ${fail} non riusciti (limite ${tgConfigured()?'500':'20'} MB a file; motivo: ${lastErr==='size'?'file troppo grande':lastErr==='NO_CHAT'?'gruppo dei file non trovato':lastErr==='NO_SESSION'?'accesso a Telegram scaduto':lastErr})`:'');setTimeout(()=>{p.style.display='none'},fail?15000:4000)}
+  p.textContent=`Completato: ${entries.length-fail} file caricati`+(fail?`, ${fail} non riusciti (limite ${tgConfigured()?'500':'20'} MB a file; motivo: ${lastErr==='size'?'file troppo grande':lastErr})`:'');setTimeout(()=>{p.style.display='none'},fail?15000:4000)}
 async function uploadFolder(files){
   const map={},entries=[];
   try{for(const f of files){const parts=(f.webkitRelativePath||f.name).split('/'),dirs=parts.slice(0,-1);let parent=cur,acc='';

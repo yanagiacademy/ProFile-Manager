@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diagnostica Telegram – ProFile Manager</title>
+<link rel="stylesheet" href="stile.css">
+<style>
+.ok{color:#2e7d32}.ko{color:var(--er)}.st{padding:6px 0;border-bottom:1px solid var(--ln);overflow-wrap:anywhere;font-size:.9rem}
+.st small{display:block;color:var(--mu)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Diagnostica Telegram</h1>
+    <p class="mu">Controlla uno per uno i passaggi di collegamento. Se un passo fallisce, copia il risultato e mandalo.</p>
+    <p><button class="btn" id="go">Avvia diagnostica</button> <button class="btn ghost" id="cp">Copia risultato</button></p>
+    <div id="inp" style="display:none"><label for="v" id="lbl"></label><input id="v" type="text" autocomplete="off"><p><button class="btn sm" id="okb">Continua</button></p></div>
+    <div id="out"></div>
+    <div id="act" style="display:none;margin-top:12px">
+      <button class="btn ghost sm" id="tmsg">Prova invio messaggio (Chat)</button>
+      <button class="btn ghost sm" id="tfile">Prova upload file (Documenti)</button>
+    </div>
+    <p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a></p>
+  </div>
+</div>
+<script type="module">
+import * as T from "./telegram.js";
+import {TG_API_ID,TG_API_HASH,TG_GROUP,TG_FILES} from "./telegram-config.js";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const report=[];
+function line(ok,t,d=''){report.push((ok?'[OK] ':'[ERRORE] ')+t+(d?' — '+d:''));
+  $('#out').insertAdjacentHTML('beforeend',`<div class="st"><b class="${ok?'ok':'ko'}">${ok?'✓':'✗'}</b> ${esc(t)}${d?`<small>${esc(d)}</small>`:''}</div>`)}
+const ask=(label,type='text')=>new Promise(res=>{$('#lbl').textContent=label;$('#v').type=type;$('#v').value='';$('#inp').style.display='block';$('#v').focus();
+  const f=()=>{const v=$('#v').value.trim();if(!v)return;$('#inp').style.display='none';res(v)};$('#okb').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()}});
+$('#cp').onclick=async()=>{try{await navigator.clipboard.writeText(report.join('\n'));$('#cp').textContent='Copiato ✓'}catch(e){prompt('Copia il testo:',report.join('\n'))}};
+let ctx={};
+
+$('#go').onclick=async()=>{
+  $('#out').innerHTML='';report.length=0;$('#act').style.display='none';
+  // 1 configurazione
+  const idOk=/^\d+$/.test(String(TG_API_ID).trim()),hashOk=/^[0-9a-f]{32}$/i.test(String(TG_API_HASH).trim());
+  line(idOk,'api_id',idOk?'numerico, ok':'deve essere un numero (ora: '+(String(TG_API_ID).trim()==='INSERISCI'?'ancora INSERISCI':'valore non numerico')+')');
+  line(hashOk,'api_hash',hashOk?'32 caratteri, ok (inizia con '+String(TG_API_HASH).slice(0,4)+'…)':'deve essere di 32 caratteri esadecimali (ora lunghezza '+String(TG_API_HASH).trim().length+')');
+  const gOk=T.chatConfigured(),fOk=String(TG_FILES).trim()!==''&&String(TG_FILES).trim()!=='INSERISCI';
+  line(gOk,'TG_GROUP (Chat)',gOk?'“'+TG_GROUP+'”':'non compilato');
+  line(fOk,'TG_FILES (Documenti)',fOk?'“'+TG_FILES+'”':'non compilato');
+  line(location.protocol==='https:'||location.hostname==='localhost','Pagina su HTTPS',location.origin);
+  if(!idOk||!hashOk){line(false,'Interrotto','correggi telegram-config.js e riprova');return}
+  // 2 WebSocket verso Telegram
+  try{await new Promise((res,rej)=>{const w=new WebSocket('wss://pluto.web.telegram.org/apiws','binary');const t=setTimeout(()=>{try{w.close()}catch(e){}rej(new Error('nessuna risposta in 10 secondi'))},10000);
+    w.onopen=()=>{clearTimeout(t);w.close();res()};w.onerror=()=>{clearTimeout(t);rej(new Error('connessione rifiutata o bloccata'))}});
+    line(true,'Rete verso i server Telegram (WebSocket)','raggiungibili')}
+  catch(e){line(false,'Rete verso i server Telegram (WebSocket)',e.message+' — prova da un’altra rete o senza VPN/blocchi')}
+  // 3 libreria
+  let tg;
+  try{tg=await T.loadTg(m=>{});line(true,'Libreria Telegram caricata',T.libSource+' · classi: sessions='+!!tg.sessions+', Api='+!!tg.Api+', events='+!!tg.events+', client='+!!tg.client)}
+  catch(e){line(false,'Libreria Telegram',(e.details||[e.message]).join(' | '));return}
+  // 4 connessione
+  let client;
+  try{client=T.newClient(tg,localStorage.getItem('tg_session')||'');await T.withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');line(true,'Connessione al server Telegram')}
+  catch(e){line(false,'Connessione al server Telegram',T.tgErrText(e)+' ['+(e&&e.message)+']');return}
+  // 5 accesso
+  try{
+    const a=await T.withTimeout(client.checkAuthorization(),20000,'TIMEOUT_AUTH');
+    if(a)line(true,'Sessione già attiva');
+    else{
+      line(true,'Sessione assente: accesso con numero di telefono');
+      await T.tgLogin(client,{phone:()=>ask('Numero di telefono con prefisso (+39…)'),code:()=>ask('Codice ricevuto nell’app Telegram (chat “Telegram”)'),password:()=>ask('Password a due fattori','password')});
+      line(true,'Accesso riuscito')}
+  }catch(e){line(false,'Accesso',T.tgErrText(e)+' ['+(e&&e.message)+']');return}
+  // 6 gruppi
+  ctx={tg,client};
+  for(const [k,n] of [['Chat',TG_GROUP],['Documenti',TG_FILES]]){
+    if(!n||String(n).trim()==='INSERISCI'){line(false,'Gruppo '+k,'nome non compilato');continue}
+    try{const {dialog,titles}=await T.findDialog(client,n);
+      if(dialog){ctx[k]=dialog.entity;line(true,'Gruppo '+k+' trovato','“'+dialog.title+'”')}
+      else line(false,'Gruppo '+k+' NON trovato','cercavo “'+n+'”. Gruppi visibili: '+(titles.slice(0,25).join(' · ')||'nessuno'))}
+    catch(e){line(false,'Gruppo '+k,T.tgErrText(e))}
+  }
+  $('#act').style.display='block';
+};
+
+$('#tmsg').onclick=async()=>{
+  if(!ctx.Chat){line(false,'Prova messaggio','gruppo Chat non trovato');return}
+  try{const r=await ctx.client.sendMessage(ctx.Chat,{message:'Prova ProFile Manager (si cancella da sola)'});line(true,'Messaggio inviato nel gruppo Chat');
+    await ctx.client.deleteMessages(ctx.Chat,[r.id],{revoke:true});line(true,'Messaggio di prova cancellato')}
+  catch(e){line(false,'Prova messaggio',T.tgErrText(e))}
+};
+$('#tfile').onclick=async()=>{
+  if(!ctx.Documenti){line(false,'Prova file','gruppo Documenti non trovato');return}
+  for(const mode of ['file','custom']){
+    const f=new File(['prova '+mode+' '+Date.now()],'prova-'+mode+'.txt',{type:'text/plain'});
+    try{const r=await T.tgSendFile(ctx.tg,ctx.client,ctx.Documenti,f,()=>{},mode);line(true,'Upload metodo “'+mode+'”','messaggio '+r.id);
+      try{const [m]=await ctx.client.getMessages(ctx.Documenti,{ids:[r.id]});const buf=await ctx.client.downloadMedia(m,{});
+        line(buf&&buf.length===f.size,'Download metodo “'+mode+'”',(buf?buf.length:0)+' byte su '+f.size)}
+      catch(e){line(false,'Download metodo “'+mode+'”',T.tgErrText(e))}
+      try{await ctx.client.deleteMessages(ctx.Documenti,[r.id],{revoke:true})}catch(e){}
+    }catch(e){line(false,'Upload metodo “'+mode+'”',T.tgErrText(e))}
+  }
+};
+</script>
+</body>
+</html>
