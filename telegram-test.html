@@ -40,6 +40,7 @@ let ctx={};
 
 $('#go').onclick=async()=>{
   $('#out').innerHTML='';report.length=0;$('#act').style.display='none';
+  line(true,'Versione telegram.js: '+T.TG_BUILD,'Buffer: '+(typeof globalThis.Buffer)+', process: '+(typeof globalThis.process)+(T.shimError?' · errore preparazione: '+T.shimError:''));
   // 1 configurazione
   const idOk=/^\d+$/.test(String(TG_API_ID).trim()),hashOk=/^[0-9a-f]{32}$/i.test(String(TG_API_HASH).trim());
   line(idOk,'api_id',idOk?'numerico, ok':'deve essere un numero (ora: '+(String(TG_API_ID).trim()==='INSERISCI'?'ancora INSERISCI':'valore non numerico')+')');
@@ -61,7 +62,7 @@ $('#go').onclick=async()=>{
   // 4 connessione
   let client;
   try{client=T.newClient(tg,localStorage.getItem('tg_session')||'');await T.withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');line(true,'Connessione al server Telegram')}
-  catch(e){line(false,'Connessione al server Telegram',T.tgErrText(e)+' ['+(e&&e.message)+']');return}
+  catch(e){line(false,'Connessione al server Telegram',T.tgErrText(e)+' ['+(e&&e.message)+'] '+String((e&&e.stack)||'').split('\n').slice(0,6).join(' | '));return}
   // 5 accesso
   try{
     const a=await T.withTimeout(client.checkAuthorization(),20000,'TIMEOUT_AUTH');

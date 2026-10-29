@@ -1,5 +1,6 @@
 /* Telegram condiviso da Chat, Documenti e pagina di test. */
 import {TG_API_ID,TG_API_HASH,TG_GROUP,TG_FILES} from "./telegram-config.js";
+export const TG_BUILD="2026-10-29-b";
 const ok=v=>typeof v==="string"||typeof v==="number"?String(v).trim()!==""&&String(v).trim()!=="INSERISCI":false;
 export const credsOk=()=>ok(TG_API_ID)&&ok(TG_API_HASH)&&!isNaN(Number(String(TG_API_ID).trim()));
 export const chatConfigured=()=>credsOk()&&ok(TG_GROUP);
@@ -31,6 +32,8 @@ async function ensureShims(log){
   if(typeof globalThis.process==='undefined')globalThis.process={env:{},browser:true,version:'',versions:{},argv:[],nextTick:(f,...a)=>queueMicrotask(()=>f(...a))};
   if(typeof globalThis.global==='undefined')globalThis.global=globalThis;
 }
+export let shimError='';
+try{await ensureShims(()=>{})}catch(e){shimError=(e&&e.message)||String(e)}
 export function loadTg(log=()=>{}){
   if(libP)return libP;
   libP=(async()=>{
