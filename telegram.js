@@ -19,9 +19,22 @@ export const SOURCES=[
 ];
 export let libSource='';
 let libP=null;
+async function ensureShims(log){
+  if(typeof globalThis.Buffer==='undefined'){
+    let err=null;
+    for(const u of ["https://esm.sh/buffer@6.0.3","https://esm.sh/buffer"]){
+      try{const m=await withTimeout(import(u),20000,'timeout');globalThis.Buffer=m.Buffer||(m.default&&m.default.Buffer);if(globalThis.Buffer){log('Buffer disponibile ('+u+')');break}}
+      catch(e){err=e}
+    }
+    if(typeof globalThis.Buffer==='undefined')throw new Error('Impossibile preparare Buffer: '+(err&&err.message||''));
+  }
+  if(typeof globalThis.process==='undefined')globalThis.process={env:{},browser:true,version:'',versions:{},argv:[],nextTick:(f,...a)=>queueMicrotask(()=>f(...a))};
+  if(typeof globalThis.global==='undefined')globalThis.global=globalThis;
+}
 export function loadTg(log=()=>{}){
   if(libP)return libP;
   libP=(async()=>{
+    await ensureShims(log);
     const errs=[];
     for(const u of SOURCES){
       try{
