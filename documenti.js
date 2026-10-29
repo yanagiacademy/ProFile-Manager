@@ -1,8 +1,9 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {getStorage,ref,uploadBytesResumable,getDownloadURL,deleteObject} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,Bytes,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
+import {tgConfigured,tgClient,tgEntity,hasSession} from "./telegram.js";
+import {TG_FILES} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -10,8 +11,8 @@ const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager<
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 
-const SEC='documenti';
-let auth,db,storage,col,uid=null,me=null,items=[],cur='',q='',unsubs=[];
+const SEC='documenti',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
+let auth,db,col,uid=null,me=null,items=[],cur='',q='',unsubs=[];
 let view=(()=>{try{return localStorage.getItem('doc_view')||'list'}catch(e){return 'list'}})();
 let memoText='',memoOpen=(()=>{try{return localStorage.getItem('doc_memo')!=='0'}catch(e){return true}})(),memoEdit=false;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
@@ -19,7 +20,7 @@ const canW=()=>perm()==='w';
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
-  auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);storage=getStorage(auth.app);
+  auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);
   col=collection(db,'sections',SEC,'items');
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
@@ -101,9 +102,29 @@ async function openItem(it){
   if(it.kind==='folder'){cur=it.id;q='';render()}
   else if(it.kind==='text')editText(it);
   else download(it)}
+async function downloadTg(it){
+  const p=$('#prog');p.style.display='block';p.textContent='Collegamento a Telegram…';
+  try{const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
+    if(!m||!m.media)throw new Error('MISSING');
+    const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>{p.textContent='Download: '+Math.round(Number(r)/Number(t)*100)+'%'}});
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
+  }catch(e){p.style.display='none';const t=e.message==='NO_SESSION'?'Accedi prima a Telegram dalla pagina Chat.':e.message==='NO_CHAT'?'Gruppo dei file non trovato: devi farne parte.':e.message==='MISSING'?'Il file non è più presente su Telegram.':'Impossibile scaricare il file da Telegram.';
+    modal('Errore','<div class="mu">'+t+'</div>',[{label:'Chiudi'}])}}
+async function upTg(file){
+  const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
+  const {CustomFile}=await import("https://esm.sh/telegram/client/uploads");
+  const {Buffer}=await import("https://esm.sh/buffer");
+  const cf=new CustomFile(file.name,file.size,'',Buffer.from(await file.arrayBuffer()));
+  const r=await client.sendFile(ent,{file:cf,caption:file.name,forceDocument:true,workers:3,progressCallback:pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'}});
+  return r.id}
 async function download(it){
   if(it.kind==='text'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([it.text||''],{type:'text/plain'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);return}
-  try{const url=await getDownloadURL(ref(storage,it.path));window.open(url,'_blank')}catch(e){modal('Errore','<div class="mu">Impossibile aprire il file.</div>',[{label:'Chiudi'}])}}
+  if(it.tg)return downloadTg(it);
+  const p=$('#prog');p.style.display='block';p.textContent='Preparazione del file…';
+  try{const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
+    const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(parts,{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
+  }catch(e){p.style.display='none';modal('Errore','<div class="mu">Impossibile scaricare il file.</div>',[{label:'Chiudi'}])}}
 
 function moreModal(it){
   const w=canW(),b=[];
@@ -140,19 +161,29 @@ function delModal(it){
   const n=it.kind==='folder'?descendants(it.id).length:0;
   modal('Eliminare?',`<div class="mu">Eliminare “${esc(it.title)}”${n?` e i suoi ${n} elementi`:''}? L’operazione non si può annullare.</div>`,[cancel,{label:'Elimina',fn:async o=>{
     const all=[it,...(it.kind==='folder'?descendants(it.id):[])];
-    try{await Promise.all(all.map(async x=>{if(x.path){try{await deleteObject(ref(storage,x.path))}catch(e){}}await deleteDoc(doc(db,'sections',SEC,'items',x.id))}))}catch(e){return merr(o,'Eliminazione non riuscita.')}}}])}
+    try{await Promise.all(all.map(async x=>{
+      if(x.kind==='file'&&x.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[x.tg],{revoke:true})}catch(e){}}
+      if(x.kind==='file'&&x.chunks)await Promise.all(Array.from({length:x.chunks},(_,k)=>deleteDoc(doc(db,'sections',SEC,'items',x.id,'chunks','c'+k)).catch(()=>{})));
+      await deleteDoc(doc(db,'sections',SEC,'items',x.id))}))}catch(e){return merr(o,'Eliminazione non riuscita.')}}}])}
 
 async function up1(file,parent){
-  const dref=doc(col),path=SEC+'/'+dref.id;
-  await new Promise((res,rej)=>{const t=uploadBytesResumable(ref(storage,path),file,{contentType:file.type||'application/octet-stream'});t.on('state_changed',null,rej,res)});
-  await setDoc(dref,{title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',path,note:'',by:uid,at:serverTimestamp()})}
+  if(tgConfigured()){
+    if(file.size>MAX_TG)throw new Error('size');
+    const id=await upTg(file);
+    await addDoc(col,{title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',tg:id,note:'',by:uid,at:serverTimestamp()});return}
+  if(file.size>MAX)throw new Error('size');
+  const dref=doc(col),n=Math.max(1,Math.ceil(file.size/CH)),cc=collection(db,'sections',SEC,'items',dref.id,'chunks');
+  try{for(let k=0;k<n;k++){const buf=new Uint8Array(await file.slice(k*CH,(k+1)*CH).arrayBuffer());await setDoc(doc(cc,'c'+k),{i:k,data:Bytes.fromUint8Array(buf)})}
+    await setDoc(dref,{title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',chunks:n,note:'',by:uid,at:serverTimestamp()})
+  }catch(e){await Promise.all(Array.from({length:n},(_,k)=>deleteDoc(doc(cc,'c'+k)).catch(()=>{})));throw e}}
 async function uploadMany(entries){
   if(!entries.length)return;
+  if(tgConfigured()&&!hasSession()){modal('Collega Telegram','<div class="mu">I file vengono salvati su Telegram. Accedi prima dalla pagina Chat, poi torna qui.</div>',[{label:'Chiudi',cls:'ghost'},{label:'Vai alla Chat',fn:()=>{location.href='chat.html'}}]);return}
   const p=$('#prog');let done=0,fail=0,idx=0;
   const upd=()=>{p.style.display='block';p.textContent=`Caricamento ${done}/${entries.length}`+(fail?` · errori: ${fail}`:'')};upd();
   const worker=async()=>{while(idx<entries.length){const e=entries[idx++];try{await up1(e.file,e.parent)}catch(x){fail++}done++;upd()}};
   await Promise.all([worker(),worker(),worker()]);
-  p.textContent=`Completato: ${entries.length-fail} file caricati`+(fail?`, ${fail} non riusciti`:'');setTimeout(()=>{p.style.display='none'},4000)}
+  p.textContent=`Completato: ${entries.length-fail} file caricati`+(fail?`, ${fail} non riusciti (limite ${tgConfigured()?'500':'20'} MB a file)`:'');setTimeout(()=>{p.style.display='none'},4000)}
 async function uploadFolder(files){
   const map={},entries=[];
   try{for(const f of files){const parts=(f.webkitRelativePath||f.name).split('/'),dirs=parts.slice(0,-1);let parent=cur,acc='';

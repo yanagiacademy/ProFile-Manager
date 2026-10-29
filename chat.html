@@ -55,10 +55,7 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <div id="app"></div>
 <div class="clock" id="clock" aria-live="off"></div>
 <script type="module">
-/* === CONFIGURAZIONE TELEGRAM (da my.telegram.org → API development tools) === */
-const TG_API_ID="INSERISCI";      // numero
-const TG_API_HASH="INSERISCI";    // stringa
-const TG_GROUP="INSERISCI";       // nome esatto del gruppo (o @username se pubblico)
+import {TG_API_ID,TG_API_HASH,TG_GROUP} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
