@@ -61,8 +61,6 @@ import {TG_GROUP} from "./telegram-config.js";
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const box=(t,m,extra='')=>`<div class="wrap"><div class="card login" style="max-width:420px"><h1>Chat</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${m}</div>${extra}<p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a> · <a href="telegram-test.html" class="mu">Diagnostica Telegram</a></p></div></div>`;
-if(!chatConfigured()){app.innerHTML=box('Telegram non ancora collegato','Compila api_id, api_hash e TG_GROUP in telegram-config.js, poi ricarica la pagina.')}
-else main();
 
 function ask(title,hint,type,warn=''){return new Promise(res=>{
   app.innerHTML=box(title,esc(hint),`<label for="v">${esc(title)}</label><input id="v" type="${type}" autocomplete="off"><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
@@ -112,6 +110,10 @@ async function main(){
       try{await client.disconnect()}catch(e){}location.href='index.html'};
   }catch(e){console.error(e);app.innerHTML=box('Errore di collegamento',esc(tgErrText(e))+'<br><br><span style="font-size:.8rem;overflow-wrap:anywhere">Versione: '+esc(TG_BUILD)+'<br>Dettaglio tecnico: '+esc((e&&e.message)||String(e))+'<br>Punto: '+esc(String((e&&e.stack)||'').split('\n').slice(0,5).join(' | '))+'<br>Log: '+esc(consoleLog.slice(-12).join(' | '))+'</span>','<p><button class="btn" onclick="location.reload()">Riprova</button></p>')}
 }
+
+if(!chatConfigured()){app.innerHTML=box('Telegram non ancora collegato','Compila api_id, api_hash e TG_GROUP in telegram-config.js, poi ricarica la pagina.')}
+else main();
+
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 </script>
