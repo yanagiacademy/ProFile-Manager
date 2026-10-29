@@ -69,7 +69,7 @@ $('#go').onclick=async()=>{
     if(a)line(true,'Sessione già attiva');
     else{
       line(true,'Sessione assente: accesso con numero di telefono');
-      await T.tgLogin(client,{phone:()=>ask('Numero di telefono con prefisso (+39…)'),code:()=>(line(true,'Numero inviato a Telegram, attendo il codice'),ask('Codice ricevuto nell’app Telegram (chat “Telegram”)')),password:()=>ask('Password a due fattori','password')});
+      await T.tgLogin(tg,client,{phone:()=>ask('Numero di telefono con prefisso (+39…)'),code:()=>(ask('Codice ricevuto nell’app Telegram (chat “Telegram”)')),password:()=>ask('Password a due fattori','password')},m=>line(true,m));
       line(true,'Accesso riuscito')}
   }catch(e){line(false,'Accesso',T.tgErrText(e)+' ['+(e&&e.message)+'] Log libreria: '+T.consoleLog.slice(-25).join(' | '));return}
   // 6 gruppi

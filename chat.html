@@ -55,7 +55,7 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <div id="app"></div>
 <div class="clock" id="clock" aria-live="off"></div>
 <script type="module">
-import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,findDialog,withTimeout,tgErrText,checkAuth} from "./telegram.js";
+import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,findDialog,withTimeout,tgErrText,checkAuth,consoleLog,TG_BUILD} from "./telegram.js";
 import {TG_GROUP} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -85,10 +85,10 @@ async function main(){
     const authorized=await checkAuth(client,!!saved);
     if(!authorized){
       if(saved)clearSession();
-      await tgLogin(client,{
+      await tgLogin(tg,client,{
         phone:()=>ask('Numero di telefono','Inserisci il tuo numero Telegram con prefisso internazionale (es. +39…).','text','<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
         code:()=>ask('Codice di accesso','Telegram ti invia il codice come messaggio nell’app Telegram (chat “Telegram”), non via SMS. Inseriscilo qui.','text'),
-        password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password')});
+        password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password')},()=>{});
     }
     step('Ricerca del gruppo');
     const {dialog:d,titles}=await findDialog(client,TG_GROUP);
@@ -110,7 +110,7 @@ async function main(){
       try{await client.invoke(new Api.auth.LogOut())}catch(e){}
       clearSession();
       try{await client.disconnect()}catch(e){}location.href='index.html'};
-  }catch(e){console.error(e);app.innerHTML=box('Errore di collegamento',esc(tgErrText(e))+'<br><br><span style="font-size:.8rem">Dettaglio tecnico: '+esc((e&&e.message)||String(e))+'</span>','<p><button class="btn" onclick="location.reload()">Riprova</button></p>')}
+  }catch(e){console.error(e);app.innerHTML=box('Errore di collegamento',esc(tgErrText(e))+'<br><br><span style="font-size:.8rem;overflow-wrap:anywhere">Versione: '+esc(TG_BUILD)+'<br>Dettaglio tecnico: '+esc((e&&e.message)||String(e))+'<br>Punto: '+esc(String((e&&e.stack)||'').split('\n').slice(0,5).join(' | '))+'<br>Log: '+esc(consoleLog.slice(-12).join(' | '))+'</span>','<p><button class="btn" onclick="location.reload()">Riprova</button></p>')}
 }
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);

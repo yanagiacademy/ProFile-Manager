@@ -1,6 +1,6 @@
 /* Telegram condiviso da Chat, Documenti e pagina di test. */
 import {TG_API_ID,TG_API_HASH,TG_GROUP,TG_FILES} from "./telegram-config.js";
-export const TG_BUILD="2026-10-29-c";
+export const TG_BUILD="2026-10-29-d";
 export const consoleLog=[];
 for(const k of ['log','info','warn','error','debug']){const o=console[k];console[k]=(...a)=>{try{consoleLog.push(k+': '+a.map(x=>x&&x.message?x.message:typeof x==='object'?JSON.stringify(x):String(x)).join(' ').slice(0,300));if(consoleLog.length>60)consoleLog.shift()}catch(e){}return o.apply(console,a)}}
 const ok=v=>typeof v==="string"||typeof v==="number"?String(v).trim()!==""&&String(v).trim()!=="INSERISCI":false;
@@ -60,12 +60,33 @@ export function newClient(tg,saved){
   return new tg.TelegramClient(new tg.sessions.StringSession(saved||''),Number(String(TG_API_ID).trim()),String(TG_API_HASH).trim(),
     {connectionRetries:3,useWSS:true,deviceModel:'ProFile Manager',appVersion:'1.0'});
 }
-/* Accesso: ui = {phone(), code(), password()} che restituiscono una Promise<string>. */
-export async function tgLogin(client,ui){
-  let last=null;
-  try{
-    await withTimeout(client.start({phoneNumber:ui.phone,phoneCode:ui.code,password:ui.password,onError:async e=>{last=e;return true}}),600000,'TIMEOUT_LOGIN');
-  }catch(e){throw last||e}
+/* Accesso manuale (senza client.start, che si bloccava nel controllo iniziale).
+   ui = {phone(), code(), password()} che restituiscono una Promise<string>. */
+export async function tgLogin(tg,client,ui,log=()=>{}){
+  const creds={apiId:Number(String(TG_API_ID).trim()),apiHash:String(TG_API_HASH).trim()};
+  const phone=(await ui.phone()).replace(/[\s\-()]/g,'');
+  log('Invio del numero a Telegram');
+  const sent=await withTimeout(client.sendCode(creds,phone,false),40000,'TIMEOUT_SENDCODE');
+  log('Codice inviato'+(sent.isCodeViaApp?' (nell’app Telegram)':' (via SMS o chiamata)'));
+  let done=false;
+  for(let n=0;n<3&&!done;n++){
+    const code=await ui.code();
+    try{
+      const r=await withTimeout(client.invoke(new tg.Api.auth.SignIn({phoneNumber:phone,phoneCodeHash:sent.phoneCodeHash,phoneCode:code})),40000,'TIMEOUT_SIGNIN');
+      if(tg.Api.auth.AuthorizationSignUpRequired&&r instanceof tg.Api.auth.AuthorizationSignUpRequired)throw new Error('ACCOUNT_NOT_REGISTERED');
+      done=true;
+    }catch(e){
+      const m=(e&&(e.errorMessage||e.message))||'';
+      if(/SESSION_PASSWORD_NEEDED/.test(m)){
+        log('Serve la password a due fattori');
+        let last=null;
+        try{await withTimeout(client.signInWithPassword(creds,{password:ui.password,onError:async er=>{last=er;return true}}),600000,'TIMEOUT_PASSWORD')}
+        catch(e2){throw last||e2}
+        done=true;
+      }else if(/PHONE_CODE_INVALID/.test(m)&&n<2){log('Codice non valido, riprova')}
+      else throw e;
+    }
+  }
   saveSession(client.session.save());
 }
 let cache=null;
@@ -140,5 +161,5 @@ export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto'){
 /* Senza sessione salvata non c'è nulla da controllare: si passa direttamente all'accesso. */
 export async function checkAuth(client,hadSession){
   if(!hadSession)return false;
-  return withTimeout(client.checkAuthorization(),45000,'TIMEOUT_AUTH');
+  try{await withTimeout(client.getMe(),30000,'TIMEOUT_AUTH');return true}catch(e){return false}
 }
