@@ -112,7 +112,7 @@ async function downloadTg(it){
     modal('Errore','<div class="mu">'+t+'</div>',[{label:'Chiudi'}])}}
 async function upTg(file){
   const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
-  const {CustomFile}=await import("https://esm.sh/telegram/client/uploads");
+  const CustomFile=(tg.client&&tg.client.uploads&&tg.client.uploads.CustomFile)||(await import("https://esm.sh/telegram/client/uploads")).CustomFile;
   const {Buffer}=await import("https://esm.sh/buffer");
   const cf=new CustomFile(file.name,file.size,'',Buffer.from(await file.arrayBuffer()));
   const r=await client.sendFile(ent,{file:cf,caption:file.name,forceDocument:true,workers:3,progressCallback:pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'}});
