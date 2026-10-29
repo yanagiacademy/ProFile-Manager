@@ -73,8 +73,8 @@ async function main(){
   let client,Api,entity,names={},msgs=[];
   try{
     const tg=await import("https://esm.sh/telegram");
-    const {StringSession}=await import("https://esm.sh/telegram/sessions");
-    const {NewMessage}=await import("https://esm.sh/telegram/events");
+    const {StringSession}=tg.sessions;
+    const {NewMessage}=tg.events;
     Api=tg.Api;
     let saved='';try{saved=localStorage.getItem('tg_session')||''}catch(e){}
     client=new tg.TelegramClient(new StringSession(saved),Number(TG_API_ID),TG_API_HASH,{connectionRetries:5});

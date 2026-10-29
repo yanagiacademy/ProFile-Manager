@@ -6,7 +6,7 @@ export function tgClient(){
   if(cache)return cache;
   cache=(async()=>{
     const tg=await import("https://esm.sh/telegram");
-    const {StringSession}=await import("https://esm.sh/telegram/sessions");
+    const {StringSession}=tg.sessions;
     if(!hasSession())throw new Error('NO_SESSION');
     const client=new tg.TelegramClient(new StringSession(localStorage.getItem('tg_session')),Number(TG_API_ID),TG_API_HASH,{connectionRetries:5});
     await client.connect();
