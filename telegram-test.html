@@ -61,17 +61,17 @@ $('#go').onclick=async()=>{
   catch(e){line(false,'Libreria Telegram',(e.details||[e.message]).join(' | '));return}
   // 4 connessione
   let client;
-  try{client=T.newClient(tg,localStorage.getItem('tg_session')||'');await T.withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');line(true,'Connessione al server Telegram')}
+  try{client=T.newClient(tg,localStorage.getItem('tg_session')||'');await T.withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');line(true,'Connessione al server Telegram');try{client.setLogLevel('debug')}catch(e){}}
   catch(e){line(false,'Connessione al server Telegram',T.tgErrText(e)+' ['+(e&&e.message)+'] '+String((e&&e.stack)||'').split('\n').slice(0,6).join(' | '));return}
   // 5 accesso
   try{
-    const a=await T.withTimeout(client.checkAuthorization(),20000,'TIMEOUT_AUTH');
+    const a=await T.checkAuth(client,!!localStorage.getItem('tg_session'));
     if(a)line(true,'Sessione già attiva');
     else{
       line(true,'Sessione assente: accesso con numero di telefono');
       await T.tgLogin(client,{phone:()=>ask('Numero di telefono con prefisso (+39…)'),code:()=>ask('Codice ricevuto nell’app Telegram (chat “Telegram”)'),password:()=>ask('Password a due fattori','password')});
       line(true,'Accesso riuscito')}
-  }catch(e){line(false,'Accesso',T.tgErrText(e)+' ['+(e&&e.message)+']');return}
+  }catch(e){line(false,'Accesso',T.tgErrText(e)+' ['+(e&&e.message)+'] Log libreria: '+T.consoleLog.slice(-25).join(' | '));return}
   // 6 gruppi
   ctx={tg,client};
   for(const [k,n] of [['Chat',TG_GROUP],['Documenti',TG_FILES]]){

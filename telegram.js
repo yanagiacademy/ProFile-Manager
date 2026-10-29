@@ -1,6 +1,8 @@
 /* Telegram condiviso da Chat, Documenti e pagina di test. */
 import {TG_API_ID,TG_API_HASH,TG_GROUP,TG_FILES} from "./telegram-config.js";
-export const TG_BUILD="2026-10-29-b";
+export const TG_BUILD="2026-10-29-c";
+export const consoleLog=[];
+for(const k of ['log','info','warn','error','debug']){const o=console[k];console[k]=(...a)=>{try{consoleLog.push(k+': '+a.map(x=>x&&x.message?x.message:typeof x==='object'?JSON.stringify(x):String(x)).join(' ').slice(0,300));if(consoleLog.length>60)consoleLog.shift()}catch(e){}return o.apply(console,a)}}
 const ok=v=>typeof v==="string"||typeof v==="number"?String(v).trim()!==""&&String(v).trim()!=="INSERISCI":false;
 export const credsOk=()=>ok(TG_API_ID)&&ok(TG_API_HASH)&&!isNaN(Number(String(TG_API_ID).trim()));
 export const chatConfigured=()=>credsOk()&&ok(TG_GROUP);
@@ -75,7 +77,7 @@ export function tgClient(){
     const tg=await loadTg();
     const client=newClient(tg,getSession());
     await withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');
-    if(!(await withTimeout(client.checkAuthorization(),20000,'TIMEOUT_AUTH'))){clearSession();throw new Error('NO_SESSION')}
+    if(!(await checkAuth(client,true))){clearSession();throw new Error('NO_SESSION')}
     return {client,tg};
   })();
   cache.catch(()=>{cache=null});
@@ -133,4 +135,10 @@ export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto'){
   if(mode==='file')return viaFile();
   try{return await viaFile()}catch(e1){
     try{return await viaCustom()}catch(e2){e2.message=(e1&&e1.message||e1)+' / '+(e2&&e2.message||e2);throw e2}}
+}
+
+/* Senza sessione salvata non c'è nulla da controllare: si passa direttamente all'accesso. */
+export async function checkAuth(client,hadSession){
+  if(!hadSession)return false;
+  return withTimeout(client.checkAuthorization(),45000,'TIMEOUT_AUTH');
 }

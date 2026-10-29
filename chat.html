@@ -55,7 +55,7 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <div id="app"></div>
 <div class="clock" id="clock" aria-live="off"></div>
 <script type="module">
-import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,findDialog,withTimeout,tgErrText} from "./telegram.js";
+import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,findDialog,withTimeout,tgErrText,checkAuth} from "./telegram.js";
 import {TG_GROUP} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -82,7 +82,7 @@ async function main(){
     step('Connessione ai server Telegram');
     await withTimeout(client.connect(),30000,'TIMEOUT_CONNECT');
     step('Controllo accesso');
-    const authorized=await withTimeout(client.checkAuthorization(),20000,'TIMEOUT_AUTH');
+    const authorized=await checkAuth(client,!!saved);
     if(!authorized){
       if(saved)clearSession();
       await tgLogin(client,{
