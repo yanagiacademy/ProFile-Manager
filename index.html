@@ -62,7 +62,12 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',unsubs=[],unsubUsers=null,unsubMe=null;
 const page=s=>key(s)+'.html';
 const perm=s=>me?(me.admin?'w':((me.perms||{})[key(s)]||'n')):'n';
-const allItems=()=>SEC.flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s})));
+const allItems=()=>SEC.flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s}))).filter(i=>!i.lesson);
+/* File importanti = documenti con la stella (da Documenti) + eventuali voci inserite a mano; Lezioni = solo le lezioni, senza i file allegati */
+const count=s=>{const k=key(s),its=items[k]||[];
+  if(k==='file-importanti')return (items.documenti||[]).filter(i=>i.star).length+its.length;
+  if(k==='lezioni')return its.filter(i=>i.kind!=='file').length;
+  return its.length};
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Apri index.html e incolla i dati del progetto Firebase in firebaseConfig. Poi ricarica la pagina.')}
 else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
@@ -100,7 +105,7 @@ function results(){
   b.innerHTML=`<div class="grid">${secs.map(tile).join('')}</div><div class="card" style="margin-top:16px"><h2>Risultati (${hits.length})</h2>${hits.length?hits.map(i=>`<button class="res" data-s="${esc(i.sec)}"><b>${esc(i.title)}</b><div class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</div></button>`).join(''):'<div class="mu">Nessun elemento trovato nelle sezioni a cui hai accesso.</div>'}</div>`;
   bindTiles();b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
 }
-function tile(s){const p=perm(s),n=(items[key(s)]||[]).length;return`<button class="tile" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n:''}</span></button>`}
+function tile(s){const p=perm(s),n=count(s);return`<button class="tile" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n:''}</span></button>`}
 function bindTiles(){document.querySelectorAll('.tile:not([disabled])').forEach(t=>t.onclick=()=>{location.href=page(t.dataset.s)})}
 function adminView(){
   const adminsLeft=accounts.filter(a=>a.admin).length;

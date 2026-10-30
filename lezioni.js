@@ -3,6 +3,7 @@ import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/fireba
 import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {archivio,limiteMB} from "./archivio.js";
+import {memoBar} from "./promemoria.js";
 import {showPreview,guessMime,okThumb} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -12,7 +13,7 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='lezioni';
-let auth,db,col,arch,uid=null,me=null,items=[],q='',unsubs=[],shellFor='',editing=null,pend=[],addTarget=null;
+let auth,db,col,arch,uid=null,me=null,items=[],q='',unsubs=[],shellFor='',editing=null,pend=[],addTarget=null,memo=null;
 const offs=new Map();
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const fmtD=d=>String(d||'').split('-').reverse().join('/');
@@ -30,7 +31,8 @@ function shell(){
   const w=perm()==='w';shellFor=perm();
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca nelle lezioni" aria-label="Cerca nelle lezioni" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Lezioni</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div></div>
-  ${w?`<div class="card" style="margin-bottom:12px"><h3 id="ft" style="margin:0 0 4px">Nuova lezione</h3>
+  ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 id="ft" style="margin:0">Nuova lezione</h3><button class="btn sm" id="ftg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="fb" aria-label="Apri il modulo della lezione">+</button></div>
+    <div id="fb" hidden>
     <div class="two"><div><label for="dt">Data</label><input id="dt" type="date"></div><div><label for="dy">Giorno</label><input id="dy" type="text" readonly tabindex="-1" aria-live="polite"></div></div>
     <label for="ms">Maestro</label><input id="ms" type="text" list="lm" autocomplete="off"><datalist id="lm"></datalist>
     <label for="tp">Tipologia lezione</label><input id="tp" type="text" list="lt" autocomplete="off"><datalist id="lt"></datalist>
@@ -38,13 +40,14 @@ function shell(){
     <label for="fl">Allega file (foto, video, PDF…)</label><input id="fl" type="file" multiple><div id="fls"></div>
     <p class="mu" style="margin:6px 0 0">Limite ${limiteMB()} MB per file. Puoi aggiungerne altri anche dopo, dalla riga della lezione.</p>
     <p class="err" id="er" role="alert"></p>
-    <div class="acts"><button class="btn" id="sv">Salva lezione</button><button class="btn ghost" id="cx" hidden>Annulla modifica</button></div></div>
+    <div class="acts"><button class="btn" id="sv">Salva lezione</button><button class="btn ghost" id="cx" hidden>Annulla modifica</button></div></div></div>
   <input type="file" id="addf" multiple hidden>`:''}
   <div class="card" id="ls"></div></div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   $('#q').oninput=e=>{q=e.target.value;renderList()};
   $('#ls').onclick=onListClick;
   if(w){
+    $('#ftg').onclick=()=>setForm($('#fb').hidden);
     $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);
     $('#dt').oninput=()=>{$('#dy').value=dayOf($('#dt').value)};
     $('#sv').onclick=save;$('#cx').onclick=resetForm;
@@ -58,8 +61,11 @@ function renderPend(){
   const el=$('#fls');if(!el)return;
   el.innerHTML=pend.map((f,i)=>`<div class="row"><div>${esc(f.name)} <span class="mu">(${fmtSize(f.size)})</span></div><button class="btn ghost sm" data-x="${i}">Rimuovi</button></div>`).join('');
   el.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{pend.splice(+b.dataset.x,1);renderPend()})}
+function setForm(o){
+  const b=$('#fb'),t=$('#ftg');if(!b)return;
+  b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo della lezione':'Apri il modulo della lezione')}
 function resetForm(){
-  editing=null;pend=[];renderPend();$('#ft').textContent='Nuova lezione';$('#sv').textContent='Salva lezione';$('#cx').hidden=true;
+  setForm(false);editing=null;pend=[];renderPend();$('#ft').textContent='Nuova lezione';$('#sv').textContent='Salva lezione';$('#cx').hidden=true;
   $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);$('#ms').value='';$('#tp').value='';$('#rp').value='';$('#er').textContent=''}
 
 /* Controlla che si possa usare l'archivio file (Telegram collegato, se è quello in uso) */
@@ -97,7 +103,7 @@ async function save(){
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}
 function edit(it){
-  editing=it.id;$('#ft').textContent='Modifica lezione';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;
+  setForm(true);editing=it.id;$('#ft').textContent='Modifica lezione';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;
   $('#dt').value=it.date||today();$('#dy').value=dayOf($('#dt').value);$('#ms').value=it.master||'';$('#tp').value=it.type||'';$('#rp').value=it.report||'';$('#er').textContent='';
   $('#dt').scrollIntoView({behavior:'smooth',block:'center'})}
 
@@ -164,7 +170,8 @@ else{
     uid=u.uid;arch=archivio(db,SEC,uid);
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
-      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';return}
+      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
+      if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
       if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
       renderList();

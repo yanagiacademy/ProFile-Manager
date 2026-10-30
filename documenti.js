@@ -4,6 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
+import {memoBar} from "./promemoria.js";
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -15,7 +16,7 @@ tick();setInterval(tick,15000);
 const SEC='documenti',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 let auth,db,col,uid=null,me=null,items=[],cur='',q='',unsubs=[],hashDone=false,selMode=false,sel=new Set(),vis=[];
 let view=(()=>{try{return localStorage.getItem('doc_view')||'list'}catch(e){return 'list'}})();
-let memoText='',memoOpen=(()=>{try{return localStorage.getItem('doc_memo')!=='0'}catch(e){return true}})(),memoEdit=false;
+let memo=null;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const canW=()=>perm()==='w';
 
@@ -29,12 +30,11 @@ else{
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
-      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');$('#memo').innerHTML='';return}
+      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
         unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
-        unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','promemoria'),s=>{memoText=s.exists()?(s.data().text||''):'';if(!memoEdit)renderMemo()},()=>{}));
       }
-      render();renderMemo();
+      if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
 }
@@ -84,7 +84,7 @@ function render(){
       ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
       :`<div class="ico"${thAttr(i)}>${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Documenti" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
-  <div class="wrap" style="padding-bottom:${memoOpen?'210px':'90px'}"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
+  <div class="wrap"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
   ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">Documenti</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
@@ -238,14 +238,3 @@ async function uploadFolder(files){
     entries.push({file:f,parent})}}catch(e){modal('Errore','<div class="mu">Creazione delle cartelle non riuscita.</div>',[{label:'Chiudi'}]);return}
   uploadMany(entries)}
 
-function renderMemo(){
-  const m=$('#memo');if(!me||perm()==='n'){m.innerHTML='';return}
-  const w=canW();
-  if(!memoOpen){m.innerHTML='<button class="btn ghost sm" id="mo" style="background:var(--sf)">Promemoria</button>';$('#mo').onclick=()=>setMemo(true);return}
-  m.innerHTML=`<div class="card memo"><div class="mh"><b>Promemoria</b><span>${w&&!memoEdit?'<button class="btn ghost sm" id="me">Modifica</button> ':''}<button class="btn ghost sm" id="mc">Riduci</button></span></div>${memoEdit?`<textarea id="mt" aria-label="Testo promemoria">${esc(memoText)}</textarea><div class="dact"><button class="btn ghost sm" id="mx">Annulla</button><button class="btn sm" id="ms">Salva</button></div>`:`<div class="mb" tabindex="0">${memoText?esc(memoText):'<span class="mu">Nessun promemoria.</span>'}</div>`}</div>`;
-  $('#mc').onclick=()=>{memoEdit=false;setMemo(false)};
-  if($('#me'))$('#me').onclick=()=>{memoEdit=true;renderMemo()};
-  if(memoEdit){$('#mx').onclick=()=>{memoEdit=false;renderMemo()};
-    $('#ms').onclick=async()=>{try{await setDoc(doc(db,'sections',SEC,'meta','promemoria'),{text:$('#mt').value,by:uid,at:serverTimestamp()});memoEdit=false;renderMemo()}catch(e){modal('Errore','<div class="mu">Salvataggio non riuscito.</div>',[{label:'Chiudi'}])}}}
-}
-function setMemo(v){memoOpen=v;try{localStorage.setItem('doc_memo',v?'1':'0')}catch(e){}renderMemo();render()}

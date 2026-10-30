@@ -4,6 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {tgClient,tgEntity,tgErrText,tgConfigured,hasSession} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
+import {memoBar} from "./promemoria.js";
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 /* File importanti: mostra i documenti di "Documenti" contrassegnati con la stella.
@@ -16,7 +17,7 @@ tick();setInterval(tick,15000);
 
 const SEC='documenti',MINE='file-importanti',cur='';
 let auth,db,col,uid=null,me=null,items=[],mine=[],q='',unsubs=[],err='';
-let memoText='',memoOpen=(()=>{try{return localStorage.getItem('imp_memo')!=='0'}catch(e){return true}})(),memoEdit=false;
+let memo=null;
 let selMode=false,sel=new Set(),vis=[];
 const children=id=>items.filter(i=>(i.parent||'')===id);
 const level=k=>me?(me.admin?'w':((me.perms||{})[k]||'n')):'n';
@@ -126,7 +127,7 @@ function render(){
     return `<div class="frow"${thAttr(i)}>${star}<span class="fi" aria-hidden="true">${okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span>${i.kind==='folder'?'':`<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button>`}<button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   const old=mine.filter(i=>!t||(i.title+' '+(i.note||'')).toLowerCase().includes(t));
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span style="flex:1"></span><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
-  <div class="wrap" style="padding-bottom:${memoOpen?'210px':'90px'}"><div class="bar"><h2>File importanti</h2><span class="badge">${p==='w'?'Lettura e scrittura':'Solo lettura'}</span></div>
+  <div class="wrap"><div class="bar"><h2>File importanti</h2><span class="badge">${p==='w'?'Lettura e scrittura':'Solo lettura'}</span></div>
   <input id="qi" type="search" placeholder="Cerca nei file importanti" aria-label="Cerca nei file importanti" value="${esc(q)}" style="margin-bottom:12px">
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   ${err?`<p class="err" role="alert">${esc(err)}</p>`:''}
@@ -147,18 +148,6 @@ function render(){
   tw.watch(app);
 }
 
-/* Promemoria in basso (come in Documenti): testo salvato in File importanti, modificabile da chi ha la scrittura */
-function renderMemo(){
-  const m=$('#memo');if(!me||perm()==='n'){m.innerHTML='';return}
-  const w=perm()==='w';
-  if(!memoOpen){m.innerHTML='<button class="btn ghost sm" id="mo" style="background:var(--sf)">Promemoria</button>';$('#mo').onclick=()=>setMemo(true);return}
-  m.innerHTML=`<div class="card memo"><div class="mh"><b>Promemoria</b><span>${w&&!memoEdit?'<button class="btn ghost sm" id="me">Modifica</button> ':''}<button class="btn ghost sm" id="mc">Riduci</button></span></div>${memoEdit?`<textarea id="mt" aria-label="Testo promemoria">${esc(memoText)}</textarea><div class="dact"><button class="btn ghost sm" id="mx">Annulla</button><button class="btn sm" id="ms">Salva</button></div>`:`<div class="mb" tabindex="0">${memoText?esc(memoText):'<span class="mu">Nessun promemoria.</span>'}</div>`}</div>`;
-  $('#mc').onclick=()=>{memoEdit=false;setMemo(false)};
-  if($('#me'))$('#me').onclick=()=>{memoEdit=true;renderMemo()};
-  if(memoEdit){$('#mx').onclick=()=>{memoEdit=false;renderMemo()};
-    $('#ms').onclick=async()=>{try{await setDoc(doc(db,'sections',MINE,'meta','promemoria'),{text:$('#mt').value,by:uid,at:serverTimestamp()});memoEdit=false;renderMemo()}catch(e){modal('Errore','<div class="mu">Salvataggio non riuscito.</div>',[{label:'Chiudi'}])}}}
-}
-function setMemo(v){memoOpen=v;try{localStorage.setItem('imp_memo',v?'1':'0')}catch(e){}renderMemo();render()}
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
@@ -169,13 +158,12 @@ else{
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
-      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');$('#memo').innerHTML='';return}
+      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
         unsubs.push(onSnapshot(col,s=>{err='';items=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{err='Per vedere i file importanti serve il permesso di lettura su Documenti. Chiedi all’admin.';items=[];render()}));
         unsubs.push(onSnapshot(collection(db,'sections',MINE,'items'),s=>{mine=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{}));
-        unsubs.push(onSnapshot(doc(db,'sections',MINE,'meta','promemoria'),s=>{memoText=s.exists()?(s.data().text||''):'';if(!memoEdit)renderMemo()},()=>{}));
       }
-      render();renderMemo();
+      if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
 }

@@ -20,6 +20,7 @@ textarea{width:100%;min-height:160px;font:inherit}
 </head>
 <body>
 <div id="app"></div>
+<div id="memo"></div>
 <div class="clock" id="clock"></div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -28,6 +29,7 @@ import {getFirestore,doc,onSnapshot} from "https://www.gstatic.com/firebasejs/10
 import {firebaseConfig} from "./firebase-config.js";
 import {MAIL_URL} from "./mail-config.js";
 import {showPreview,saveBlob} from "./file-tools.js";
+import {memoBar} from "./promemoria.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -35,7 +37,7 @@ const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager<
 const tick=()=>{const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})};
 tick();setInterval(tick,15000);
 
-let auth=null,lv='n',list=[],more=false,q='',cur=null,rmsg=null,mode='list',msg='',busy=false,files=[];
+let memo=null,auth=null,lv='n',list=[],more=false,q='',cur=null,rmsg=null,mode='list',msg='',busy=false,files=[];
 const MAXF=15*1048576;
 
 const fmtDate=d=>{const t=new Date(d);return isNaN(t)?'':t.toLocaleDateString('it-IT',{day:'numeric',month:'short'})+' '+t.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})};
@@ -159,7 +161,8 @@ else{
     unsub=onSnapshot(doc(db,'users',u.uid),sn=>{
       const me=sn.exists()?sn.data():null;
       lv=me?(me.admin?'w':((me.perms||{}).mail||'n')):'n';
-      if(lv==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');started=false;return}
+      if(lv==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');started=false;if(memo)memo.setAccess('n',false);return}
+      if(!memo)memo=memoBar({db,sec:'mail',uid:u.uid});memo.setAccess(lv,!!me.admin);
       if(!started){started=true;loadList(false)}else render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')});
   });

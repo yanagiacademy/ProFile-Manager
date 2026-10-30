@@ -2,6 +2,7 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,addDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
+import {memoBar} from "./promemoria.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -12,7 +13,7 @@ export function startSection(name){
   tick();setInterval(tick,15000);
   if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.');return}
   const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore(auth.app);
-  let uid=null,me=null,items=[],q='',unsubs=[];
+  let uid=null,me=null,items=[],q='',unsubs=[],memo=null;
   const perm=()=>me?(me.admin?'w':((me.perms||{})[key(name)]||'n')):'n';
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
@@ -20,7 +21,8 @@ export function startSection(name){
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
-      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');return}
+      if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
+      if(!memo)memo=memoBar({db,sec:key(name),uid});memo.setAccess(perm(),!!me.admin);
       if(!unsubs[1])unsubs[1]=onSnapshot(collection(db,'sections',key(name),'items'),s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{});
       render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));

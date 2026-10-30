@@ -11,6 +11,10 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();
     }
+    match /app/{id} {
+      allow read: if hasAccount();
+      allow write: if isAdmin();
+    }
     match /sections/{sec}/meta/{id} {
       allow read: if hasAccount() && level(sec) in ['r', 'w'];
       allow write: if hasAccount() && level(sec) == 'w';
