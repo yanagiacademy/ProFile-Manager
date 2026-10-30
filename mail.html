@@ -6,13 +6,164 @@
 <title>Mail – ProFile Manager</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="stile.css">
+<style>
+.ml{display:flex;flex-direction:column}
+.mr{padding:10px 4px;border-bottom:1px solid var(--ln);cursor:pointer;display:block;width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0;color:var(--tx);font:inherit}
+.mr.un b{font-weight:700}.mr:not(.un){color:var(--mu)}
+.mr small{display:block;color:var(--mu)}
+.mv{margin-bottom:12px}
+.mv iframe{width:100%;min-height:120px;border:1px solid var(--ln);border-radius:8px;background:#fff;margin-top:10px}
+.mv pre{white-space:pre-wrap;font:inherit;margin:10px 0}
+textarea{width:100%;min-height:160px;font:inherit}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+</style>
 </head>
 <body>
 <div id="app"></div>
 <div class="clock" id="clock"></div>
 <script type="module">
-import {startSection} from "./sezione.js";
-startSection("Mail");
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {firebaseConfig} from "./firebase-config.js";
+import {MAIL_URL} from "./mail-config.js";
+import {showPreview,saveBlob} from "./file-tools.js";
+
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div><p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a></p></div></div>`;
+const tick=()=>{const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})};
+tick();setInterval(tick,15000);
+
+let auth=null,lv='n',list=[],more=false,q='',cur=null,rmsg=null,mode='list',msg='',busy=false,files=[];
+const MAXF=15*1048576;
+
+const fmtDate=d=>{const t=new Date(d);return isNaN(t)?'':t.toLocaleDateString('it-IT',{day:'numeric',month:'short'})+' '+t.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})};
+const fmtSize=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';
+const who=s=>String(s||'').replace(/<.*>/,'').replace(/"/g,'').trim()||String(s||'');
+const rd=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res({name:f.name,type:f.type,data:r.result.split(',')[1]});r.onerror=()=>rej(new Error('Lettura non riuscita: '+f.name));r.readAsDataURL(f)});
+
+/* ---------- chiamata al ponte (Apps Script) ---------- */
+async function call(a,p={}){
+  const t=await auth.currentUser.getIdToken();
+  let r;
+  try{r=await fetch(MAIL_URL,{method:'POST',body:JSON.stringify({t,a,...p}),redirect:'follow'})}
+  catch(e){throw new Error('Impossibile contattare il servizio Mail. Controlla la connessione e l’indirizzo in mail-config.js.')}
+  let j;try{j=await r.json()}catch(e){throw new Error('Risposta non valida dal servizio Mail. Controlla la distribuzione dello script.')}
+  if(!j.ok)throw new Error(j.e||'Errore del servizio Mail');
+  return j;
+}
+
+/* ---------- azioni ---------- */
+async function loadList(append){
+  busy=true;msg='';render();
+  try{const r=await call('list',{q,o:append?list.length:0});list=append?list.concat(r.items):r.items;more=r.more}
+  catch(e){msg=e.message}
+  busy=false;render();
+}
+async function openThread(id){
+  busy=true;msg='';render();
+  try{cur={id,...(await call('get',{id}))};mode='view';const l=list.find(x=>x.id===id);if(l&&lv==='w')l.unread=false}
+  catch(e){msg=e.message}
+  busy=false;render();
+}
+async function getAtt(mi,i){
+  const m=cur.msgs[mi],r=await call('att',{id:m.id,i});
+  const bin=atob(r.data),u=new Uint8Array(bin.length);for(let k=0;k<bin.length;k++)u[k]=bin.charCodeAt(k);
+  return {name:r.name,blob:new Blob([u],{type:r.type||'application/octet-stream'})}
+}
+async function dl(mi,i){const a=await getAtt(mi,i);saveBlob(a.blob,a.name)}
+function openAtt(mi,i){
+  const x=cur.msgs[mi].att.find(z=>z.i===i);
+  showPreview({title:x.name,mime:x.type,load:async say=>{say('Preparazione del file…');return (await getAtt(mi,i)).blob},errText:e=>e.message||'Impossibile aprire l’allegato.'})}
+
+function form(kind){
+  const r=kind==='reply';
+  return `<div class="card">${r?`<p class="mu" style="margin-top:0">Risposta a: ${esc(who(rmsg.from))}</p><label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="all" style="width:auto"> Rispondi a tutti</label>`:`<label for="to" style="margin-top:0">A</label><input id="to" type="text" autocomplete="off"><label for="cc">Cc (facoltativo)</label><input id="cc" type="text" autocomplete="off"><label for="su">Oggetto</label><input id="su" type="text">`}<label for="tx">Messaggio</label><textarea id="tx">${r?esc('\n\n'+who(rmsg.from)+' ha scritto:\n'+(rmsg.text||'').split('\n').slice(0,40).map(l=>'> '+l).join('\n')):''}</textarea><label for="fl">Allegati</label><input id="fl" type="file" multiple><div id="fls"></div><p class="mu">Massimo 15 MB in totale.</p><p class="err" id="er" role="alert"></p><div class="acts"><button class="btn" id="snd">Invia</button><button class="btn ghost" id="can">Annulla</button></div></div>`;
+}
+function renderFiles(){
+  const t=files.reduce((n,f)=>n+f.size,0);
+  $('#fls').innerHTML=files.map((f,i)=>`<div class="row"><div>${esc(f.name)} <span class="mu">(${fmtSize(f.size)})</span></div><button class="btn ghost sm" data-r="${i}">Rimuovi</button></div>`).join('')+(files.length?`<p class="mu">Totale: ${fmtSize(t)}</p>`:'');
+  document.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{files.splice(+b.dataset.r,1);renderFiles()});
+}
+function bindForm(kind){
+  renderFiles();
+  $('#fl').onchange=e=>{
+    const add=[...e.target.files];e.target.value='';
+    if(files.reduce((n,f)=>n+f.size,0)+add.reduce((n,f)=>n+f.size,0)>MAXF){$('#er').textContent='Gli allegati superano 15 MB in totale: non aggiunti.';return}
+    $('#er').textContent='';files.push(...add);renderFiles();
+  };
+  $('#can').onclick=()=>{files=[];mode=kind==='reply'?'view':'list';render()};
+  $('#snd').onclick=async()=>{
+    let to='',p={};
+    if(kind==='new'){to=$('#to').value.trim();if(!to){$('#er').textContent='Inserisci il destinatario.';return}p={to,cc:$('#cc').value.trim(),subject:$('#su').value.trim()}}
+    else p={id:rmsg.id,all:$('#all').checked};
+    p.text=$('#tx').value;
+    $('#snd').disabled=true;$('#er').textContent=files.length?'Invio in corso con allegati…':'Invio in corso…';
+    try{
+      p.files=await Promise.all(files.map(rd));
+      await call(kind==='new'?'send':'reply',p);
+      files=[];msg='Messaggio inviato.';
+      if(kind==='reply'){mode='view';await openThread(cur.id);msg='Risposta inviata.';render()}else{mode='list';cur=null;render()}
+    }catch(e){$('#er').textContent=e.message;$('#snd').disabled=false}
+  };
+}
+
+/* ---------- interfaccia ---------- */
+function render(){
+  if(lv==='n')return;
+  const w=lv==='w';
+  const top=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a>${mode==='list'?`<input id="q" type="search" placeholder="Cerca in Mail (anche from:, is:unread…)" aria-label="Cerca" value="${esc(q)}">`:'<span style="flex:1"></span>'}<button class="btn ghost sm" id="rf">Aggiorna</button></div>`;
+  let main='';
+  if(mode==='list'){
+    main=`<div class="bar"><h2>Mail</h2>${w?'<button class="btn sm" id="nw">Nuovo messaggio</button>':''}</div>${msg?`<p class="mu" role="status">${esc(msg)}</p>`:''}${busy?'<p class="mu">Caricamento…</p>':''}<div class="card">${list.length?`<div class="ml">${list.map(m=>`<button class="mr${m.unread?' un':''}" data-id="${esc(m.id)}"><b>${esc(who(m.from))}</b>${m.n>1?' ('+m.n+')':''} — ${esc(m.subject||'(senza oggetto)')}<small>${esc(fmtDate(m.date))} · ${esc(m.snippet||'')}</small></button>`).join('')}</div>${more?'<p style="margin-top:12px"><button class="btn ghost" id="mo">Carica altri</button></p>':''}`:(busy?'':'<p class="mu">Nessun messaggio.</p>')}</div>`;
+  }else if(mode==='view'&&cur){
+    main=`<div class="bar"><h2>${esc(cur.subject||'(senza oggetto)')}</h2></div>${msg?`<p class="err" role="alert">${esc(msg)}</p>`:''}${busy?'<p class="mu">Caricamento…</p>':''}`+cur.msgs.map((m,mi)=>{
+      const content=m.html?`<iframe data-fit="1" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" title="Contenuto del messaggio" srcdoc="${esc('<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data: https:; style-src \'unsafe-inline\'"><base target="_blank">'+m.html)}"></iframe>`:`<pre>${esc(m.text||'')}</pre>`;
+      const A=(m.att||[]).length?`<h3 style="margin:14px 0 4px">Allegati (${m.att.length})</h3>`+m.att.map(x=>`<div class="row"><div>${esc(x.name)} <span class="mu">(${fmtSize(x.size)})</span></div><span class="acts" style="margin:0"><button class="btn ghost sm" data-v="${mi}:${x.i}">Apri</button><button class="btn ghost sm" data-a="${mi}:${x.i}">Scarica</button></span></div>`).join(''):'';
+      return `<div class="card mv"><div class="mu">Da: ${esc(m.from)}<br>A: ${esc(m.to)}${m.cc?'<br>Cc: '+esc(m.cc):''}<br>${esc(fmtDate(m.date))}</div>${content}${A}${w?`<div class="acts"><button class="btn" data-rp="${mi}">Rispondi</button></div>`:''}</div>`}).join('')+`<div class="acts"><button class="btn ghost" id="bk">← Posta in arrivo</button></div>`;
+  }else if(mode==='new'&&w){
+    main=`<div class="bar"><h2>Nuovo messaggio</h2></div>`+form('new');
+  }else if(mode==='reply'&&w&&rmsg){
+    main=`<div class="bar"><h2>Rispondi</h2></div>`+form('reply');
+  }
+  const f=document.activeElement&&document.activeElement.id==='q';
+  app.innerHTML=top+`<div class="wrap">${main}</div>`;
+  if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
+  $('#rf').onclick=()=>mode==='view'&&cur?openThread(cur.id):loadList(false);
+  if(mode==='list'){
+    let t;$('#q').oninput=e=>{q=e.target.value;clearTimeout(t);t=setTimeout(()=>loadList(false),600)};
+    if($('#nw'))$('#nw').onclick=()=>{files=[];mode='new';render();bindForm('new')};
+    if($('#mo'))$('#mo').onclick=()=>loadList(true);
+    document.querySelectorAll('.mr').forEach(b=>b.onclick=()=>openThread(b.dataset.id));
+  }else if(mode==='view'){
+    $('#bk').onclick=()=>{mode='list';cur=null;msg='';render()};
+    document.querySelectorAll('iframe[data-fit]').forEach(fr=>fr.onload=()=>{try{fr.style.height=Math.min(1500,fr.contentDocument.documentElement.scrollHeight+24)+'px'}catch(e){}});
+    document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{const t=b.textContent,[mi,i]=b.dataset.a.split(':');b.disabled=true;b.textContent='Scarico…';try{await dl(+mi,+i)}catch(e){msg=e.message;render();return}b.disabled=false;b.textContent=t});
+    document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{const [mi,i]=b.dataset.v.split(':');openAtt(+mi,+i)});
+    document.querySelectorAll('[data-rp]').forEach(b=>b.onclick=()=>{rmsg=cur.msgs[+b.dataset.rp];files=[];msg='';mode='reply';render();bindForm('reply');const x=$('#tx');x.focus();x.setSelectionRange(0,0)});
+  }else if(mode==='new'||mode==='reply'){bindForm(mode)}
+}
+
+/* aggiornamento automatico dell'elenco ogni 2 minuti, solo se la pagina è visibile */
+setInterval(()=>{if(lv!=='n'&&mode==='list'&&!busy&&document.visibilityState==='visible'&&!(document.activeElement&&document.activeElement.id==='q'))loadList(false)},120000);
+
+/* ---------- avvio: login della suite + permesso Mail ---------- */
+if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
+else if(MAIL_URL==='INSERISCI'){app.innerHTML=box('Mail non ancora collegata','Compila mail-config.js con l’indirizzo dell’app web di Apps Script.')}
+else{
+  auth=getAuth(initializeApp(firebaseConfig));const db=getFirestore(auth.app);let unsub=null,started=false;
+  onAuthStateChanged(auth,u=>{
+    if(unsub)unsub();
+    if(!u){location.href='index.html';return}
+    unsub=onSnapshot(doc(db,'users',u.uid),sn=>{
+      const me=sn.exists()?sn.data():null;
+      lv=me?(me.admin?'w':((me.perms||{}).mail||'n')):'n';
+      if(lv==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');started=false;return}
+      if(!started){started=true;loadList(false)}else render();
+    },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')});
+  });
+}
 </script>
 </body>
 </html>

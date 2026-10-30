@@ -4,6 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
+import {showPreview,saveBlob,saveZip,guessMime} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -12,7 +13,7 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='documenti',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
-let auth,db,col,uid=null,me=null,items=[],cur='',q='',unsubs=[],hashDone=false;
+let auth,db,col,uid=null,me=null,items=[],cur='',q='',unsubs=[],hashDone=false,selMode=false,sel=new Set(),vis=[];
 let view=(()=>{try{return localStorage.getItem('doc_view')||'list'}catch(e){return 'list'}})();
 let memoText='',memoOpen=(()=>{try{return localStorage.getItem('doc_memo')!=='0'}catch(e){return true}})(),memoEdit=false;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
@@ -49,12 +50,14 @@ function icon(i){if(i.kind==='folder')return '📁';if(i.kind==='text')return '�
   if(m.startsWith('image/'))return '🖼️';if(m.startsWith('video/'))return '🎞️';if(m.startsWith('audio/'))return '🎵';if(m==='application/pdf'||n.endsWith('.pdf'))return '📕';
   if(/\.(xlsx?|csv|ods)$/.test(n))return '📊';if(/\.(docx?|odt|rtf)$/.test(n))return '📘';if(/\.(zip|rar|7z)$/.test(n))return '🗜️';return '📄'}
 
-const starBtn=i=>{const w=canW();if(!w&&!i.star)return '';
-  return `<button class="star${i.star?' on':''}" data-act="star" data-id="${esc(i.id)}" aria-pressed="${!!i.star}" aria-label="${i.star?'Togli dai file importanti':'Aggiungi ai file importanti'}: ${esc(i.title)}" ${w?'':'disabled'}>${i.star?'★':'☆'}</button>`};
+const starBtn=i=>`<button class="star${i.star?' on':''}" data-act="star" data-id="${esc(i.id)}" aria-pressed="${!!i.star}" aria-label="${i.star?'Togli dai file importanti':'Aggiungi ai file importanti'}: ${esc(i.title)}">${i.star?'★':'☆'}</button>`;
+const chk=i=>`<input type="checkbox" class="sk" data-act="sel" data-id="${esc(i.id)}" ${sel.has(i.id)?'checked':''} aria-label="Seleziona ${esc(i.title)}">`;
+const lead=i=>selMode?chk(i):starBtn(i);
 async function toggleStar(it){
-  if(!it||!canW())return;
-  try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:!it.star})}
-  catch(e){modal('Errore','<div class="mu">Operazione non riuscita.</div>',[{label:'Chiudi'}])}}
+  if(!it)return false;
+  if(!canW()){modal('Permesso mancante','<div class="mu">Per mettere la stella serve il permesso di scrittura su Documenti. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
+  try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:!it.star});return true}
+  catch(e){console.error(e);modal('Errore','<div class="mu">Impossibile aggiornare la stella'+(e&&e.code?' ('+esc(e.code)+')':'')+'. Riprova tra poco.</div>',[{label:'Chiudi'}]);return false}}
 
 function modal(title,body,btns=[]){
   const o=document.createElement('div');o.className='ov';
@@ -71,16 +74,17 @@ const cancel={label:'Annulla',cls:'ghost'};
 function render(){
   if(!me||perm()==='n')return;
   const w=canW(),f=document.activeElement&&document.activeElement.id==='q',t=q.trim().toLowerCase();
-  const list=sortL(t?items.filter(i=>i.title.toLowerCase().includes(t)):children(cur));
+  const list=sortL(t?items.filter(i=>i.title.toLowerCase().includes(t)):children(cur));vis=list;
   const crumbs=[];let x=byId(cur);while(x){crumbs.unshift(x);x=byId(x.parent)}
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=t&&i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     return view==='list'
-      ?`<div class="frow">${starBtn(i)}<span class="fi" aria-hidden="true">${icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
-      :`<div class="ico">${starBtn(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${icon(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
+      ?`<div class="frow">${lead(i)}<span class="fi" aria-hidden="true">${icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
+      :`<div class="ico">${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${icon(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Documenti" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap" style="padding-bottom:${memoOpen?'210px':'90px'}"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
   ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
+  <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">Documenti</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
   <div class="card">${list.length?(view==='list'?rows:`<div class="icons">${rows}</div>`):`<div class="mu">${t?'Nessun risultato.':'Cartella vuota.'+(w?' Carica file o crea una cartella.':'')}</div>`}</div></div>`;
   if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
@@ -100,8 +104,12 @@ function act(a,id){
   else if(a==='upd')$('#ud').click();
   else if(a==='newdir')newDir();
   else if(a==='newtxt')editText(null);
+  else if(a==='selmode'){selMode=!selMode;sel.clear();render()}
+  else if(a==='selall'){vis.forEach(i=>sel.add(i.id));render()}
+  else if(a==='dlsel')dlSel();
   else if(!it)return;
-  else if(a==='open')openItem(it);
+  else if(a==='sel'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}
+  else if(a==='open'){if(selMode&&it.kind!=='folder'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}else openItem(it)}
   else if(a==='star')toggleStar(it);
   else if(a==='note')noteModal(it);
   else if(a==='more')moreModal(it);
@@ -109,31 +117,49 @@ function act(a,id){
 async function openItem(it){
   if(it.kind==='folder'){cur=it.id;q='';render()}
   else if(it.kind==='text')editText(it);
-  else download(it)}
-async function downloadTg(it){
-  const p=$('#prog');p.style.display='block';p.textContent='Collegamento a Telegram…';
-  try{const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
+  else preview(it)}
+async function getBlob(it,say=()=>{}){
+  if(it.kind==='text')return new Blob([it.text||''],{type:'text/plain'});
+  if(it.tg){
+    say('Collegamento a Telegram…');
+    const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
     if(!m||!m.media)throw new Error('MISSING');
-    const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>{p.textContent='Download: '+Math.round(Number(r)/Number(t)*100)+'%'}});
-    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
-  }catch(e){p.style.display='none';console.error(e);const t=e.message==='MISSING'?'Il file non è più presente su Telegram.':'Download non riuscito: '+tgErrText(e);
-    modal('Errore','<div class="mu">'+t+'</div>',[{label:'Chiudi'}])}}
+    const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
+    return new Blob([buf],{type:guessMime(it.title,it.mime)})}
+  say('Preparazione del file…');
+  const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
+  const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
+  if(!parts.length)throw new Error('EMPTY');
+  return new Blob(parts,{type:guessMime(it.title,it.mime)})}
+const dlErr=e=>e&&e.message==='MISSING'?'Il file non è più presente su Telegram.':(e&&e.message==='EMPTY')?'Impossibile leggere il file.':'Operazione non riuscita: '+tgErrText(e);
+function preview(it){
+  const lab=on=>on?'★ Togli dai file importanti':'☆ Aggiungi ai file importanti';
+  showPreview({title:it.title,mime:it.mime,load:say=>getBlob(it,say),errText:dlErr,
+    extra:[{label:()=>lab(!!(byId(it.id)||it).star),fn:async b=>{const cur0=byId(it.id)||it,was=!!cur0.star;if(await toggleStar(cur0))b.textContent=lab(!was)}}]})}
 async function upTg(file){
   const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
   const r=await tgSendFile(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'});
   return r.id}
 async function download(it){
-  if(it.kind==='text'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([it.text||''],{type:'text/plain'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);return}
-  if(it.tg)return downloadTg(it);
   const p=$('#prog');p.style.display='block';p.textContent='Preparazione del file…';
-  try{const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
-    const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
-    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(parts,{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
-  }catch(e){p.style.display='none';modal('Errore','<div class="mu">Impossibile scaricare il file.</div>',[{label:'Chiudi'}])}}
+  try{saveBlob(await getBlob(it,t=>{p.textContent=t}),it.title);p.style.display='none'}
+  catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
+async function dlSel(){
+  const picked=[...sel].map(byId).filter(Boolean);if(!picked.length)return;
+  const p=$('#prog');p.style.display='block';const say=t=>{p.textContent=t};
+  try{
+    if(picked.length===1&&picked[0].kind!=='folder'){say('Preparazione del file…');saveBlob(await getBlob(picked[0],say),picked[0].title);p.style.display='none';return}
+    const entries=[];const walk=(x,base)=>{if(x.kind==='folder')children(x.id).forEach(c=>walk(c,base+x.title+'/'));else entries.push({path:base+x.title,load:()=>getBlob(x,say)})};
+    picked.forEach(x=>walk(x,''));
+    if(!entries.length){p.style.display='none';modal('Selezione vuota','<div class="mu">Le cartelle scelte non contengono file.</div>',[{label:'Chiudi'}]);return}
+    const bad=await saveZip(entries,'documenti.zip',say);p.style.display='none';
+    if(bad)modal('Download completato in parte','<div class="mu">'+bad+' file non sono stati inclusi nello ZIP perché non è stato possibile leggerli.</div>',[{label:'Chiudi'}])
+  }catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 
 function moreModal(it){
   const w=canW(),b=[];
-  b.push({label:it.kind==='folder'?'Apri':'Apri / scarica',cls:'ghost',fn:()=>{setTimeout(()=>it.kind==='folder'?openItem(it):(it.kind==='text'?download(it):download(it)),0)}});
+  b.push({label:it.kind==='folder'?'Apri':'Apri online',cls:'ghost',fn:()=>{setTimeout(()=>openItem(it),0)}});
+  if(it.kind!=='folder')b.push({label:'Scarica',cls:'ghost',fn:()=>{setTimeout(()=>download(it),0)}});
   b.push({label:'Note',cls:'ghost',fn:()=>{setTimeout(()=>noteModal(it),0)}});
   if(w){b.push({label:it.star?'Togli dai file importanti':'Aggiungi ai file importanti',cls:'ghost',fn:()=>{toggleStar(it)}});
     if(it.kind==='text')b.push({label:'Modifica',cls:'ghost',fn:()=>{setTimeout(()=>editText(it),0)}});

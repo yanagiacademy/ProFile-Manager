@@ -4,6 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {tgClient,tgEntity,tgErrText} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
+import {showPreview,saveBlob,saveZip,guessMime} from "./file-tools.js";
 
 /* File importanti: mostra i documenti di "Documenti" contrassegnati con la stella.
    I file restano in Documenti: qui si possono scaricare, togliere dagli importanti, modificare e rinominare. */
@@ -16,6 +17,8 @@ tick();setInterval(tick,15000);
 const SEC='documenti',MINE='file-importanti',cur='';
 let auth,db,col,uid=null,me=null,items=[],mine=[],q='',unsubs=[],err='';
 let memoText='',memoOpen=(()=>{try{return localStorage.getItem('imp_memo')!=='0'}catch(e){return true}})(),memoEdit=false;
+let selMode=false,sel=new Set(),vis=[];
+const children=id=>items.filter(i=>(i.parent||'')===id);
 const level=k=>me?(me.admin?'w':((me.perms||{})[k]||'n')):'n';
 const perm=()=>level(MINE),canW=()=>level(SEC)==='w';
 const byId=id=>items.find(i=>i.id===id);
@@ -39,26 +42,38 @@ function modal(title,body,btns=[]){
 const merr=(o,t)=>{o.querySelector('#mer').textContent=t;return false};
 const cancel={label:'Annulla',cls:'ghost'};
 
-async function downloadTg(it){
-  const p=$('#prog');p.style.display='block';p.textContent='Collegamento a Telegram…';
-  try{const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
+async function getBlob(it,say=()=>{}){
+  if(it.kind==='text')return new Blob([it.text||''],{type:'text/plain'});
+  if(it.tg){
+    say('Collegamento a Telegram…');
+    const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
     if(!m||!m.media)throw new Error('MISSING');
-    const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>{p.textContent='Download: '+Math.round(Number(r)/Number(t)*100)+'%'}});
-    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
-  }catch(e){p.style.display='none';console.error(e);const t=e.message==='MISSING'?'Il file non è più presente su Telegram.':'Download non riuscito: '+tgErrText(e);
-    modal('Errore','<div class="mu">'+t+'</div>',[{label:'Chiudi'}])}}
-async function upTg(file){
-  const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
-  const r=await tgSendFile(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'});
-  return r.id}
+    const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
+    return new Blob([buf],{type:guessMime(it.title,it.mime)})}
+  say('Preparazione del file…');
+  const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
+  const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
+  if(!parts.length)throw new Error('EMPTY');
+  return new Blob(parts,{type:guessMime(it.title,it.mime)})}
+const dlErr=e=>e&&e.message==='MISSING'?'Il file non è più presente su Telegram.':(e&&e.message==='EMPTY')?'Impossibile leggere il file.':'Operazione non riuscita: '+tgErrText(e);
 async function download(it){
-  if(it.kind==='text'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([it.text||''],{type:'text/plain'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);return}
-  if(it.tg)return downloadTg(it);
   const p=$('#prog');p.style.display='block';p.textContent='Preparazione del file…';
-  try{const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
-    const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
-    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(parts,{type:it.mime||'application/octet-stream'}));a.download=it.title;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000);p.style.display='none'
-  }catch(e){p.style.display='none';modal('Errore','<div class="mu">Impossibile scaricare il file.</div>',[{label:'Chiudi'}])}}
+  try{saveBlob(await getBlob(it,t=>{p.textContent=t}),it.title);p.style.display='none'}
+  catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
+function preview(it){
+  showPreview({title:it.title,mime:it.mime,load:say=>getBlob(it,say),errText:dlErr,
+    extra:canW()?[{label:'★ Togli dai file importanti',fn:async b=>{if(await unstar(byId(it.id)||it))b.disabled=true,b.textContent='Tolto dai file importanti'}}]:[]})}
+async function dlSel(){
+  const picked=[...sel].map(byId).filter(Boolean);if(!picked.length)return;
+  const p=$('#prog');p.style.display='block';const say=t=>{p.textContent=t};
+  try{
+    if(picked.length===1&&picked[0].kind!=='folder'){say('Preparazione del file…');saveBlob(await getBlob(picked[0],say),picked[0].title);p.style.display='none';return}
+    const entries=[];const walk=(x,base)=>{if(x.kind==='folder')children(x.id).forEach(c=>walk(c,base+x.title+'/'));else entries.push({path:base+x.title,load:()=>getBlob(x,say)})};
+    picked.forEach(x=>walk(x,''));
+    if(!entries.length){p.style.display='none';modal('Selezione vuota','<div class="mu">Le cartelle scelte non contengono file.</div>',[{label:'Chiudi'}]);return}
+    const bad=await saveZip(entries,'file-importanti.zip',say);p.style.display='none';
+    if(bad)modal('Download completato in parte','<div class="mu">'+bad+' file non sono stati inclusi nello ZIP perché non è stato possibile leggerli.</div>',[{label:'Chiudi'}])
+  }catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 
 function noteModal(it){const w=canW();
   modal('Note – '+it.title,`<label for="nt" style="margin-top:0">Note su questo ${it.kind==='folder'?'elemento':'file'}</label><textarea id="nt" ${w?'':'readonly'}>${esc(it.note||'')}</textarea>`,
@@ -76,14 +91,16 @@ function renameModal(it){
 async function open1(it){
   if(it.kind==='folder')location.href='documenti.html#'+it.id;
   else if(it.kind==='text')editText(it);
-  else download(it)}
+  else preview(it)}
 async function unstar(it){
-  if(!canW())return;
-  try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:false})}
-  catch(e){modal('Errore','<div class="mu">Operazione non riuscita.</div>',[{label:'Chiudi'}])}}
+  if(!it)return false;
+  if(!canW()){modal('Permesso mancante','<div class="mu">Per togliere la stella serve il permesso di scrittura su Documenti. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
+  try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:false});return true}
+  catch(e){console.error(e);modal('Errore','<div class="mu">Operazione non riuscita'+(e&&e.code?' ('+esc(e.code)+')':'')+'.</div>',[{label:'Chiudi'}]);return false}}
 function moreModal(it){
   const w=canW(),b=[];
-  b.push({label:it.kind==='folder'?'Apri cartella':'Scarica',cls:'ghost',fn:()=>{setTimeout(()=>it.kind==='folder'?open1(it):download(it),0)}});
+  b.push({label:it.kind==='folder'?'Apri cartella':'Apri online',cls:'ghost',fn:()=>{setTimeout(()=>open1(it),0)}});
+  if(it.kind!=='folder')b.push({label:'Scarica',cls:'ghost',fn:()=>{setTimeout(()=>download(it),0)}});
   b.push({label:'Note',cls:'ghost',fn:()=>{setTimeout(()=>noteModal(it),0)}});
   if(w){if(it.kind==='text')b.push({label:'Modifica',cls:'ghost',fn:()=>{setTimeout(()=>editText(it),0)}});
     b.push({label:'Rinomina',cls:'ghost',fn:()=>{setTimeout(()=>renameModal(it),0)}});
@@ -95,23 +112,30 @@ function moreModal(it){
 function render(){
   if(!me||perm()==='n')return;
   const p=perm(),w=canW(),f=document.activeElement&&document.activeElement.id==='qi',t=q.trim().toLowerCase();
-  const all=sortL(items.filter(i=>i.star)),list=t?all.filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t)):all;
+  const all=sortL(items.filter(i=>i.star)),list=t?all.filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t)):all;vis=list;
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
-    const star=`<button class="star on" data-act="unstar" data-id="${esc(i.id)}" aria-pressed="true" aria-label="Togli dai file importanti: ${esc(i.title)}" ${w?'':'disabled'}>★</button>`;
+    const star=selMode?`<input type="checkbox" class="sk" data-act="sel" data-id="${esc(i.id)}" ${sel.has(i.id)?'checked':''} aria-label="Seleziona ${esc(i.title)}">`:`<button class="star on" data-act="unstar" data-id="${esc(i.id)}" aria-pressed="true" aria-label="Togli dai file importanti: ${esc(i.title)}">★</button>`;
     return `<div class="frow">${star}<span class="fi" aria-hidden="true">${icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span>${i.kind==='folder'?'':`<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button>`}<button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   const old=mine.filter(i=>!t||(i.title+' '+(i.note||'')).toLowerCase().includes(t));
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span style="flex:1"></span><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap" style="padding-bottom:${memoOpen?'210px':'90px'}"><div class="bar"><h2>File importanti</h2><span class="badge">${p==='w'?'Lettura e scrittura':'Solo lettura'}</span></div>
   <input id="qi" type="search" placeholder="Cerca nei file importanti" aria-label="Cerca nei file importanti" value="${esc(q)}" style="margin-bottom:12px">
+  <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   ${err?`<p class="err" role="alert">${esc(err)}</p>`:''}
   <div class="card">${list.length?rows:`<div class="mu">${t?'Nessun risultato.':(err?'':'Nessun file importante. Metti la stella a un documento in Documenti per vederlo qui.')}</div>`}</div>
   ${old.length?`<h3 style="margin:16px 0 8px">Altri elementi</h3><div class="card">${old.map(i=>`<div class="row"><div><b>${esc(i.title)}</b><div class="mu">${esc(i.note||'')}</div></div>${p==='w'?`<button class="btn ghost sm" data-d="${esc(i.id)}">Elimina</button>`:''}</div>`).join('')}</div>`:''}</div>`;
   if(f){const i=$('#qi');i.focus();i.setSelectionRange(q.length,q.length)}
   $('#qi').oninput=e=>{q=e.target.value;render()};
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
-  app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{const it=byId(b.dataset.id);if(!it)return;const a=b.dataset.act;
-    if(a==='open')open1(it);else if(a==='save')download(it);else if(a==='more')moreModal(it);else if(a==='unstar')unstar(it)});
+  app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
+    if(a==='selmode'){selMode=!selMode;sel.clear();render();return}
+    if(a==='selall'){vis.forEach(i=>sel.add(i.id));render();return}
+    if(a==='dlsel'){dlSel();return}
+    const it=byId(b.dataset.id);if(!it)return;
+    if(a==='sel'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}
+    else if(a==='open'){if(selMode&&it.kind!=='folder'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}else open1(it)}
+    else if(a==='save')download(it);else if(a==='more')moreModal(it);else if(a==='unstar')unstar(it)});
   document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>deleteDoc(doc(db,'sections',MINE,'items',b.dataset.d)).catch(()=>{}));
 }
 
