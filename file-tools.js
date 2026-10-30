@@ -44,7 +44,7 @@ function css(){if(cssDone)return;cssDone=true;const s=document.createElement('st
 `;document.head.append(s)}
 
 /* Apre il file online. load(say) deve restituire un Blob; extra: [{label, fn(button)}] pulsanti aggiuntivi */
-export function showPreview({title,mime,load,extra=[],errText}){
+export function showPreview({title,mime,load,extra=[],errText,fileName}){
   css();
   const o=document.createElement('div');o.className='pv-ov';
   o.innerHTML=`<div class="pv card" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="pv-h"><b>${esc(title)}</b><span></span></div><div class="pv-b"><p class="mu">Preparazione del file…</p></div></div>`;
@@ -56,7 +56,7 @@ export function showPreview({title,mime,load,extra=[],errText}){
   o.addEventListener('click',e=>{if(e.target===o)close()});
   const mk=(label,cls,fn)=>{const b=document.createElement('button');b.className='btn sm '+cls;b.textContent=label;b.onclick=()=>fn(b);bar.append(b);return b};
   extra.forEach(x=>mk(typeof x.label==='function'?x.label():x.label,'ghost',x.fn));
-  const dl=mk('Scarica','',()=>{if(blob)saveBlob(blob,title)});dl.disabled=true;
+  const dl=mk('Scarica','',()=>{if(blob)saveBlob(blob,fileName||title)});dl.disabled=true;
   mk('Chiudi','ghost',close);
   document.body.append(o);
   const say=t=>{body.innerHTML='<p class="mu"></p>';body.firstChild.textContent=t};
