@@ -76,3 +76,48 @@ export function showPreview({title,mime,load,extra=[],errText}){
   })();
   return {close};
 }
+
+/* ---------- Miniature (JPEG piccolo salvato nel documento, campo "thumb") ---------- */
+const THUMB_MAX=200;
+export const okThumb=u=>typeof u==='string'&&/^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(u);
+export const canThumb=(name,mime)=>{const t=guessMime(name,mime);return t.startsWith('image/')||t.startsWith('video/')||t==='application/pdf'};
+const tmo=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))]);
+function toJpeg(src,w,h){
+  if(!w||!h)return null;
+  const k=Math.min(1,THUMB_MAX/Math.max(w,h)),cw=Math.max(1,Math.round(w*k)),ch=Math.max(1,Math.round(h*k));
+  const c=document.createElement('canvas');c.width=cw;c.height=ch;
+  const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,cw,ch);x.drawImage(src,0,0,cw,ch);
+  let q=.7,u=c.toDataURL('image/jpeg',q);
+  while(u.length>40000&&q>.3){q-=.15;u=c.toDataURL('image/jpeg',q)}
+  return u.length>60000?null:u}
+const loadImg=url=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('img'));i.src=url});
+function videoFrame(url){return new Promise((res,rej)=>{
+  const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
+  v.onerror=()=>rej(new Error('video'));
+  v.onloadedmetadata=()=>{v.currentTime=Math.min(1,(v.duration||2)/10)};
+  v.onseeked=()=>{try{res(toJpeg(v,v.videoWidth,v.videoHeight))}catch(e){rej(e)}}})}
+let pz=null;
+function loadPdfJs(){return pz||(pz=new Promise((res,rej)=>{
+  if(window.pdfjsLib)return res(window.pdfjsLib);
+  const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  s.onload=()=>{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';res(window.pdfjsLib)};
+  s.onerror=()=>{pz=null;rej(new Error('pdfjs'))};document.head.append(s)}))}
+async function pdfThumb(blob){
+  const L=await loadPdfJs(),doc=await L.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
+  try{const pg=await doc.getPage(1),v0=pg.getViewport({scale:1}),vp=pg.getViewport({scale:THUMB_MAX*1.5/Math.max(v0.width,v0.height)});
+    const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+    const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+    await pg.render({canvasContext:x,viewport:vp}).promise;return toJpeg(c,c.width,c.height)}
+  finally{doc.destroy()}}
+/* Restituisce un data URL JPEG oppure null se non è possibile (tipo non supportato, file troppo grande, errore) */
+export async function makeThumb(blob,name,mime){
+  const t=guessMime(name,mime||blob.type);
+  try{
+    if(t==='application/pdf'){if(blob.size>60*1024*1024)return null;return await tmo(pdfThumb(blob),30000)}
+    if(!t.startsWith('image/')&&!t.startsWith('video/'))return null;
+    const url=URL.createObjectURL(new Blob([blob],{type:t}));
+    try{
+      if(t.startsWith('image/')){const i=await tmo(loadImg(url),20000);return toJpeg(i,i.naturalWidth,i.naturalHeight)}
+      return await tmo(videoFrame(url),20000)
+    }finally{URL.revokeObjectURL(url)}
+  }catch(e){console.warn('miniatura non creata',e);return null}}
