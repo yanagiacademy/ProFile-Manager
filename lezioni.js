@@ -131,25 +131,32 @@ function renderList(){
   const hay=i=>[i.title,i.note,i.master,i.type,i.report,i.date&&fmtD(i.date),i.day,...attsOf(i.id).map(a=>a.title)].filter(Boolean).join(' ').toLowerCase();
   const list=lessonsOf().filter(i=>!t||hay(i).includes(t)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
   ls.innerHTML=list.length?list.map(i=>{
-    if(!i.date)return `<div class="les"><div class="inf"><div class="dt">${esc(i.title)}</div><div class="mu">${esc(i.note||'')}</div>${w?`<div class="bt"><button class="btn ghost sm" data-act="del" data-id="${esc(i.id)}">Elimina</button></div>`:''}</div></div>`;
+    const mn=w?`<button class="btn ghost sm mn" data-act="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione" title="Azioni">⋯</button>`:'';
+    if(!i.date)return `<div class="les"><div class="inf"><b>${esc(i.title)}</b> <span class="mu">${esc(i.note||'')}</span></div>${w?`<button class="btn ghost sm mn" data-act="del" data-id="${esc(i.id)}" aria-label="Elimina" title="Elimina">✕</button>`:''}</div>`;
     const a=attsOf(i.id),n=a.length,max=Math.max(0,n-2),off=Math.min(offs.get(i.id)||0,max),vis=a.slice(off,off+2);
+    const line=[esc(fmtD(i.date)),esc(i.day||dayOf(i.date)),esc(i.master||'—'),i.type?esc(i.type):''].filter(Boolean);
     return `<div class="les"><div class="strip">
       <button class="tile ls" data-act="rep" data-id="${esc(i.id)}" aria-label="Apri il rapporto della lezione del ${esc(fmtD(i.date))}"><img class="lg" src="logo-yanagi.png" alt=""><span class="cp">Rapporto</span></button>
       ${vis.map(tileAtt).join('')}
       ${n>2?`<button class="arw" data-act="prev" data-id="${esc(i.id)}" aria-label="File precedenti" ${off<=0?'disabled':''}>‹</button><button class="arw" data-act="next" data-id="${esc(i.id)}" aria-label="File successivi" ${off>=max?'disabled':''}>›</button>`:''}</div>
-      <div class="inf"><div class="dt">${esc(fmtD(i.date))}</div><div>${esc(i.day||dayOf(i.date))}</div><div>Maestro: ${esc(i.master||'—')}</div><div class="mu">${esc(i.type||'')}${n?' · '+n+(n===1?' file':' file'):''}</div>
-      ${w?`<div class="bt"><button class="btn ghost sm" data-act="add" data-id="${esc(i.id)}">+ File</button><button class="btn ghost sm" data-act="edit" data-id="${esc(i.id)}">Modifica</button><button class="btn ghost sm" data-act="del" data-id="${esc(i.id)}">Elimina</button></div>`:''}</div></div>`}).join('')
+      <div class="inf" title="${esc(fmtD(i.date)+' · '+(i.day||dayOf(i.date))+' · Maestro: '+(i.master||'')+' · '+(i.type||'')+(n?' · '+n+' file':''))}"><b>${line[0]}</b> · ${line.slice(1).join(' · ')}</div>${mn}</div>`}).join('')
     :`<div class="mu">${t?'Nessun risultato.':'Nessuna lezione registrata.'+(w?' Compila il modulo qui sopra.':'')}</div>`;
   if(w){const uniq=k=>[...new Set(lessonsOf().map(i=>i[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
     $('#lm').innerHTML=uniq('master').map(v=>`<option value="${esc(v)}">`).join('');
     $('#lt').innerHTML=uniq('type').map(v=>`<option value="${esc(v)}">`).join('')}
 }
-async function onListClick(e){
-  const b=e.target.closest('[data-act]');if(!b)return;
-  const id=b.dataset.id,it=items.find(x=>x.id===id),act=b.dataset.act;
-  if(!it)return;
+function menu(it){
+  const o=document.createElement('div');o.className='mnu-ov';
+  o.innerHTML=`<div class="card mnu" role="dialog" aria-modal="true" aria-label="Azioni sulla lezione"><b>Lezione del ${esc(fmtD(it.date))}</b><div class="acts"><button class="btn" data-a="add">+ Aggiungi file</button><button class="btn ghost" data-a="edit">Modifica</button><button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="x">Chiudi</button></div></div>`;
+  const close=()=>o.remove();
+  o.addEventListener('click',e=>{if(e.target===o)close()});
+  o.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{close();if(b.dataset.a!=='x')doAct(b.dataset.a,it.id)});
+  document.body.append(o)}
+async function doAct(act,id){
+  const it=items.find(x=>x.id===id);if(!it)return;
   if(act==='rep')openReport(it);
   else if(act==='att')openAtt(it);
+  else if(act==='mnu')menu(it);
   else if(act==='prev'){offs.set(id,Math.max(0,(offs.get(id)||0)-1));renderList()}
   else if(act==='next'){offs.set(id,(offs.get(id)||0)+1);renderList()}
   else if(act==='add'){if(!canUpload())return;addTarget=id;$('#addf').click()}
@@ -160,6 +167,7 @@ async function onListClick(e){
     try{await Promise.all(as.map(a=>arch.remove(a)));await deleteDoc(doc(db,'sections',SEC,'items',id));if(editing===id)resetForm()}
     catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
 }
+function onListClick(e){const b=e.target.closest('[data-act]');if(b)doAct(b.dataset.act,b.dataset.id)}
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
