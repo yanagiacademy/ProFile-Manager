@@ -124,7 +124,7 @@ function openAtt(a){
 /* ---------- elenco ---------- */
 function tileAtt(a){
   const inner=okThumb(a.thumb)?`<img class="th" src="${a.thumb}" alt="" loading="lazy">`:`<span aria-hidden="true">${icon(a)}</span>`;
-  return `<button class="tile" data-act="att" data-id="${esc(a.id)}" aria-label="Apri ${esc(a.title)}" title="${esc(a.title)}">${inner}<span class="cp">${esc(ext(a.title)||'FILE')}</span></button>`}
+  return `<button class="lt" data-act="att" data-id="${esc(a.id)}" aria-label="Apri ${esc(a.title)}" title="${esc(a.title)}">${inner}<span class="cp">${esc(ext(a.title)||'FILE')}</span></button>`}
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const w=perm()==='w',t=q.trim().toLowerCase();
@@ -132,14 +132,13 @@ function renderList(){
   const list=lessonsOf().filter(i=>!t||hay(i).includes(t)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
   ls.innerHTML=list.length?list.map(i=>{
     const mn=w?`<button class="btn ghost sm mn" data-act="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione" title="Azioni">⋯</button>`:'';
-    if(!i.date)return `<div class="les"><div class="inf"><b>${esc(i.title)}</b> <span class="mu">${esc(i.note||'')}</span></div>${w?`<button class="btn ghost sm mn" data-act="del" data-id="${esc(i.id)}" aria-label="Elimina" title="Elimina">✕</button>`:''}</div>`;
+    if(!i.date)return `<div class="les"><div class="inf"><div><b>${esc(i.title)}</b></div><div class="mu">${esc(i.note||'')}</div></div>${w?`<button class="btn ghost sm mn" data-act="del" data-id="${esc(i.id)}" aria-label="Elimina" title="Elimina">✕</button>`:''}</div>`;
     const a=attsOf(i.id),n=a.length,max=Math.max(0,n-2),off=Math.min(offs.get(i.id)||0,max),vis=a.slice(off,off+2);
-    const line=[esc(fmtD(i.date)),esc(i.day||dayOf(i.date)),esc(i.master||'—'),i.type?esc(i.type):''].filter(Boolean);
-    return `<div class="les"><div class="strip">
-      <button class="tile ls" data-act="rep" data-id="${esc(i.id)}" aria-label="Apri il rapporto della lezione del ${esc(fmtD(i.date))}"><img class="lg" src="logo-yanagi.png" alt=""><span class="cp">Rapporto</span></button>
+        return `<div class="les"><div class="strip">
+      <button class="lt ls" data-act="rep" data-id="${esc(i.id)}" aria-label="Apri il rapporto della lezione del ${esc(fmtD(i.date))}"><img class="lg" src="logo-yanagi.png" alt=""><span class="cp">Rapporto</span></button>
       ${vis.map(tileAtt).join('')}
       ${n>2?`<button class="arw" data-act="prev" data-id="${esc(i.id)}" aria-label="File precedenti" ${off<=0?'disabled':''}>‹</button><button class="arw" data-act="next" data-id="${esc(i.id)}" aria-label="File successivi" ${off>=max?'disabled':''}>›</button>`:''}</div>
-      <div class="inf" title="${esc(fmtD(i.date)+' · '+(i.day||dayOf(i.date))+' · Maestro: '+(i.master||'')+' · '+(i.type||'')+(n?' · '+n+' file':''))}"><b>${line[0]}</b> · ${line.slice(1).join(' · ')}</div>${mn}</div>`}).join('')
+      <div class="inf" title="${esc(fmtD(i.date)+' · '+(i.day||dayOf(i.date))+' · Maestro: '+(i.master||'')+' · '+(i.type||'')+(n?' · '+n+' file':''))}"><div><b>${esc(fmtD(i.date))}</b> · ${esc(i.day||dayOf(i.date))}</div><div class="mu">${esc(i.master||'—')}${i.type?' · '+esc(i.type):''}</div></div>${mn}</div>`}).join('')
     :`<div class="mu">${t?'Nessun risultato.':'Nessuna lezione registrata.'+(w?' Compila il modulo qui sopra.':'')}</div>`;
   if(w){const uniq=k=>[...new Set(lessonsOf().map(i=>i[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
     $('#lm').innerHTML=uniq('master').map(v=>`<option value="${esc(v)}">`).join('');
