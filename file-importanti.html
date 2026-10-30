@@ -6,13 +6,17 @@
 <title>File importanti – ProFile Manager</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="stile.css">
+<style>
+.star{background:none;border:0;padding:4px 6px;font-size:1.25rem;line-height:1;color:var(--mu)}
+.star.on{color:#e0a800}
+.star:disabled{opacity:1;cursor:default}
+</style>
 </head>
 <body>
 <div id="app"></div>
+<div id="prog" role="status"></div>
+<div id="memo"></div>
 <div class="clock" id="clock"></div>
-<script type="module">
-import {startSection} from "./sezione.js";
-startSection("File importanti");
-</script>
+<script type="module" src="importanti.js"></script>
 </body>
 </html>
