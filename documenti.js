@@ -4,7 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
-import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb} from "./file-tools.js";
+import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -81,11 +81,11 @@ function render(){
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=t&&i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     return view==='list'
-      ?`<div class="frow">${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
-      :`<div class="ico">${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
+      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
+      :`<div class="ico"${thAttr(i)}>${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Documenti" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap" style="padding-bottom:${memoOpen?'210px':'90px'}"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
-  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><button class="btn ghost sm" data-act="genthumb">Genera miniature</button><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
+  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">Documenti</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
   <div class="card">${list.length?(view==='list'?rows:`<div class="icons">${rows}</div>`):`<div class="mu">${t?'Nessun risultato.':'Cartella vuota.'+(w?' Carica file o crea una cartella.':'')}</div>`}</div></div>`;
@@ -96,6 +96,7 @@ function render(){
   if(w){const uf=$('#uf'),ud=$('#ud');
     uf.onchange=()=>{uploadMany([...uf.files].map(file=>({file,parent:cur})));uf.value=''};
     ud.onchange=()=>uploadFolder([...ud.files]);}
+  tw.watch(app);
 }
 
 function act(a,id){
@@ -109,7 +110,6 @@ function act(a,id){
   else if(a==='selmode'){selMode=!selMode;sel.clear();render()}
   else if(a==='selall'){vis.forEach(i=>sel.add(i.id));render()}
   else if(a==='dlsel')dlSel();
-  else if(a==='genthumb')genThumbs();
   else if(!it)return;
   else if(a==='sel'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}
   else if(a==='open'){if(selMode&&it.kind!=='folder'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}else openItem(it)}
@@ -138,16 +138,13 @@ const dlErr=e=>e&&e.message==='MISSING'?'Il file non è più presente su Telegra
 function saveThumbLater(it,blob){
   if(!canW()||it.thumb||it.thumbTry||!canThumb(it.title,it.mime))return;
   makeThumb(blob,it.title,it.mime).then(u=>updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})).catch(()=>{})}
-async function genThumbs(){
-  const todo=items.filter(i=>i.kind==='file'&&!i.thumb&&!i.thumbTry&&canThumb(i.title,i.mime)&&(i.size||0)<=60*1024*1024);
-  if(!todo.length){modal('Miniature','<div class="mu">Tutti i file hanno già la miniatura, oppure non sono immagini, PDF o video.</div>',[{label:'Chiudi'}]);return}
-  if(tgConfigured()&&!hasSession()&&todo.some(i=>i.tg)){modal('Collega Telegram','<div class="mu">Alcuni file sono su Telegram. Accedi prima dalla pagina Chat, poi torna qui.</div>',[{label:'Chiudi',cls:'ghost'},{label:'Vai alla Chat',fn:()=>{location.href='chat.html'}}]);return}
-  const p=$('#prog');p.style.display='block';let n=0,ok=0;
-  for(const it of todo){
-    p.textContent=`Miniature ${++n}/${todo.length}…`;
-    try{const b=await getBlob(it);const u=await makeThumb(b,it.title,it.mime);await updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true});if(u)ok++}
-    catch(e){console.error(e)}}
-  p.textContent=`Miniature create: ${ok} su ${todo.length}`;setTimeout(()=>{p.style.display='none'},4000)}
+/* Miniature automatiche: solo per i file rimasti visibili a schermo per un paio di secondi */
+const tw=thumbWatcher(async id=>{
+  const it=byId(id);if(!it||it.thumb||it.thumbTry||!canW())return;
+  if(it.tg&&tgConfigured()&&!hasSession())return;
+  const b=await getBlob(it),u=await makeThumb(b,it.title,it.mime);
+  await updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})});
+const thAttr=i=>canW()&&i.kind==='file'&&!i.thumb&&!i.thumbTry&&canThumb(i.title,i.mime)&&(i.size||0)<=40*1024*1024?` data-thid="${esc(i.id)}"`:'';
 function preview(it){
   const lab=on=>on?'★ Togli dai file importanti':'☆ Aggiungi ai file importanti';
   showPreview({title:it.title,mime:it.mime,load:async say=>{const b=await getBlob(it,say);saveThumbLater(it,b);return b},errText:dlErr,

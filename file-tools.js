@@ -121,3 +121,24 @@ export async function makeThumb(blob,name,mime){
       return await tmo(videoFrame(url),20000)
     }finally{URL.revokeObjectURL(url)}
   }catch(e){console.warn('miniatura non creata',e);return null}}
+
+/* Osserva gli elementi con data-thid e chiama process(id) solo per quelli rimasti visibili a schermo per "dwell" ms.
+   Ogni id viene elaborato una sola volta per sessione; l'elaborazione è sequenziale. */
+export function thumbWatcher(process,{dwell=2000}={}){
+  const seen=new Map(),tried=new Set(),q=[];let io=null,busy=false;
+  async function run(){
+    if(busy)return;busy=true;
+    while(q.length){const id=q.shift();try{await process(id)}catch(e){console.error(e)}}
+    busy=false}
+  function enqueue(id){if(tried.has(id))return;tried.add(id);q.push(id);run()}
+  return {watch(root){
+    if(io)io.disconnect();
+    if(!('IntersectionObserver' in window))return;
+    const els=[...root.querySelectorAll('[data-thid]')],ids=new Set(els.map(e=>e.dataset.thid));
+    for(const k of [...seen.keys()])if(!ids.has(k)){clearTimeout(seen.get(k));seen.delete(k)}
+    io=new IntersectionObserver(es=>es.forEach(e=>{
+      const id=e.target.dataset.thid;
+      if(e.isIntersecting){if(!seen.has(id))seen.set(id,setTimeout(()=>{seen.delete(id);enqueue(id)},dwell))}
+      else if(seen.has(id)){clearTimeout(seen.get(id));seen.delete(id)}
+    }),{threshold:0.6});
+    els.forEach(el=>io.observe(el))}}}

@@ -2,9 +2,9 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
-import {tgClient,tgEntity,tgErrText} from "./telegram.js";
+import {tgClient,tgEntity,tgErrText,tgConfigured,hasSession} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
-import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb} from "./file-tools.js";
+import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 /* File importanti: mostra i documenti di "Documenti" contrassegnati con la stella.
    I file restano in Documenti: qui si possono scaricare, togliere dagli importanti, modificare e rinominare. */
@@ -63,6 +63,13 @@ async function download(it){
 function preview(it){
   showPreview({title:it.title,mime:it.mime,load:async say=>{const b=await getBlob(it,say);if(canW()&&!it.thumb&&!it.thumbTry&&canThumb(it.title,it.mime))makeThumb(b,it.title,it.mime).then(u=>updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})).catch(()=>{});return b},errText:dlErr,
     extra:canW()?[{label:'★ Togli dai file importanti',fn:async b=>{if(await unstar(byId(it.id)||it))b.disabled=true,b.textContent='Tolto dai file importanti'}}]:[]})}
+/* Miniature automatiche: solo per i file rimasti visibili a schermo per un paio di secondi */
+const tw=thumbWatcher(async id=>{
+  const it=byId(id);if(!it||it.thumb||it.thumbTry||!canW())return;
+  if(it.tg&&tgConfigured()&&!hasSession())return;
+  const b=await getBlob(it),u=await makeThumb(b,it.title,it.mime);
+  await updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})});
+const thAttr=i=>canW()&&i.kind==='file'&&!i.thumb&&!i.thumbTry&&canThumb(i.title,i.mime)&&(i.size||0)<=40*1024*1024?` data-thid="${esc(i.id)}"`:'';
 async function dlSel(){
   const picked=[...sel].map(byId).filter(Boolean);if(!picked.length)return;
   const p=$('#prog');p.style.display='block';const say=t=>{p.textContent=t};
@@ -116,7 +123,7 @@ function render(){
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     const star=selMode?`<input type="checkbox" class="sk" data-act="sel" data-id="${esc(i.id)}" ${sel.has(i.id)?'checked':''} aria-label="Seleziona ${esc(i.title)}">`:`<button class="star on" data-act="unstar" data-id="${esc(i.id)}" aria-pressed="true" aria-label="Togli dai file importanti: ${esc(i.title)}">★</button>`;
-    return `<div class="frow">${star}<span class="fi" aria-hidden="true">${okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span>${i.kind==='folder'?'':`<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button>`}<button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
+    return `<div class="frow"${thAttr(i)}>${star}<span class="fi" aria-hidden="true">${okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span>${i.kind==='folder'?'':`<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button>`}<button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   const old=mine.filter(i=>!t||(i.title+' '+(i.note||'')).toLowerCase().includes(t));
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span style="flex:1"></span><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap" style="padding-bottom:${memoOpen?'210px':'90px'}"><div class="bar"><h2>File importanti</h2><span class="badge">${p==='w'?'Lettura e scrittura':'Solo lettura'}</span></div>
@@ -137,6 +144,7 @@ function render(){
     else if(a==='open'){if(selMode&&it.kind!=='folder'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}else open1(it)}
     else if(a==='save')download(it);else if(a==='more')moreModal(it);else if(a==='unstar')unstar(it)});
   document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>deleteDoc(doc(db,'sections',MINE,'items',b.dataset.d)).catch(()=>{}));
+  tw.watch(app);
 }
 
 /* Promemoria in basso (come in Documenti): testo salvato in File importanti, modificabile da chi ha la scrittura */
