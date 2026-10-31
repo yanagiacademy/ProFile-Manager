@@ -28,7 +28,10 @@ input[type=text],input[type=password],input[type=search],select,textarea{width:1
 .top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--ln);padding:10px 16px;display:flex;gap:10px;align-items:center}
 .top input{flex:1;min-width:0}
 .top .who{white-space:nowrap;font-size:.85rem;color:var(--mu)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:8px}
+.gt{margin:24px 0 0;font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--mu)}
+.alert{margin-top:16px;border:2px solid var(--er);border-left-width:8px}
+.alert h2{color:var(--er);margin-bottom:4px}
 .tile{background:var(--sf);border:1px solid var(--ln);border-left:4px solid var(--ac2);border-radius:10px;padding:18px 14px;text-align:left;min-height:96px;display:flex;flex-direction:column;justify-content:space-between}
 .tile b{font-size:1.05rem}
 .tile:hover{border-color:var(--ac)}
@@ -59,7 +62,9 @@ import {firebaseConfig} from "./firebase-config.js";
 import {inScadenza} from "./scadenze.js";
 import {archiviato,zona,archiviaScaduti} from "./conservazione.js";
 
-const SEC=['Documenti','Mail','File importanti','Documenti in scadenza','Archivio','Lezioni','Tecnici','Atleti','Eventi','Video','Foto'];
+/* Home organizzata per gruppi. SEC (elenco piatto) resta la base di permessi, ricerca e tabella account */
+const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio']],['Persone',['Tecnici','Atleti']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Comunicazione',['Mail']]];
+const SEC=GROUPS.flatMap(g=>g[1]);
 const key=s=>s.toLowerCase().replace(/\s+/g,'-');
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -106,12 +111,20 @@ function bindTop(){$('#q').oninput=e=>{q=e.target.value;if(view!=='home'){view='
 function homeView(){app.innerHTML=topbar()+'<div class="wrap"><div id="body"></div></div>';bindTop();results()}
 function results(){
   const t=q.trim().toLowerCase(),b=$('#body');
-  if(!t){b.innerHTML=`<div class="grid">${SEC.map(tile).join('')}</div>`;bindTiles();return}
+  if(!t){b.innerHTML=alertsHtml()+GROUPS.map(groupHtml).join('');bindTiles();bindRes(b);return}
   const secs=SEC.filter(s=>perm(s)!=='n'&&s.toLowerCase().includes(t));
   const hits=allItems().filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t));
   b.innerHTML=`<div class="grid">${secs.map(tile).join('')}</div><div class="card" style="margin-top:16px"><h2>Risultati (${hits.length})</h2>${hits.length?hits.map(i=>`<button class="res" data-s="${esc(i.sec)}"><b>${esc(i.title)}</b><div class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</div></button>`).join(''):'<div class="mu">Nessun elemento trovato nelle sezioni a cui hai accesso.</div>'}</div>`;
-  bindTiles();b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
+  bindTiles();bindRes(b);
 }
+const bindRes=b=>b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
+const groupHtml=g=>g[1].every(s=>perm(s)==='n')?'':`<h3 class="gt">${esc(g[0])}</h3><div class="grid">${g[1].map(tile).join('')}</div>`;
+/* Riquadro "Da controllare" in cima alla Home: documenti in scadenza e documenti da verificare in Archivio */
+function alertsHtml(){
+  const a=[];
+  if(perm('Documenti in scadenza')!=='n'){const n=count('Documenti in scadenza');if(n)a.push(['Documenti in scadenza',n+(n===1?' documento in scadenza':' documenti in scadenza')])}
+  if(perm('Archivio')!=='n'){const k=(items.documenti||[]).filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
+  return a.length?`<div class="card alert" role="status"><h2>Da controllare</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><b>${esc(t)}</b><div class="mu">Apri ${esc(s)}</div></button>`).join('')}</div>`:''}
 function tile(s){const p=perm(s),n=count(s),ver=key(s)==='archivio'?(items.documenti||[]).filter(i=>zona(i)==='verifica').length:0,hot=p!=='n'&&key(s)==='documenti-in-scadenza'&&n>0;return`<button class="tile${hot?' alarm':''}" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n+(hot?' in scadenza':'')+(ver?' · '+ver+' da verificare':''):''}</span></button>`}
 function bindTiles(){document.querySelectorAll('.tile:not([disabled])').forEach(t=>t.onclick=()=>{location.href=page(t.dataset.s)})}
 function adminView(){
