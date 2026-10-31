@@ -50,11 +50,14 @@ $('#go').onclick=async()=>{
   line(fOk,'TG_FILES (Documenti)',fOk?'“'+TG_FILES+'”':'non compilato');
   line(location.protocol==='https:'||location.hostname==='localhost','Pagina su HTTPS',location.origin);
   if(!idOk||!hashOk){line(false,'Interrotto','correggi telegram-config.js e riprova');return}
-  // 2 WebSocket verso Telegram
-  try{await new Promise((res,rej)=>{const w=new WebSocket('wss://pluto.web.telegram.org/apiws','binary');const t=setTimeout(()=>{try{w.close()}catch(e){}rej(new Error('nessuna risposta in 10 secondi'))},10000);
-    w.onopen=()=>{clearTimeout(t);w.close();res()};w.onerror=()=>{clearTimeout(t);rej(new Error('connessione rifiutata o bloccata'))}});
-    line(true,'Rete verso i server Telegram (WebSocket)','raggiungibili')}
-  catch(e){line(false,'Rete verso i server Telegram (WebSocket)',e.message+' — prova da un’altra rete o senza VPN/blocchi')}
+  // 2 WebSocket verso TUTTI i data center di Telegram: il tuo numero usa uno solo di questi, e se è bloccato l'accesso va in timeout
+  const DCS=[['pluto','DC1'],['venus','DC2'],['aurora','DC3'],['vesta','DC4'],['flora','DC5']];
+  const prova=h=>new Promise(res=>{let w;try{w=new WebSocket('wss://'+h+'.web.telegram.org/apiws','binary')}catch(e){res('bloccata');return}
+    const t=setTimeout(()=>{try{w.close()}catch(e){}res('nessuna risposta in 10 secondi')},10000);
+    w.onopen=()=>{clearTimeout(t);w.close();res('')};w.onerror=()=>{clearTimeout(t);res('connessione rifiutata o bloccata')}});
+  const esiti=await Promise.all(DCS.map(([h])=>prova(h)));let bad=0;
+  DCS.forEach(([h,n],i)=>{if(esiti[i])bad++;line(!esiti[i],'Server Telegram '+n+' ('+h+')',esiti[i]||'raggiungibile')});
+  if(bad)line(false,'Attenzione',bad+' server su 5 non raggiungibili da questa rete. Se è quello del tuo numero, l’accesso va in timeout: prova con i dati mobili, senza VPN, DNS privato o blocco pubblicità, oppure da un altro computer.');
   // 3 libreria
   let tg;
   try{tg=await T.loadTg(m=>line(true,m));line(true,'Libreria Telegram caricata',T.libSource+' · classi: sessions='+!!tg.sessions+', Api='+!!tg.Api+', events='+!!tg.events+', client='+!!tg.client)}
