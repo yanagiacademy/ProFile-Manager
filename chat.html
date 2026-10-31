@@ -57,7 +57,7 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <div id="app"></div>
 <div class="clock" id="clock" aria-live="off"></div>
 <script type="module">
-import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,findDialog,withTimeout,tgErrText,checkAuth,consoleLog,TG_BUILD} from "./telegram.js";
+import {chatConfigured,hasSession,clearSession,loadTg,newClient,tgLogin,tgLoginQr,findDialog,withTimeout,tgErrText,checkAuth,consoleLog,TG_BUILD} from "./telegram.js";
 import {TG_GROUP} from "./telegram-config.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -67,6 +67,16 @@ const box=(t,m,extra='')=>`<div class="wrap"><div class="card login" style="max-
 function ask(title,hint,type,warn=''){return new Promise(res=>{
   app.innerHTML=box(title,esc(hint),`<label for="v">${esc(title)}</label><input id="v" type="${type}" autocomplete="off"><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
   const f=()=>{const v=$('#v').value.trim();if(v)res(v)};$('#ok').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()};$('#v').focus()})}
+function askMethod(){return new Promise(res=>{
+  app.innerHTML=box('Accedi a Telegram',esc('Scegli come collegare questo dispositivo al tuo account Telegram.'),`<button class="btn" id="mq" style="width:100%">Conferma dall’app Telegram (senza codice)</button><button class="btn ghost" id="mc" style="width:100%;margin-top:8px">Ricevi un codice</button><p class="mu" style="margin-top:10px">Consigliato: apri Telegram su un dispositivo già collegato e confermi l’accesso con un tocco. Non serve la SIM: nessun SMS e nessuna chiamata.</p>`);
+  $('#mq').onclick=()=>res('qr');$('#mc').onclick=()=>res('code')})}
+async function showLink(url){
+  let qr='';try{const m=await import('https://esm.sh/qrcode-generator@1.4.4');const q=(m.default||m)(0,'M');q.addData(url);q.make();qr='<div style="background:#fff;display:inline-block;padding:6px;border-radius:8px;margin-top:10px">'+q.createSvgTag({cellSize:4,margin:0,scalable:true}).replace('<svg','<svg style="width:200px;height:200px;display:block"')+'</div>'}catch(e){}
+  app.innerHTML=box('Conferma dall’app Telegram',esc('Dal telefono con Telegram: premi il pulsante e conferma “Collega dispositivo”. Da un altro dispositivo: in Telegram vai su Impostazioni → Dispositivi → Collega dispositivo e inquadra il codice.'),`<a class="btn" href="${esc(url)}" style="display:block;text-align:center;text-decoration:none">Apri Telegram e conferma</a>${qr}<p class="mu" style="margin-top:10px">Il collegamento si rinnova ogni 30 secondi: resta su questa pagina finché l’accesso non si completa.</p>`)}
+let loginInfo='';
+function askCode(){return new Promise(res=>{
+  app.innerHTML=box('Codice di accesso',esc('Telegram ti invia il codice come messaggio nell’app Telegram (chat “Telegram”), non via SMS. Inseriscilo qui. Il codice non arriva per SMS né per chiamata.')+(loginInfo?'<br><b>'+esc(loginInfo)+'</b>':''),`<label for="v">Codice di accesso</label><input id="v" type="text" inputmode="numeric" autocomplete="one-time-code"><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button><button class="btn ghost" id="alt" style="margin-top:8px">Il codice non arriva? Accedi senza codice</button>`);
+  const f=()=>{const v=$('#v').value.trim();if(v)res(v)};$('#ok').onclick=f;$('#v').onkeydown=e=>{if(e.key==='Enter')f()};$('#alt').onclick=()=>{location.reload()};$('#v').focus()})}
 function askPhone(warn=''){return new Promise(res=>{
   app.innerHTML=box('Numero di telefono','Inserisci il tuo numero Telegram. Il prefisso internazionale è già impostato.',`<label for="v">Numero di telefono</label><div style="display:flex;align-items:center;gap:8px"><span id="pf" style="font-weight:600;white-space:nowrap">(+39)</span><input id="v" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="___ __________" maxlength="14" aria-describedby="pf" style="flex:1;min-width:0"></div><p class="err" id="er" role="alert"></p><button class="btn" id="ok">Continua</button>${warn?`<div class="warn">${warn}</div>`:''}`);
   const inp=$('#v');
@@ -95,9 +105,11 @@ async function main(){
     const authorized=await checkAuth(client,!!saved);
     if(!authorized){
       if(saved)clearSession();
-      await tgLogin(tg,client,{
+      const metodo=await askMethod();
+      if(metodo==='qr')await tgLoginQr(tg,client,{link:showLink,password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password')},step);
+      else await tgLogin(tg,client,{
         phone:()=>askPhone('<b>Attenzione:</b> accedendo, questa app può usare il tuo account Telegram. La sessione resta salvata solo su questo dispositivo. Puoi chiuderla con “Esci dalla chat” o da Telegram → Impostazioni → Dispositivi.'),
-        code:()=>ask('Codice di accesso','Telegram ti invia il codice come messaggio nell’app Telegram (chat “Telegram”), non via SMS. Inseriscilo qui.','text'),
+        code:askCode,info:t=>{loginInfo=t},
         password:()=>ask('Password a due fattori','Inserisci la password di verifica in due passaggi di Telegram.','password')},()=>{});
     }
     step('Ricerca del gruppo');

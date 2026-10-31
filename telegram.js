@@ -79,9 +79,20 @@ export async function tgLogin(tg,client,ui,log=()=>{}){
   log('Invio del numero a Telegram');
   const sent=await withTimeout(client.sendCode(creds,phone,false),40000,'TIMEOUT_SENDCODE');
   log('Codice inviato'+(sent.isCodeViaApp?' (nell’app Telegram)':' (via SMS o chiamata)'));
-  let done=false;
-  for(let n=0;n<3&&!done;n++){
+  let done=false,tries=0;
+  while(!done&&tries<3){
     const code=await ui.code();
+    if(code==='__SMS__'){   /* "Non arriva? Invia via SMS": chiede a Telegram il metodo successivo (SMS o chiamata) */
+      try{
+        const r=await withTimeout(client.invoke(new tg.Api.auth.ResendCode({phoneNumber:phone,phoneCodeHash:sent.phoneCodeHash})),40000,'TIMEOUT_SENDCODE');
+        if(r&&r.phoneCodeHash)sent.phoneCodeHash=r.phoneCodeHash;
+        const t=(r&&r.type&&r.type.className)||'',via=/Sms/.test(t)?'SMS':/Call/.test(t)?'chiamata':'app Telegram';
+        log('Codice reinviato ('+via+')');if(ui.info)ui.info('Richiesta inviata: attendi il codice ('+via+').')
+      }catch(e){
+        const m=(e&&(e.errorMessage||e.message))||'';log('Reinvio non riuscito: '+m);
+        if(ui.info)ui.info(/SEND_CODE_UNAVAILABLE/.test(m)?'Telegram non permette altri invii per ora: aspetta qualche minuto.':/FLOOD/.test(m)?'Troppi tentativi: aspetta qualche minuto.':'Reinvio non riuscito ('+m+').')}
+      continue}
+    tries++;
     try{
       const r=await withTimeout(client.invoke(new tg.Api.auth.SignIn({phoneNumber:phone,phoneCodeHash:sent.phoneCodeHash,phoneCode:code})),40000,'TIMEOUT_SIGNIN');
       if(tg.Api.auth.AuthorizationSignUpRequired&&r instanceof tg.Api.auth.AuthorizationSignUpRequired)throw new Error('ACCOUNT_NOT_REGISTERED');
@@ -94,10 +105,25 @@ export async function tgLogin(tg,client,ui,log=()=>{}){
         try{await withTimeout(client.signInWithPassword(creds,{password:ui.password,onError:async er=>{last=er;return true}}),600000,'TIMEOUT_PASSWORD')}
         catch(e2){throw last||e2}
         done=true;
-      }else if(/PHONE_CODE_INVALID/.test(m)&&n<2){log('Codice non valido, riprova')}
+      }else if(/PHONE_CODE_INVALID/.test(m)&&tries<3){log('Codice non valido, riprova')}
       else throw e;
     }
   }
+  saveSession(client.session.save());
+}
+/* Accesso SENZA codice: si conferma dall'app Telegram già collegata (come "Collega dispositivo" / codice QR).
+   ui = {link(url), password()}. link() riceve un indirizzo tg://login?token=… che si rinnova ogni 30 secondi. */
+const b64u=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+export async function tgLoginQr(tg,client,ui,log=()=>{}){
+  const creds={apiId:Number(String(TG_API_ID).trim()),apiHash:String(TG_API_HASH).trim()};
+  if(typeof client.signInUserWithQrCode!=='function')throw new Error('QR_NON_SUPPORTATO');
+  log('In attesa della conferma dall’app Telegram');
+  let last=null;
+  await withTimeout(client.signInUserWithQrCode(creds,{
+    qrCode:async({token})=>{ui.link('tg://login?token='+b64u(token))},
+    password:ui.password,
+    onError:async er=>{last=er;return true}
+  }),300000,'TIMEOUT_QR').catch(e=>{throw last||e});
   saveSession(client.session.save());
 }
 let cache=null;
@@ -142,6 +168,8 @@ export function tgErrText(e){
   if(m==='NO_SESSION')return 'Non hai effettuato l’accesso a Telegram: aprilo dalla pagina Chat.';
   if(m==='NO_CHAT')return 'Gruppo non trovato: il nome deve coincidere esattamente e l’account deve far parte del gruppo.';
   if(m==='LIB_LOAD')return 'Impossibile caricare la libreria Telegram (esm.sh). '+((e.details||[]).join(' | '));
+  if(m==='TIMEOUT_QR')return 'Accesso non confermato entro 5 minuti: riprova.';
+  if(m==='QR_NON_SUPPORTATO')return 'Questa versione della libreria non supporta l’accesso senza codice.';
   if(/^TIMEOUT/.test(m))return 'Telegram non risponde (timeout). Controlla la connessione, o che la rete non blocchi i WebSocket verso Telegram.';
   if(/API_ID_INVALID/.test(m))return 'api_id o api_hash non validi: ricontrolla i valori su my.telegram.org.';
   if(/API_ID_PUBLISHED_FLOOD/.test(m))return 'Telegram ha bloccato queste credenziali API perché pubbliche: serve registrarne di nuove su my.telegram.org.';
