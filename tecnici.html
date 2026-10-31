@@ -6,13 +6,40 @@
 <title>Tecnici – ProFile Manager</title>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="stile.css">
+<style>
+.fh{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.hd{display:flex;gap:14px;align-items:center;margin-bottom:14px}
+.lgbox{background:#1B2A4A;border-radius:12px;padding:8px 12px;display:inline-flex;flex:none}
+.lgbox img{height:84px;width:auto;display:block}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:560px){.two{grid-template-columns:1fr}}
+input[type=date]{width:100%;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);min-height:44px}
+textarea{width:100%;min-height:90px;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);resize:vertical}
+fieldset{border:1px solid var(--ln);border-radius:10px;margin:14px 0 0;padding:2px 14px 14px}
+legend{padding:0 6px;font-weight:700;font-size:.9rem;color:var(--ac)}
+.acts{display:flex;flex-direction:row;gap:8px;flex-wrap:wrap;margin-top:12px}
+.flt{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.flt select{width:auto;min-height:40px}
+.tr{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ln);padding:9px 2px}
+.tr:last-child{border:0}
+.tr .inf{flex:1 1 auto;min-width:0;line-height:1.3}
+.tr .inf>div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chips{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;flex:none;max-width:46%}
+.chip{font-size:.72rem;padding:2px 8px;border-radius:99px;border:1px solid var(--ln);white-space:nowrap;color:var(--mu)}
+.chip.bad{border-color:var(--er);color:var(--er);font-weight:700}
+.chip.warn{border-color:var(--ac2);color:var(--tx);font-weight:700}
+.gr{display:inline-block;font-size:.72rem;padding:1px 8px;border-radius:99px;background:var(--ac);color:var(--bg);margin-left:6px;vertical-align:1px}
+.dl h3{margin:14px 0 4px;font-size:.85rem;color:var(--ac);text-transform:uppercase;letter-spacing:.04em}
+.dl dl{margin:0;display:grid;grid-template-columns:minmax(110px,38%) 1fr;gap:4px 10px;font-size:.92rem}
+.dl dt{color:var(--mu)}
+.dl dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.dlg.big{max-width:520px}
+</style>
 </head>
 <body>
 <div id="app"></div>
+<div id="memo"></div>
 <div class="clock" id="clock"></div>
-<script type="module">
-import {startSection} from "./sezione.js";
-startSection("Tecnici");
-</script>
+<script type="module" src="tecnici.js"></script>
 </body>
 </html>
