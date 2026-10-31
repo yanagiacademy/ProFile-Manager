@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controllo configurazione</title>
+<style>body{font:15px/1.5 system-ui;margin:16px;max-width:640px}code{background:#eee;padding:1px 5px;border-radius:4px}li{margin:6px 0}.ko{color:#b3261e;font-weight:700}.okk{color:#1b6e2f;font-weight:700}</style></head>
+<body><h2>Controllo configurazione Telegram</h2><ul id="o"><li>Controllo in corso…</li></ul>
+<script type="module">
+const o=document.getElementById('o'),add=(t,ok)=>{const l=document.createElement('li');l.innerHTML=(ok===undefined?'':'<span class="'+(ok?'okk':'ko')+'">'+(ok?'OK':'PROBLEMA')+'</span> ')+t;o.append(l)};
+o.innerHTML='';
+try{
+  const C=await import('./telegram-config.js?x='+Date.now());
+  const raw=await (await fetch('./telegram-config.js?x='+Date.now(),{cache:'no-store'})).text();
+  add('File online <code>telegram-config.js</code>: '+(raw.includes('INSERISCI')?'contiene ancora INSERISCI':'senza INSERISCI'),!raw.includes('INSERISCI'));
+  add('api_id letto: <code>'+String(C.TG_API_ID).slice(0,3)+'…</code> · api_hash: <code>'+String(C.TG_API_HASH).slice(0,3)+'…</code> · gruppo: <code>'+String(C.TG_GROUP)+'</code>',C.TG_API_ID!=='INSERISCI'&&C.TG_API_HASH!=='INSERISCI');
+  add('Gruppo file/dati (TG_FILES): <code>'+String(C.TG_FILES)+'</code>');
+  const T=await import('./telegram.js');
+  add('Versione di telegram.js caricata: <code>'+T.TG_BUILD+'</code>');
+  add('Chat configurata: '+T.chatConfigured()+' · Documenti configurati: '+T.tgConfigured()+' · sessione salvata: '+T.hasSession(),T.chatConfigured());
+  const cached=await import('./telegram-config.js');
+  if(cached.TG_API_ID!==C.TG_API_ID)add('Il browser usa una COPIA VECCHIA di telegram-config.js: ricarica forzata o scheda privata.',false)
+}catch(e){add('Errore: '+(e&&e.message||e),false)}
+</script></body></html>
