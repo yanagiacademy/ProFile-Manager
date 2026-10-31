@@ -46,6 +46,12 @@ export function archivio(db,sec,uid){
       if(!parts.length)throw new Error('EMPTY');
       return new Blob(parts,{type:guessMime(it.title,it.mime)})},
 
+    /* Elimina prima il documento (le regole lo rifiutano se è ancora in conservazione) e solo dopo il file: così un rifiuto non fa perdere nulla */
+    async removeSafe(it){
+      await deleteDoc(doc(db,'sections',sec,'items',it.id));
+      if(it.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[it.tg],{revoke:true})}catch(e){}}
+      if(it.chunks)await Promise.all(Array.from({length:it.chunks},(_,k)=>deleteDoc(doc(db,'sections',sec,'items',it.id,'chunks','c'+k)).catch(()=>{})))},
+
     async remove(it){
       if(it.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[it.tg],{revoke:true})}catch(e){}}
       if(it.chunks)await Promise.all(Array.from({length:it.chunks},(_,k)=>deleteDoc(doc(db,'sections',sec,'items',it.id,'chunks','c'+k)).catch(()=>{})));

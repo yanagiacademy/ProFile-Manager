@@ -1,10 +1,12 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,Bytes,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,deleteField,getDocs,Bytes,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
+import {inScadenza,giorni,fmtD,isD,testo} from "./scadenze.js";
+import {archiviaScaduti} from "./conservazione.js";
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -32,7 +34,7 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
+        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);if(canW())archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
@@ -59,6 +61,8 @@ async function toggleStar(it){
   try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:!it.star});return true}
   catch(e){console.error(e);modal('Errore','<div class="mu">Impossibile aggiornare la stella'+(e&&e.code?' ('+esc(e.code)+')':'')+'. Riprova tra poco.</div>',[{label:'Chiudi'}]);return false}}
 
+const scadLine=i=>{if(i.kind!=='file'||!isD(i.scadenza))return '';const g=giorni(i.scadenza),hot=inScadenza(i);
+  return `<div class="mu" style="font-size:.75rem${hot?';color:var(--er);font-weight:700':''}">Scadenza ${esc(fmtD(i.scadenza))} · ${esc(testo(g))}</div>`};
 const ico=i=>okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i);
 
 function modal(title,body,btns=[]){
@@ -81,7 +85,7 @@ function render(){
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=t&&i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     return view==='list'
-      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
+      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}${scadLine(i)}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
       :`<div class="ico"${thAttr(i)}>${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Documenti" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
@@ -176,12 +180,19 @@ function moreModal(it){
   b.push({label:'Note',cls:'ghost',fn:()=>{setTimeout(()=>noteModal(it),0)}});
   if(w){b.push({label:it.star?'Togli dai file importanti':'Aggiungi ai file importanti',cls:'ghost',fn:()=>{toggleStar(it)}});
     if(it.kind==='text')b.push({label:'Modifica',cls:'ghost',fn:()=>{setTimeout(()=>editText(it),0)}});
+    if(it.kind==='file')b.push({label:it.scadenza?'Scadenza…':'Imposta scadenza',cls:'ghost',fn:()=>{setTimeout(()=>scadModal(it),0)}});
     b.push({label:'Rinomina',cls:'ghost',fn:()=>{setTimeout(()=>renameModal(it),0)}});
     b.push({label:'Sposta',cls:'ghost',fn:()=>{setTimeout(()=>moveModal(it),0)}});
     b.push({label:'Elimina',cls:'ghost',fn:()=>{setTimeout(()=>delModal(it),0)}})}
   const o=modal(it.title,'<div class="acts"></div>',[{label:'Chiudi',cls:'ghost'}]);
   const c=o.querySelector('.acts');b.forEach(x=>{const e=document.createElement('button');e.className='btn '+(x.cls||'');e.textContent=x.label;e.onclick=()=>{o.remove();x.fn()};c.append(e)});
 }
+function scadModal(it){
+  const btns=[cancel];
+  if(isD(it.scadenza))btns.push({label:'Rimuovi scadenza',cls:'ghost',fn:async o=>{try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{scadenza:deleteField()})}catch(e){return merr(o,'Operazione non riuscita.')}}});
+  btns.push({label:'Salva',fn:async o=>{const d=o.querySelector('#sd').value;if(!isD(d))return merr(o,'Inserisci una data valida.');
+    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{scadenza:d})}catch(e){return merr(o,'Salvataggio non riuscito.')}}});
+  modal('Scadenza – '+it.title,`<div class="mu">Quando mancano 30 giorni o meno il file compare in “Documenti in scadenza”.</div><label for="sd">Data di scadenza</label><input id="sd" type="date" value="${esc(isD(it.scadenza)?it.scadenza:'')}" style="width:100%;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);min-height:44px">`,btns)}
 function noteModal(it){const w=canW();
   modal('Note – '+it.title,`<label for="nt" style="margin-top:0">Note su questo ${it.kind==='folder'?'elemento':'file'}</label><textarea id="nt" ${w?'':'readonly'}>${esc(it.note||'')}</textarea>`,
     w?[cancel,{label:'Salva',fn:async o=>{try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{note:o.querySelector('#nt').value.trim()})}catch(e){return merr(o,'Salvataggio non riuscito.')}}}]:[{label:'Chiudi'}])}

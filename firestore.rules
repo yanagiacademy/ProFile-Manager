@@ -19,13 +19,25 @@ service cloud.firestore {
       allow read: if hasAccount() && level(sec) in ['r', 'w'];
       allow write: if hasAccount() && level(sec) == 'w';
     }
+    /* Conservazione 10 anni (Archivio): un documento con conservaFinoTs nel futuro non si può eliminare,
+       né si può accorciare o togliere il periodo di conservazione. */
+    function protetto(d) { return d.get('conservaFinoTs', null) != null && d.conservaFinoTs > request.time; }
+
     match /sections/{sec}/items/{id}/chunks/{n} {
       allow read: if hasAccount() && level(sec) in ['r', 'w'];
-      allow write: if hasAccount() && level(sec) == 'w';
+      allow create, update: if hasAccount() && level(sec) == 'w';
+      allow delete: if hasAccount() && level(sec) == 'w'
+        && !(exists(/databases/$(database)/documents/sections/$(sec)/items/$(id))
+             && protetto(get(/databases/$(database)/documents/sections/$(sec)/items/$(id)).data));
     }
     match /sections/{sec}/items/{id} {
       allow read: if hasAccount() && level(sec) in ['r', 'w'];
-      allow create, update, delete: if hasAccount() && level(sec) == 'w';
+      allow create: if hasAccount() && level(sec) == 'w';
+      allow update: if hasAccount() && level(sec) == 'w'
+        && (!protetto(resource.data)
+            || (request.resource.data.get('conservaFinoTs', null) != null
+                && request.resource.data.conservaFinoTs >= resource.data.conservaFinoTs));
+      allow delete: if hasAccount() && level(sec) == 'w' && !protetto(resource.data);
     }
   }
 }
