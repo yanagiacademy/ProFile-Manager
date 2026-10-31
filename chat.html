@@ -106,13 +106,15 @@ async function main(){
     entity=d.entity;
     const nameOf=async id=>{const k=String(id);if(names[k])return names[k];try{const e=await client.getEntity(id);names[k]=[e.firstName,e.lastName].filter(Boolean).join(' ')||e.title||e.username||'Utente'}catch(x){names[k]='Utente'}return names[k]};
     const conv=async m=>({id:m.id,out:!!m.out,name:m.out?'Tu':(m.senderId?await nameOf(m.senderId):'Utente'),text:m.message||'[allegato]',date:m.date});
-    const hist=await client.getMessages(entity,{limit:50});
+    /* Il gruppo è condiviso con i dati della suite: la Chat mostra solo l'argomento Chat (ex General), senza registri #pfm, messaggi di servizio e argomenti delle sezioni */
+    const isChat=m=>{if(m.action)return false;if((m.message||'').startsWith('#pfm'))return false;const r=m.replyTo;if(r&&r.forumTopic){const top=r.replyToTopId||r.replyToMsgId;if(top!==1)return false}return true};
+    const hist=(await client.getMessages(entity,{limit:200})).filter(isChat).slice(0,50);
     for(const m of hist.reverse())msgs.push(await conv(m));
     const draw=(keep)=>{const l=$('#ml');if(!l)return;const y=l.scrollTop;l.innerHTML=msgs.map(m=>`<div class="m ${m.out?'out':''}"><small>${esc(m.name)} · ${new Date(m.date*1000).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})} <button class="del" data-id="${m.id}" aria-label="Elimina messaggio">Elimina</button></small>${esc(m.text)}</div>`).join('')||'<div class="mu">Nessun messaggio.</div>';l.scrollTop=keep?y:l.scrollHeight};
     app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><b style="flex:1">${esc(d.title||TG_GROUP)}</b><button class="btn ghost sm" id="lo">Esci dalla chat</button></div><div class="wrap"><div class="card"><div class="msgs" id="ml" aria-live="polite"></div><div class="comp"><input id="t" type="text" placeholder="Scrivi un messaggio" aria-label="Messaggio"><button class="btn" id="send">Invia</button></div><p class="err" id="er" role="alert"></p></div></div>`;
     draw();
     const seen=new Set(msgs.map(m=>m.id));let busy=false;
-    setInterval(async()=>{if(busy||document.hidden)return;busy=true;try{const h=await client.getMessages(entity,{limit:20});let ch=false;if(h.length){const ids=new Set(h.map(m=>m.id)),lo=Math.min(...h.map(m=>m.id));const n0=msgs.length;msgs=msgs.filter(m=>m.id<lo||ids.has(m.id));if(msgs.length!==n0)ch=true}for(const m of h.reverse()){if(seen.has(m.id))continue;seen.add(m.id);msgs.push(await conv(m));ch=true}if(ch)draw(true)}catch(e){}busy=false},3000);
+    setInterval(async()=>{if(busy||document.hidden)return;busy=true;try{const h=(await client.getMessages(entity,{limit:60})).filter(isChat).slice(0,20);let ch=false;if(h.length){const ids=new Set(h.map(m=>m.id)),lo=Math.min(...h.map(m=>m.id));const n0=msgs.length;msgs=msgs.filter(m=>m.id<lo||ids.has(m.id));if(msgs.length!==n0)ch=true}for(const m of h.reverse()){if(seen.has(m.id))continue;seen.add(m.id);msgs.push(await conv(m));ch=true}if(ch)draw(true)}catch(e){}busy=false},3000);
     const send=async()=>{const t=$('#t').value.trim();if(!t)return;$('#t').value='';
       try{const r=await client.sendMessage(entity,{message:t});seen.add(r.id);msgs.push({id:r.id,out:true,name:'Tu',text:t,date:r.date||Math.floor(Date.now()/1000)});draw();showErr('')}catch(e){$('#t').value=t;showErr('Invio non riuscito: '+tgErrText(e))}};
     $('#ml').onclick=async e=>{const b=e.target.closest('.del');if(!b)return;const id=Number(b.dataset.id);

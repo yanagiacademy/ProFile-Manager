@@ -154,8 +154,8 @@ export function tgErrText(e){
   return m;
 }
 /* Invio di un file nel gruppo: prova prima il File del browser, poi CustomFile. */
-export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto'){
-  const base={caption:file.name,forceDocument:true,workers:3,progressCallback:onProgress};
+export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto',caption,topic){
+  const base={caption:caption||file.name,forceDocument:true,workers:3,progressCallback:onProgress,...(caption?{silent:true}:{}),...(topic?{replyTo:topic}:{})};
   const viaCustom=async()=>{
     const CF=tg.client&&tg.client.uploads&&tg.client.uploads.CustomFile;
     if(!CF)throw new Error('CustomFile non disponibile nella libreria');
@@ -168,6 +168,29 @@ export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto'){
   try{return await viaFile()}catch(e1){
     try{return await viaCustom()}catch(e2){e2.message=(e1&&e1.message||e1)+' / '+(e2&&e2.message||e2);throw e2}}
 }
+
+/* Argomenti (topic) del gruppo: ogni sezione della suite scrive nel proprio argomento.
+   Se l'argomento non esiste viene creato; se il gruppo non ha gli argomenti attivi (o la creazione non è permessa) si scrive nel gruppo come prima. */
+const TOPIC_TITOLI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',lezioni:'Lezioni',tecnici:'Tecnici',atleti:'Atleti',eventi:'Eventi',video:'Video',foto:'Foto',mail:'Mail'};
+export const topicTitle=k=>{k=String(k).replace(/^meta-/,'');return TOPIC_TITOLI[k]||(k.charAt(0).toUpperCase()+k.slice(1).replace(/-/g,' '))};
+const topics={};
+export function tgTopic(group,secKey){
+  const title=topicTitle(secKey),id=group+'|'+title;
+  if(!topics[id])topics[id]=(async()=>{
+    try{
+      const {client,tg}=await tgClient(),ent=await tgEntity(group),A=tg.Api;
+      const r=await client.invoke(new A.channels.GetForumTopics({channel:ent,q:title,offsetDate:0,offsetId:0,offsetTopic:0,limit:100}));
+      const t=(r.topics||[]).find(x=>norm(x.title)===norm(title));if(t)return t.id;
+      const h=tg.helpers||{},rnd=h.generateRandomBigInt||h.generateRandomLong;
+      const u=await client.invoke(new A.channels.CreateForumTopic({channel:ent,title,randomId:rnd?rnd():undefined}));
+      for(const x of (u.updates||[])){const m=x.message;if(m&&m.action&&m.action.className==='MessageActionTopicCreate')return m.id}
+      return null;
+    }catch(e){
+      console.warn('Argomenti non disponibili per "'+title+'":',e&&e.message);
+      if(/FORUM_MISSING|CHANNEL_INVALID|CHAT_ADMIN_REQUIRED|TOPIC/.test((e&&e.message)||''))return null;   /* definitivo: si scrive nel gruppo */
+      delete topics[id];return null}
+  })();
+  return topics[id]}
 
 /* Senza sessione salvata non c'è nulla da controllare: si passa direttamente all'accesso. */
 export async function checkAuth(client,hadSession){

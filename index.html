@@ -56,14 +56,14 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,serverTimestamp} from "./fsx.js";
 
 import {firebaseConfig} from "./firebase-config.js";
 import {inScadenza} from "./scadenze.js";
 import {archiviato,zona,archiviaScaduti} from "./conservazione.js";
 
 /* Home organizzata per gruppi. SEC (elenco piatto) resta la base di permessi, ricerca e tabella account */
-const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio']],['Persone',['Tecnici','Atleti']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Comunicazione',['Mail']]];
+const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio']],['Persone',['Tecnici','Atleti']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
 const SEC=GROUPS.flatMap(g=>g[1]);
 const key=s=>s.toLowerCase().replace(/\s+/g,'-');
 const $=s=>document.querySelector(s),app=$('#app');

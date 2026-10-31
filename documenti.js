@@ -1,8 +1,8 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,deleteField,getDocs,Bytes,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,deleteField,getDocs,Bytes,serverTimestamp} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
-import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile} from "./telegram.js";
+import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile,tgTopic} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
 import {inScadenza,giorni,fmtD,isD,testo} from "./scadenze.js";
@@ -85,18 +85,18 @@ function render(){
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=t&&i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     return view==='list'
-      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}${scadLine(i)}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
+      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${i.fb?' <span class="mu" title="Salvato anche su Firebase" aria-label="Salvato anche su Firebase">☁</span>':''}${where}${scadLine(i)}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
       :`<div class="ico"${thAttr(i)}>${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Documenti" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
-  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
+  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem"><input type="checkbox" data-act="fbn" ${fbNew?'checked':''}> Salva anche su Firebase</label><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">Documenti</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
   <div class="card">${list.length?(view==='list'?rows:`<div class="icons">${rows}</div>`):`<div class="mu">${t?'Nessun risultato.':'Cartella vuota.'+(w?' Carica file o crea una cartella.':'')}</div>`}</div></div>`;
   if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
   $('#q').oninput=e=>{q=e.target.value;render()};
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
-  app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,b.dataset.id));
+  app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{if(b.dataset.act==='fbn'){fbNew=b.checked;return}act(b.dataset.act,b.dataset.id)});
   if(w){const uf=$('#uf'),ud=$('#ud');
     uf.onchange=()=>{uploadMany([...uf.files].map(file=>({file,parent:cur})));uf.value=''};
     ud.onchange=()=>uploadFolder([...ud.files]);}
@@ -127,12 +127,12 @@ async function openItem(it){
   else preview(it)}
 async function getBlob(it,say=()=>{}){
   if(it.kind==='text')return new Blob([it.text||''],{type:'text/plain'});
-  if(it.tg){
+  if(it.tg&&!(it.chunks&&tgConfigured()&&!hasSession())){try{
     say('Collegamento a Telegram…');
     const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
     if(!m||!m.media)throw new Error('MISSING');
     const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
-    return new Blob([buf],{type:guessMime(it.title,it.mime)})}
+    return new Blob([buf],{type:guessMime(it.title,it.mime)})}catch(e){if(!it.chunks)throw e}}
   say('Preparazione del file…');
   const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
@@ -155,7 +155,7 @@ function preview(it){
     extra:[{label:()=>lab(!!(byId(it.id)||it).star),fn:async b=>{const cur0=byId(it.id)||it,was=!!cur0.star;if(await toggleStar(cur0))b.textContent=lab(!was)}}]})}
 async function upTg(file){
   const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
-  const r=await tgSendFile(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'});
+  const r=await tgSendFile(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'},'auto',undefined,await tgTopic(TG_FILES,SEC));
   return r.id}
 async function download(it){
   const p=$('#prog');p.style.display='block';p.textContent='Preparazione del file…';
@@ -181,6 +181,7 @@ function moreModal(it){
   if(w){b.push({label:it.star?'Togli dai file importanti':'Aggiungi ai file importanti',cls:'ghost',fn:()=>{toggleStar(it)}});
     if(it.kind==='text')b.push({label:'Modifica',cls:'ghost',fn:()=>{setTimeout(()=>editText(it),0)}});
     if(it.kind==='file')b.push({label:it.scadenza?'Scadenza…':'Imposta scadenza',cls:'ghost',fn:()=>{setTimeout(()=>scadModal(it),0)}});
+    b.push({label:it.fb?'Togli da Firebase':'Salva anche su Firebase',cls:'ghost',fn:()=>{setTimeout(()=>fbSet(it,!it.fb),0)}});
     b.push({label:'Rinomina',cls:'ghost',fn:()=>{setTimeout(()=>renameModal(it),0)}});
     b.push({label:'Sposta',cls:'ghost',fn:()=>{setTimeout(()=>moveModal(it),0)}});
     b.push({label:'Elimina',cls:'ghost',fn:()=>{setTimeout(()=>delModal(it),0)}})}
@@ -199,13 +200,16 @@ function noteModal(it){const w=canW();
 function newDir(){
   modal('Nuova cartella','<label for="n" style="margin-top:0">Nome</label><input id="n" type="text">',[cancel,{label:'Crea',fn:async o=>{const n=o.querySelector('#n').value.trim();if(!n)return merr(o,'Inserisci un nome.');
     try{await mkFolder(n,cur)}catch(e){return merr(o,'Creazione non riuscita.')}}}])}
-const mkFolder=(name,parent)=>addDoc(col,{title:name,kind:'folder',parent,note:'',by:uid,at:serverTimestamp()});
+/* "Salva anche su Firebase": vale per i contenuti creati mentre la casella è spuntata (fb:true = copia su Firebase) */
+let fbNew=false;
+const fbx=()=>fbNew?{fb:true}:{};
+const mkFolder=(name,parent)=>addDoc(col,{title:name,kind:'folder',parent,note:'',by:uid,at:serverTimestamp(),...fbx()});
 function editText(it){const w=canW();
   modal(it?it.title:'Nuova nota .txt',`<label for="n" style="margin-top:0">Nome file</label><input id="n" type="text" value="${esc(it?it.title:'note.txt')}" ${it&&!w?'readonly':''}><label for="tx">Testo</label><textarea id="tx" ${w?'':'readonly'}>${esc(it?it.text:'')}</textarea>`,
     w?[cancel,{label:'Salva',fn:async o=>{let n=o.querySelector('#n').value.trim();if(!n)return merr(o,'Inserisci un nome.');if(!/\.txt$/i.test(n))n+='.txt';
       const text=o.querySelector('#tx').value;
       try{if(it)await updateDoc(doc(db,'sections',SEC,'items',it.id),{title:n,text,size:text.length});
-        else await addDoc(col,{title:n,kind:'text',parent:cur,text,size:text.length,mime:'text/plain',note:'',by:uid,at:serverTimestamp()})}catch(e){return merr(o,'Salvataggio non riuscito.')}}}]:[{label:'Chiudi'}])}
+        else await addDoc(col,{title:n,kind:'text',parent:cur,text,size:text.length,mime:'text/plain',note:'',by:uid,at:serverTimestamp(),...fbx()})}catch(e){return merr(o,'Salvataggio non riuscito.')}}}]:[{label:'Chiudi'}])}
 function renameModal(it){
   modal('Rinomina',`<label for="n" style="margin-top:0">Nuovo nome</label><input id="n" type="text" value="${esc(it.title)}">`,[cancel,{label:'Rinomina',fn:async o=>{const n=o.querySelector('#n').value.trim();if(!n)return merr(o,'Inserisci un nome.');
     try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{title:n})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
@@ -223,12 +227,31 @@ function delModal(it){
       if(x.kind==='file'&&x.chunks)await Promise.all(Array.from({length:x.chunks},(_,k)=>deleteDoc(doc(db,'sections',SEC,'items',x.id,'chunks','c'+k)).catch(()=>{})));
       await deleteDoc(doc(db,'sections',SEC,'items',x.id))}))}catch(e){return merr(o,'Eliminazione non riuscita.')}}}])}
 
+async function putChunks(id,file){
+  const n=Math.max(1,Math.ceil(file.size/CH)),cc=collection(db,'sections',SEC,'items',id,'chunks');
+  try{for(let k=0;k<n;k++){const buf=new Uint8Array(await file.slice(k*CH,(k+1)*CH).arrayBuffer());await setDoc(doc(cc,'c'+k),{i:k,data:Bytes.fromUint8Array(buf)})}return n}
+  catch(e){await Promise.all(Array.from({length:n},(_,k)=>deleteDoc(doc(cc,'c'+k)).catch(()=>{})));throw e}}
+/* Aggiunge o toglie la copia su Firebase di un contenuto (per i file copia anche il contenuto, fino a 20 MB) */
+async function fbSet(it,on){
+  const p=$('#prog'),say=t=>{p.style.display='block';p.textContent=t},ref=doc(db,'sections',SEC,'items',it.id);
+  try{
+    if(!on){
+      if(it.chunks&&it.tg){say('Rimozione della copia su Firebase…');await Promise.all(Array.from({length:it.chunks},(_,k)=>deleteDoc(doc(db,'sections',SEC,'items',it.id,'chunks','c'+k)).catch(()=>{})));await updateDoc(ref,{fb:false,chunks:deleteField()})}
+      else await updateDoc(ref,{fb:false})}
+    else if(it.kind==='file'&&it.tg&&!it.chunks){
+      if(it.size>MAX){modal('File troppo grande','<div class="mu">Su Firebase si possono copiare file fino a 20 MB. Questo resta solo su Telegram.</div>',[{label:'Chiudi'}]);p.style.display='none';return}
+      const b=await getBlob(it,say);say('Copia su Firebase…');const n=await putChunks(it.id,b);await updateDoc(ref,{fb:true,chunks:n})}
+    else await updateDoc(ref,{fb:true});
+    p.style.display='none'
+  }catch(e){p.style.display='none';console.error(e);modal('Operazione non riuscita','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 async function up1(file,parent){
   const th=await makeThumb(file,file.name,file.type),tx=th?{thumb:th}:{};
   if(tgConfigured()){
     if(file.size>MAX_TG)throw new Error('size');
     const id=await upTg(file);
-    await addDoc(col,{title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',tg:id,note:'',by:uid,at:serverTimestamp(),...tx});return}
+    const base={title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',tg:id,note:'',by:uid,at:serverTimestamp(),...tx};
+    if(fbNew&&file.size<=MAX){const dref=doc(col),n=await putChunks(dref.id,file);await setDoc(dref,{...base,chunks:n,fb:true});return}
+    await addDoc(col,{...base,...fbx()});return}
   if(file.size>MAX)throw new Error('size');
   const dref=doc(col),n=Math.max(1,Math.ceil(file.size/CH)),cc=collection(db,'sections',SEC,'items',dref.id,'chunks');
   try{for(let k=0;k<n;k++){const buf=new Uint8Array(await file.slice(k*CH,(k+1)*CH).arrayBuffer());await setDoc(doc(cc,'c'+k),{i:k,data:Bytes.fromUint8Array(buf)})}
