@@ -60,6 +60,7 @@ import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc
 
 import {firebaseConfig} from "./firebase-config.js";
 import {inScadenza} from "./scadenze.js";
+import {testDaFare} from "./atleti-scadenze.js";
 import {archiviato,zona,archiviaScaduti} from "./conservazione.js";
 
 /* Home organizzata per gruppi. SEC (elenco piatto) resta la base di permessi, ricerca e tabella account */
@@ -125,9 +126,10 @@ const groupHtml=g=>g[1].every(s=>perm(s)==='n')?'':`<h3 class="gt">${esc(g[0])}<
 function alertsHtml(){
   const a=[];
   if(perm('Documenti in scadenza')!=='n'){const n=count('Documenti in scadenza');if(n)a.push(['Documenti in scadenza',n+(n===1?' documento in scadenza':' documenti in scadenza')])}
+  if(perm('Atleti')!=='n'){const n=(items.atleti||[]).filter(testDaFare).length;if(n)a.push(['Atleti',n+(n===1?' atleta con test da fare':' atleti con test da fare')])}
   if(perm('Archivio')!=='n'){const k=(items.documenti||[]).filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
   return a.length?`<div class="card alert" role="status"><h2>Da controllare</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><b>${esc(t)}</b><div class="mu">Apri ${esc(s)}</div></button>`).join('')}</div>`:''}
-function tile(s){const p=perm(s),n=count(s),ver=key(s)==='archivio'?(items.documenti||[]).filter(i=>zona(i)==='verifica').length:0,hot=p!=='n'&&key(s)==='documenti-in-scadenza'&&n>0;return`<button class="tile${hot?' alarm':''}" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n+(hot?' in scadenza':'')+(ver?' · '+ver+' da verificare':''):''}</span></button>`}
+function tile(s){const p=perm(s),n=count(s),ver=key(s)==='archivio'?(items.documenti||[]).filter(i=>zona(i)==='verifica').length:0,nt=key(s)==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,hot=p!=='n'&&((key(s)==='documenti-in-scadenza'&&n>0)||nt>0);return`<button class="tile${hot?' alarm':''}" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n+(hot&&!nt?' in scadenza':'')+(nt?' · '+nt+' test da fare':'')+(ver?' · '+ver+' da verificare':''):''}</span></button>`}
 function bindTiles(){document.querySelectorAll('.tile:not([disabled])').forEach(t=>t.onclick=()=>{location.href=page(t.dataset.s)})}
 function adminView(){
   const adminsLeft=accounts.filter(a=>a.admin).length;
