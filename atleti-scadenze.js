@@ -33,3 +33,10 @@ export function testStato(i){
   return {data:d,g,due:g<=pre,late:g<0}}
 export const testDaFare=i=>{const s=i&&testStato(i);return !!s&&s.due};
 export const testTesto=g=>g===null?'':g<0?'in ritardo di '+(-g)+(g===-1?' giorno':' giorni'):g===0?'oggi':g===1?'domani':'tra '+g+' giorni';
+
+/* Eventi: scadenza di iscrizione (o hotel) entro 10 giorni, evento non chiuso né concluso (usato dalla Home) */
+export const eventoInScadenza=(ev,gg=10)=>{
+  if(!ev||ev.kind!=='evento'||ev.chiuso)return false;
+  if(isD(ev.data)&&giorni(ev.data)<0)return false;
+  const u=d=>isD(d)&&giorni(d)>=0&&giorni(d)<=gg;
+  return u(ev.scadReg)||(!!ev.hotel&&u(ev.scadHotel))};
