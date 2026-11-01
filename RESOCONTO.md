@@ -19,6 +19,20 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (01/11) – EVENTI
+- Sezione Eventi (eventi.html + eventi.js). Solo l'ADMIN crea, modifica ed elimina gli eventi (pulsante "+ Nuovo evento"); tutti gli account con accesso a Eventi li vedono.
+- Evento: nome, categoria (Seminario, Gara, Allenamento, Altro), data, scadenza registrazione, "è previsto un hotel" + scadenza registrazione hotel, quota di partecipazione (€), documento (file, su Telegram come nelle altre sezioni), nota per gli atleti.
+- Elenco: schede Tutti / Seminari / Gare / Allenamenti / Altro, mostrate SOLO se hanno eventi. Prossimi in ordine di data, poi "Passati". Su ogni evento: stato dell'atleta (Partecipo / Non partecipo / Da rispondere), avviso quando la scadenza di iscrizione è entro 7 giorni o già chiusa; per l'admin il numero di iscritti.
+- Atleta (qualsiasi account con accesso a Eventi): in scheda sceglie "Partecipo" / "Non partecipo" (bloccato dopo la scadenza di registrazione, a evento concluso o se l'admin ha chiuso l'evento); se è una GARA e partecipa indica il peso previsto; se partecipa carica la copia del bonifico (immagine o PDF, max 20 MB). Finché non è verificata può togliere la copia. NON serve Telegram.
+- Firebase per chi non ha Telegram: l'evento e il suo documento sono salvati su Telegram e in copia su Firebase (fb:true; documenti oltre 20 MB solo su Telegram); la modalità di pagamento ha la stessa copia; iscrizioni e bonifici stanno SOLO su Firebase (raccolta iscrizioni, documento <idEvento>_<uidAtleta>, bonifici a blocchi in iscrizioni/<id>/chunks, elenco in bonifici[]). Servono le NUOVE regole di firestore.rules (pubblicarle): l'atleta scrive solo la propria iscrizione, solo l'admin può segnare pagatoOk ed eliminare.
+- Avviso rosso: l'evento con scadenza di iscrizione (o hotel) entro 10 giorni è segnato in rosso nell'elenco (bordo e chip); dopo la scadenza il chip torna neutro (ALERT_GG in eventi.js).
+- Chiudi iscrizioni (admin): senza eliminare l'evento, con motivo (Sold out, Iscrizioni complete, Altro motivo + dettaglio). L'evento resta in elenco con chip "Chiuso", i dati restano, gli atleti non possono più iscriversi né cambiare risposta; "Riapri iscrizioni" lo ripristina (campi chiuso, chiusoMotivo).
+- Resoconto iscritti (solo admin, dentro la scheda dell'evento): partecipano / non partecipano / senza risposta (account con accesso a Eventi che non hanno risposto), peso previsto per le gare ("peso mancante" se assente), bonifici caricati (apribili), pulsante "Segna come verificato" per ogni atleta, quota attesa (quota x partecipanti), scarico CSV.
+- "Come pagare" (in alto e nella scheda): finestra con le modalità di pagamento; la scrive solo l'admin (sections/eventi/meta/pagamenti), la leggono tutti.
+- Dati (sections/eventi/items): evento = kind:'evento' (nome, cat, data, scadReg, hotel, scadHotel, quota, nota, docId, title, note); iscrizione = documento Firebase iscrizioni/<idEvento>_<uidAtleta> (evento, uid, nome, partecipa si|no, peso, pagatoOk, bonifici[]) - un documento per atleta, così due atleti non si sovrascrivono; documento dell'evento = kind:'file' con evento e ruolo 'doc'.
+- Home: index.html non conta né cerca le iscrizioni e i file degli eventi (conta solo gli eventi). Permessi: agli atleti basta "Lettura" su Eventi (rispondono e caricano il bonifico anche senza Telegram, grazie alle nuove regole).
+- Riservatezza: le iscrizioni stanno su Firebase e le regole fanno vedere a ogni atleta solo le proprie (l'admin vede tutto).
+
 ## NOVITÀ (01/11) – ATLETI
 - Sezione Atleti (atleti.html + atleti.js + atleti-scadenze.js), basata sulle 2 schede dell'academy (tecnica e fisica). I dati anagrafici sono scritti una sola volta. Modulo chiuso apribile con "+", in 4 gruppi: Dati anagrafici (Nome, Cognome, Sesso, Anno di nascita, Grado, Categoria, Peso, Altezza, Allenatore, ID atleta, Agonista/Dilettante) · Scheda tecnica (Kumi kata, Tachi waza, Ne waza, Richieste) · Scheda fisica (cadenza test, prossimo test, preavviso, Conclusioni) · Obiettivi, Infortuni, Certificato medico, Note.
 - Dalla scheda dell'atleta (tocco sulla riga): Medagliere (data, gara, risultato; conteggio 🥇🥈🥉), Monitoraggio test (una colonna per rilevazione, una riga per test) (l'SJFT è un test della lista come gli altri: se il test si chiama SJFT compaiono i campi lanci serie A/B/C e FC subito/dopo 1', e l'indice = (FC1+FC2)/lanci totali si scrive nel risultato).
@@ -91,7 +105,7 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 
 ## FILE (tutti nella cartella principale del repository)
 Pagine: index, documenti, documenti-in-scadenza, archivio, mail, file-importanti, lezioni, tecnici, atleti, eventi, video, foto, commercialista, chat, migra, telegram-test, test-config (.html)
-Codice: fsx.js (registro su Telegram + copia Firebase), documenti.js, importanti.js, lezioni.js, tecnici.js, atleti.js, atleti-scadenze.js, in-scadenza.js, scadenze.js, conservazione.js, archivio-pagina.js, migra.js, sezione.js (sezioni generiche), archivio.js (salva/leggi/elimina file), file-tools.js (anteprima, ZIP, miniature), promemoria.js, telegram.js, stile.css
+Codice: fsx.js (registro su Telegram + copia Firebase), documenti.js, importanti.js, lezioni.js, tecnici.js, atleti.js, atleti-scadenze.js, eventi.js, in-scadenza.js, scadenze.js, conservazione.js, archivio-pagina.js, migra.js, sezione.js (sezioni generiche), archivio.js (salva/leggi/elimina file), file-tools.js (anteprima, ZIP, miniature), promemoria.js, telegram.js, stile.css
 Configurazione: firebase-config.js (compilato), telegram-config.js (compilato), mail-config.js (da compilare con l'indirizzo /exec di Apps Script)
 Altro: ponte-mail.gs (da incollare in Apps Script), logo-yanagi.png, firestore.rules, .github/workflows/build-telegram.yml
 Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
@@ -100,7 +114,7 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 0. MIGRAZIONE: dopo aver verificato che un documento vecchio si apra ancora e che la Chat funzioni, aprire migra.html (admin, con Telegram collegato) e premere Avvia: porta su Telegram tutto quello che è su Firebase e crea gli argomenti mancanti. Poi provare le sezioni una alla volta (Tecnici per prima). Se compare un argomento duplicato controllare i nomi (devono coincidere con le sezioni).
 1. Mail (da fare dal computer): in script.google.com con l'account Gmail dell'ASD incollare ponte-mail.gs, eseguire `autorizza`, distribuire come App web (Esegui come: me; Accesso: Chiunque), copiare l'indirizzo /exec in mail-config.js. Poi provare lettura, risposta e allegati. Limite Apps Script: circa 100 destinatari al giorno per account personali.
 2. Provare dal vivo: Documenti con Telegram (upload/download), stelle, File importanti, anteprima e ZIP, miniature, Lezioni con allegati, promemoria in tutte le sezioni.
-3. Configurare le altre sezioni (ora generiche: elenco titolo + nota): Eventi, Video, Foto, Commercialista (scheda da definire). (Tecnici e Atleti fatti.)
+3. Configurare le altre sezioni (ora generiche: elenco titolo + nota): Video, Foto, Commercialista (scheda da definire). (Tecnici, Atleti ed Eventi fatti.)
 4. Verificare Firebase: Authentication email/password attivo, dominio yanagiacademy.github.io autorizzato, primo admin (users/<UID> con name, email, admin:true, perms vuoto).
 
 ## LIMITI NOTI
