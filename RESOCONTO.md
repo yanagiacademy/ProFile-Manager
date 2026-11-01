@@ -1,4 +1,4 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 31/10/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 01/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
@@ -8,8 +8,9 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## DECISIONI
 - Hosting: GitHub Pages (https://yanagiacademy.github.io), repository separato da quello di gare.html. Nomi dei file senza prefisso.
 - Backend: Firebase (Authentication email/password + Firestore). Moduli ES da CDN gstatic v10.12.2, niente npm. Permessi applicati dal server con firestore.rules. Firebase Storage NON usato (richiede Blaze).
-- Chat: gruppo Telegram vero "Chat ProFile Maker", accesso col proprio numero di telefono (GramJS). Pagina chat.html.
-- File (Documenti, Lezioni): gruppo Telegram privato "Documenti ProFile Maker" (TG_FILES), limite 500 MB a file; in Firestore resta solo la scheda del file. Senza Telegram: blocchi in Firestore (max 20 MB).
+- Telegram: UN SOLO gruppo "YA ProFile Maker" con ARGOMENTI (TG_GROUP = TG_FILES). La Chat usa l'argomento Chat (ex General); ogni sezione ha il suo argomento (Documenti, File importanti, Lezioni, Atleti, Tecnici, Eventi, Video, Foto, Commercialista, Mail, Archivio). Accesso col proprio numero di telefono (GramJS), oppure senza codice con conferma dall'app Telegram (chat.html).
+- Contenuti: TUTTO su Telegram (schede, elenchi, note, promemoria di pagina, file); Firebase solo per account/permessi e come copia facoltativa per singolo contenuto (casella "Salva anche su Firebase"). Dettagli nelle sezioni NOVITÀ qui sotto.
+- File (Documenti, Lezioni): nel gruppo "YA ProFile Maker", argomento della sezione, limite 500 MB a file. La scheda del file sta nel registro Telegram (fsx.js). Senza Telegram configurato: tutto su Firebase come prima (blocchi max 20 MB).
 - Mail: Gmail dell'ASD (account personale) condiviso tramite un "ponte" Google Apps Script: le persone entrano solo col login della suite, non vedono mai la password di Gmail.
 - Promemoria di 2 tipi in ogni sezione: "Questa pagina" (modificabile da chi ha la scrittura) e "Tutte le pagine" (uguale in tutta la suite, modificabile solo dall'admin).
 - Preferenza: non aggiornare i numeri di versione nei file dei progetti.
@@ -17,6 +18,14 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (01/11) – ATLETI
+- Sezione Atleti (atleti.html + atleti.js + atleti-scadenze.js), basata sulle 2 schede dell'academy (tecnica e fisica). I dati anagrafici sono scritti una sola volta. Modulo chiuso apribile con "+", in 4 gruppi: Dati anagrafici (Nome, Cognome, Sesso, Anno di nascita, Grado, Categoria, Peso, Altezza, Allenatore, ID atleta, Agonista/Dilettante) · Scheda tecnica (Kumi kata, Tachi waza, Ne waza, Richieste) · Scheda fisica (cadenza test, prossimo test, preavviso, Conclusioni) · Obiettivi, Infortuni, Certificato medico, Note.
+- Dalla scheda dell'atleta (tocco sulla riga): Medagliere (data, gara, risultato; conteggio 🥇🥈🥉), Monitoraggio test (una colonna per rilevazione, una riga per test) (l'SJFT è un test della lista come gli altri: se il test si chiama SJFT compaiono i campi lanci serie A/B/C e FC subito/dopo 1', e l'indice = (FC1+FC2)/lanci totali si scrive nel risultato).
+- Tipi di test MODIFICABILI: in "Nuova rilevazione" si cambia il nome di un test (es. Beep test al posto del test di Cooper), si aggiungono e si tolgono righe; la lista scelta resta per le rilevazioni successive di quell'atleta. Predefiniti: CMJ, 1RM p.piana+squat, Sprint 30m, Illinois Agility test, Test di Cooper, SJFT.
+- CADENZA TEST e ALERT: cadenza "ogni N settimane/mesi" + data "Prossimo test" (data alert). Se la data è vuota si calcola da sola (ultimo test + cadenza); ogni nuova rilevazione la ricalcola. Dalla data alert (meno i giorni di preavviso, se impostati) l'atleta risulta "Test da fare" (rosso nell'elenco), la tessera Atleti nella Home diventa rossa ("N test da fare") e compare nel riquadro "Da controllare". Filtro "Test da fare" nell'elenco.
+- Dati: sections/atleti/items/<id>: nome, cognome, sesso, anno, grado, categoria, peso, altezza, allenatore, idAtl, tipo (agonista|dilettante), kumi, tachi, ne, richieste, obiettivi, infortuni, certScad, annotazioni, conclusioni, cadN, cadU (s|m), preavviso, prossimo, testTipi[], test[{id,data,r[{n,v,sj?}]}], medaglie[{id,data,gara,posto}], title, note.
+- File nuovi/modificati: atleti.html, atleti.js, atleti-scadenze.js (nuovo), index.html (import + tessera rossa + "Da controllare"). Firestore rules: nessuna modifica. Foto dell'atleta non ancora presente.
 
 ## NOVITÀ (31/10) – TUTTO SU TELEGRAM (Firebase facoltativo)
 - Ogni contenuto di ogni sezione (schede Tecnici/Atleti/Eventi/Lezioni, cartelle, note, elenchi, promemoria di pagina, oltre ai file) è salvato su Telegram. Firebase resta per account/permessi (users, app, promemoria generale) e come COPIA FACOLTATIVA per singolo contenuto (campo fb:true).
@@ -77,22 +86,25 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 
 ## LIBRERIA TELEGRAM (problema risolto)
 - GramJS da CDN (esm.sh, jsDelivr) NON funziona nel browser. Soluzione: workflow GitHub Actions "Crea libreria Telegram" (.github/workflows/build-telegram.yml, avvio a mano da Actions -> Run workflow) che compila GramJS con esbuild e salva telegram-lib.js nella cartella principale. telegram.js lo carica per primo.
+- INCIDENTE 31/10: il codice di accesso Telegram non arrivava più (timeout verso il data center, poi codice "inviato" ma mai consegnato). RISOLTO ricreando telegram-lib.js: GitHub -> Actions -> "Crea libreria Telegram" -> Run workflow. In caso di problemi di accesso: 1) rilanciare il workflow, 2) aprire telegram-test.html (controlla tutti i 5 data center), 3) usare "Conferma dall'app Telegram (senza codice)" nella Chat. test-config.html verifica che telegram-config.js online sia quello giusto. Chi non ha la SIM non riceve SMS/chiamate: il codice arriva solo nell'app Telegram.
 - Accesso a Telegram scritto a mano (sendCode + SignIn + password 2FA). Il codice arriva come messaggio nell'app Telegram. Sessione in localStorage ('tg_session'), condivisa tra Chat, Documenti, File importanti e Lezioni.
 
 ## FILE (tutti nella cartella principale del repository)
-Pagine: index, documenti, mail, file-importanti, lezioni, tecnici, atleti, eventi, video, foto, chat, telegram-test (.html)
-Codice: documenti.js, importanti.js, lezioni.js, tecnici.js, in-scadenza.js, scadenze.js, conservazione.js, archivio-pagina.js, sezione.js (sezioni generiche), archivio.js (salva/leggi/elimina file), file-tools.js (anteprima, ZIP, miniature), promemoria.js, telegram.js, stile.css
+Pagine: index, documenti, documenti-in-scadenza, archivio, mail, file-importanti, lezioni, tecnici, atleti, eventi, video, foto, commercialista, chat, migra, telegram-test, test-config (.html)
+Codice: fsx.js (registro su Telegram + copia Firebase), documenti.js, importanti.js, lezioni.js, tecnici.js, atleti.js, atleti-scadenze.js, in-scadenza.js, scadenze.js, conservazione.js, archivio-pagina.js, migra.js, sezione.js (sezioni generiche), archivio.js (salva/leggi/elimina file), file-tools.js (anteprima, ZIP, miniature), promemoria.js, telegram.js, stile.css
 Configurazione: firebase-config.js (compilato), telegram-config.js (compilato), mail-config.js (da compilare con l'indirizzo /exec di Apps Script)
 Altro: ponte-mail.gs (da incollare in Apps Script), logo-yanagi.png, firestore.rules, .github/workflows/build-telegram.yml
 Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 
 ## DA FARE
+0. MIGRAZIONE: dopo aver verificato che un documento vecchio si apra ancora e che la Chat funzioni, aprire migra.html (admin, con Telegram collegato) e premere Avvia: porta su Telegram tutto quello che è su Firebase e crea gli argomenti mancanti. Poi provare le sezioni una alla volta (Tecnici per prima). Se compare un argomento duplicato controllare i nomi (devono coincidere con le sezioni).
 1. Mail (da fare dal computer): in script.google.com con l'account Gmail dell'ASD incollare ponte-mail.gs, eseguire `autorizza`, distribuire come App web (Esegui come: me; Accesso: Chiunque), copiare l'indirizzo /exec in mail-config.js. Poi provare lettura, risposta e allegati. Limite Apps Script: circa 100 destinatari al giorno per account personali.
 2. Provare dal vivo: Documenti con Telegram (upload/download), stelle, File importanti, anteprima e ZIP, miniature, Lezioni con allegati, promemoria in tutte le sezioni.
-3. Configurare le altre sezioni (ora generiche: elenco titolo + nota): Atleti, Eventi, Video, Foto. (Tecnici fatto.)
+3. Configurare le altre sezioni (ora generiche: elenco titolo + nota): Eventi, Video, Foto, Commercialista (scheda da definire). (Tecnici e Atleti fatti.)
 4. Verificare Firebase: Authentication email/password attivo, dominio yanagiacademy.github.io autorizzato, primo admin (users/<UID> con name, email, admin:true, perms vuoto).
 
 ## LIMITI NOTI
+- Con i dati su Telegram i permessi per sezione li applica solo l'app (non più Firebase): chi è nel gruppo può leggere tutto. L'eliminazione bloccata dei documenti in conservazione (10 anni) vale nell'app; su Telegram si può sempre cancellare a mano. Telegram diventa necessario per leggere e modificare (senza accesso si vedono in sola lettura solo i contenuti con la copia su Firebase).
 - La sessione Telegram dà accesso a tutto l'account: avvisare gli utenti (Impostazioni -> Dispositivi per revocare). La Chat ha "Esci dalla chat".
 - Se il repository è pubblico, api_hash è visibile: Telegram può bloccare credenziali pubbliche (API_ID_PUBLISHED_FLOOD).
 - File su Telegram: i permessi dell'app non li proteggono (conta il gruppo); nessuna garanzia di conservazione; limite 500 MB per la memoria del browser. Cartelle intere: da computer sì, da telefono poco.
