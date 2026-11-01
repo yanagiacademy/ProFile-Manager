@@ -19,6 +19,15 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (01/11) – TESSERE
+- Sezione Tessere (tessere.html + tessere.js), gruppo Persone nella Home (nuova voce nei permessi: "Scrittura" modifica, "Lettura" vede e scarica). Pagina = LISTA DEGLI ATLETI (presa dalla sezione Atleti) con lo stato di tessera e certificato medico; un record per atleta (sections/tessere/items/<idAtleta>, kind:'tessera': ente, numero, emissione, scadenza, certTipo, certScad, nota, tesFile, certFile). Filtri: Tutti / In scadenza o scadute / Senza tessera / Regolari. Ordine: prima gli atleti in scadenza.
+- Tessera: ente, numero (ID tessera), emissione, scadenza + file (foto o PDF). Certificato medico: tipo (agonistico / non agonistico), scadenza + file. TUTTI i campi sono modificabili; scegliendo un nuovo file la tessera (o il certificato) viene SOSTITUITA (il vecchio file si toglie solo dopo il caricamento riuscito); c'è anche "Togli la tessera / il certificato caricato". Dalla scheda "Scarica" e "Apri" per chi ha accesso (file su Telegram, copia su Firebase fb:true per chi non ha Telegram).
+- LETTURA AUTOMATICA (OCR nel browser, gratuita, Tesseract.js 5.1.1 da jsdelivr, lingua italiana): scegliendo la foto si compilano ente, numero, emissione, scadenza (e l'atleta, se il nome è nella lista; altrimenti propone "nuovo atleta" se hai la Scrittura su Atleti). Per il certificato legge scadenza e tipo. I dati vanno sempre controllati prima di salvare; una scadenza dedotta (senza etichetta "scadenza") è segnalata. Funziona sulle FOTO, non sui PDF. Serve internet; la prima volta scarica il dizionario italiano.
+- ALERT 30 GIORNI: tessera o certificato scaduti o con scadenza entro 30 giorni = riga dell'atleta rossa nella lista Tessere; la tessera Tessere nella Home diventa rossa ("N in scadenza") e compare in "Da controllare" (tesseraAlert / scadStato in atleti-scadenze.js).
+- CSV e PDF della lista (pulsanti in alto): rispettano filtro e ricerca; colonne cognome, nome, ID tessera, ente, emissione, scadenza tessera e stato, tipo e scadenza certificato e stato. Il PDF usa jsPDF 2.5.1 + autoTable 3.8.2 da cdnjs (serve internet).
+- ATLETI: tolto l'alert del certificato medico e il campo manuale della scadenza (ora gestiti da Tessere). Nella lista compare "Tesserato · ID tessera" e nella scheda "Tessera e certificato medico" con ID tessera, ente e scadenze, aggiornati in automatico dalla sezione Tessere (se si sostituisce la tessera, cambiano da soli). Cercando un ID tessera si trova l'atleta. L'alert dei TEST resta in Atleti. Il vecchio campo certScad degli atleti già salvati viene ignorato.
+- Home: i file di tessere/certificati (campo tesAtl) non vengono contati né cercati. Firestore rules: nessuna modifica (sezione generica).
+
 ## NOVITÀ (01/11) – EVENTI
 - Sezione Eventi (eventi.html + eventi.js). Solo l'ADMIN crea, modifica ed elimina gli eventi (pulsante "+ Nuovo evento"); tutti gli account con accesso a Eventi li vedono.
 - Evento: nome, categoria (Seminario, Gara, Allenamento, Altro), data, scadenza registrazione, "è previsto un hotel" + scadenza registrazione hotel, quota di partecipazione (€), documento (file, su Telegram come nelle altre sezioni), nota per gli atleti.
@@ -105,7 +114,7 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 
 ## FILE (tutti nella cartella principale del repository)
 Pagine: index, documenti, documenti-in-scadenza, archivio, mail, file-importanti, lezioni, tecnici, atleti, eventi, video, foto, commercialista, chat, migra, telegram-test, test-config (.html)
-Codice: fsx.js (registro su Telegram + copia Firebase), documenti.js, importanti.js, lezioni.js, tecnici.js, atleti.js, atleti-scadenze.js, eventi.js, in-scadenza.js, scadenze.js, conservazione.js, archivio-pagina.js, migra.js, sezione.js (sezioni generiche), archivio.js (salva/leggi/elimina file), file-tools.js (anteprima, ZIP, miniature), promemoria.js, telegram.js, stile.css
+Codice: fsx.js (registro su Telegram + copia Firebase), documenti.js, importanti.js, lezioni.js, tecnici.js, atleti.js, atleti-scadenze.js, eventi.js, tessere.js, in-scadenza.js, scadenze.js, conservazione.js, archivio-pagina.js, migra.js, sezione.js (sezioni generiche), archivio.js (salva/leggi/elimina file), file-tools.js (anteprima, ZIP, miniature), promemoria.js, telegram.js, stile.css
 Configurazione: firebase-config.js (compilato), telegram-config.js (compilato), mail-config.js (da compilare con l'indirizzo /exec di Apps Script)
 Altro: ponte-mail.gs (da incollare in Apps Script), logo-yanagi.png, firestore.rules, .github/workflows/build-telegram.yml
 Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)

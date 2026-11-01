@@ -60,11 +60,11 @@ import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc
 
 import {firebaseConfig} from "./firebase-config.js";
 import {inScadenza} from "./scadenze.js";
-import {testDaFare,eventoInScadenza} from "./atleti-scadenze.js";
+import {testDaFare,eventoInScadenza,tesseraAlert} from "./atleti-scadenze.js";
 import {archiviato,zona,archiviaScaduti} from "./conservazione.js";
 
 /* Home organizzata per gruppi. SEC (elenco piatto) resta la base di permessi, ricerca e tabella account */
-const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio']],['Persone',['Tecnici','Atleti']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
+const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio']],['Persone',['Tecnici','Atleti','Tessere']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
 const SEC=GROUPS.flatMap(g=>g[1]);
 const key=s=>s.toLowerCase().replace(/\s+/g,'-');
 const $=s=>document.querySelector(s),app=$('#app');
@@ -72,7 +72,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',unsubs=[],unsubUsers=null,unsubMe=null;
 const page=s=>key(s)+'.html';
 const perm=s=>me?(me.admin?'w':((me.perms||{})[key(s)]||'n')):'n';
-const allItems=()=>SEC.flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s}))).filter(i=>!i.lesson&&!i.evento&&(!i.archiviatoIl||perm('Archivio')!=='n')).map(i=>i.archiviatoIl?{...i,sec:'Archivio'}:i);
+const allItems=()=>SEC.flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s}))).filter(i=>!i.lesson&&!i.evento&&!i.tesAtl&&(!i.archiviatoIl||perm('Archivio')!=='n')).map(i=>i.archiviatoIl?{...i,sec:'Archivio'}:i);
 /* File importanti = documenti con la stella (da Documenti) + eventuali voci inserite a mano; Lezioni = solo le lezioni, senza i file allegati */
 const count=s=>{const k=key(s),its=items[k]||[];
   if(k==='file-importanti')return (items.documenti||[]).filter(i=>i.star).length+its.length;
@@ -81,6 +81,7 @@ const count=s=>{const k=key(s),its=items[k]||[];
   if(k==='documenti-in-scadenza')return (items.documenti||[]).filter(inScadenza).length;
   if(k==='lezioni')return its.filter(i=>i.kind!=='file').length;
   if(k==='eventi')return its.filter(i=>i.kind==='evento').length;
+  if(k==='tessere')return its.filter(i=>i.kind==='tessera').length;
   return its.length};
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Apri index.html e incolla i dati del progetto Firebase in firebaseConfig. Poi ricarica la pagina.')}
@@ -128,10 +129,11 @@ function alertsHtml(){
   const a=[];
   if(perm('Documenti in scadenza')!=='n'){const n=count('Documenti in scadenza');if(n)a.push(['Documenti in scadenza',n+(n===1?' documento in scadenza':' documenti in scadenza')])}
   if(perm('Atleti')!=='n'){const n=(items.atleti||[]).filter(testDaFare).length;if(n)a.push(['Atleti',n+(n===1?' atleta con test da fare':' atleti con test da fare')])}
+  if(perm('Tessere')!=='n'){const n=(items.tessere||[]).filter(tesseraAlert).length;if(n)a.push(['Tessere',n+(n===1?' atleta con tessera o certificato in scadenza':' atleti con tessera o certificato in scadenza')])}
   if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(perm('Archivio')!=='n'){const k=(items.documenti||[]).filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
   return a.length?`<div class="card alert" role="status"><h2>Da controllare</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><b>${esc(t)}</b><div class="mu">Apri ${esc(s)}</div></button>`).join('')}</div>`:''}
-function tile(s){const p=perm(s),n=count(s),ver=key(s)==='archivio'?(items.documenti||[]).filter(i=>zona(i)==='verifica').length:0,nt=key(s)==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,ne=key(s)==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,hot=p!=='n'&&((key(s)==='documenti-in-scadenza'&&n>0)||nt>0||ne>0);return`<button class="tile${hot?' alarm':''}" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n+(hot&&!nt&&!ne?' in scadenza':'')+(ne?' · '+ne+' in scadenza':'')+(nt?' · '+nt+' test da fare':'')+(ver?' · '+ver+' da verificare':''):''}</span></button>`}
+function tile(s){const p=perm(s),n=count(s),ver=key(s)==='archivio'?(items.documenti||[]).filter(i=>zona(i)==='verifica').length:0,nt=key(s)==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,ne=key(s)==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,ntes=key(s)==='tessere'?(items.tessere||[]).filter(tesseraAlert).length:0,hot=p!=='n'&&((key(s)==='documenti-in-scadenza'&&n>0)||nt>0||ne>0||ntes>0);return`<button class="tile${hot?' alarm':''}" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n+(hot&&!nt&&!ne&&!ntes?' in scadenza':'')+(ntes?' · '+ntes+' in scadenza':'')+(ne?' · '+ne+' in scadenza':'')+(nt?' · '+nt+' test da fare':'')+(ver?' · '+ver+' da verificare':''):''}</span></button>`}
 function bindTiles(){document.querySelectorAll('.tile:not([disabled])').forEach(t=>t.onclick=()=>{location.href=page(t.dataset.s)})}
 function adminView(){
   const adminsLeft=accounts.filter(a=>a.admin).length;

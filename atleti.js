@@ -12,7 +12,7 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='atleti';
-let auth,db,col,uid=null,me=null,items=[],q='',flt='all',unsubs=[],shellFor='',editing=null,memo=null,detail=null;
+let auth,db,col,uid=null,me=null,items=[],tess=[],q='',flt='all',unsubs=[],shellFor='',editing=null,memo=null,detail=null;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const nameOf=i=>((i.cognome||'')+' '+(i.nome||'')).trim()||i.title||'';
 const lines=s=>String(s||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
@@ -25,11 +25,8 @@ const POSTO={'1':'🥇 1° posto','2':'🥈 2° posto','3':'🥉 3° posto','5':
 const DEF_TEST=['CMJ','1RM p.piana+squat','Sprint 30m','Illinois Agility test','Test di Cooper','SJFT'];
 const cadTxt=i=>+i.cadN>0?'ogni '+(+i.cadN)+(i.cadU==='s'?(+i.cadN===1?' settimana':' settimane'):(+i.cadN===1?' mese':' mesi')):'';
 
-/* Scadenza del certificato medico (30 giorni di preavviso) */
-function statoCert(d){
-  if(!isD(d))return null;
-  const g=giorni(d);
-  return g<0?{k:'bad',t:'scaduto'}:g<=30?{k:'warn',t:'scade tra '+g+' g'}:{k:'ok',t:'valido'}}
+/* Tessera e certificato medico: li gestisce la sezione Tessere (qui si leggono soltanto, senza alert) */
+const tessOf=id=>tess.find(t=>t.atleta===id)||null;
 
 /* Chip di stato del test: rosso quando l'alert è attivo */
 function testChip(i){
@@ -74,7 +71,6 @@ function shell(){
     <fieldset><legend>Obiettivi, monitoraggio e note</legend>
       <label for="ob">Obiettivi</label><textarea id="ob"></textarea>
       <label for="inf">Infortuni</label><textarea id="inf" style="min-height:70px"></textarea>
-      <label for="cm">Certificato medico valido fino al</label><input id="cm" type="date">
       <label for="nt">Note</label><textarea id="nt"></textarea>
       <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="fbk" style="width:auto;min-height:0"> Salva anche su Firebase</label>
     </fieldset>
@@ -90,7 +86,7 @@ function setForm(o){
   const b=$('#fb'),t=$('#ftg');if(!b)return;
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?"Chiudi il modulo dell'atleta":"Apri il modulo dell'atleta")}
 const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grado'],['ct','categoria'],['pe','peso'],['al','altezza'],['at','allenatore'],['ida','idAtl'],['tp','tipo'],
-  ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['cm','certScad'],['nt','annotazioni']];
+  ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['nt','annotazioni']];
 function resetForm(){
   setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');$('#cu').value='m';$('#fbk').checked=false;
   $('#ft').textContent='Nuovo atleta';$('#sv').textContent='Salva atleta';$('#cx').hidden=true;$('#er').textContent=''}
@@ -223,7 +219,7 @@ function paintDetail(){
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?esc(v):'<span class="mu">—</span>'}</dd>`;
   const bl=v=>v?`<div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(v)}</div>`:'<div class="mu">—</div>';
   const ul=s=>{const l=lines(s);return l.length?`<ul class="ls">${l.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<div class="mu">—</div>'};
-  const cs=statoCert(it.certScad),ts=testStato(it);
+  const tt=tessOf(it.id),ts=testStato(it);
   /* test fisici: una colonna per rilevazione (le più recenti), una riga per test */
   const sess=[...(it.test||[])].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,6);
   const tn=[...new Set([...(it.testTipi||DEF_TEST),...sess.flatMap(s=>(s.r||[]).map(r=>r.n))])];
@@ -241,7 +237,8 @@ function paintDetail(){
     <h3>Cadenza dei test</h3><dl>${dd('Cadenza',cadTxt(it))}${dd('Ultimo test',isD(ultimoTest(it))?fmtD(ultimoTest(it)):'')}<dt>Prossimo test</dt><dd>${ts?esc(fmtD(ts.data))+` <span class="chip ${ts.due?'bad':ts.g<=14?'warn':''}">${ts.due?(ts.late?'in ritardo di '+(-ts.g)+' g':'da fare'):testTesto(ts.g)}</span>`:'<span class="mu">— (imposta cadenza o data)</span>'}</dd>${dd('Avviso',+it.preavviso>0?(+it.preavviso)+' giorni prima':'dalla data del test')}</dl>
     <h3>Monitoraggio test${w?'<button class="btn ghost sm" data-a="addT">+ Nuova rilevazione</button>':''}</h3>${tbl}
     <h3>Conclusioni</h3>${bl(it.conclusioni)}
-    <h3>Salute</h3><dl>${dd('Infortuni',it.infortuni)}<dt>Certificato medico</dt><dd>${isD(it.certScad)?esc(fmtD(it.certScad))+(cs?` <span class="chip ${cs.k}">${cs.t}</span>`:''):'<span class="mu">—</span>'}</dd></dl>
+    <h3>Tessera e certificato medico</h3>${tt&&(tt.numero||tt.scadenza||tt.certScad)?`<dl>${dd('ID tessera',tt.numero)}${dd('Ente',tt.ente)}${dd('Scadenza tessera',isD(tt.scadenza)?fmtD(tt.scadenza):'')}${dd('Scadenza certificato medico',isD(tt.certScad)?fmtD(tt.certScad):'')}</dl><div class="mu" style="font-size:.8rem;margin-top:4px">Dati aggiornati in automatico dalla sezione Tessere.</div>`:'<div class="mu">Atleta non ancora tesserato (nessuna tessera nella sezione Tessere).</div>'}
+    <h3>Salute</h3><dl>${dd('Infortuni',it.infortuni)}</dl>
     <h3>Note</h3>${bl(it.annotazioni)}<dl>${dd('Firebase',it.fb?'Salvato anche su Firebase':'Solo su Telegram')}</dl>
     <div class="dact">${w?'<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica dati</button>':''}<button class="btn" data-a="x">Chiudi</button></div>`}
 
@@ -249,7 +246,7 @@ function paintDetail(){
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const t=q.trim().toLowerCase();
-  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,i.idAtl,TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
+  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,i.idAtl,(tessOf(i.id)||{}).numero,TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
   const all=items.filter(i=>i.nome||i.cognome||i.title);
   const ok={all:()=>true,test:testDaFare,agonista:i=>i.tipo==='agonista',dilettante:i=>i.tipo==='dilettante'};
   const list=all.filter(i=>(!t||hay(i).includes(t))&&(ok[flt]||ok.all)(i))
@@ -258,8 +255,8 @@ function renderList(){
   ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="test" ${flt==='test'?'selected':''}>Test da fare (${nd})</option><option value="agonista" ${flt==='agonista'?'selected':''}>Agonisti (${all.filter(ok.agonista).length})</option><option value="dilettante" ${flt==='dilettante'?'selected':''}>Dilettanti (${all.filter(ok.dilettante).length})</option></select></div>`+
   (list.length?list.map(i=>{
     const sub=[i.categoria,i.peso&&i.peso+' kg',i.anno,i.allenatore&&'all. '+i.allenatore].filter(Boolean).join(' · ');
-    const cs=statoCert(i.certScad);
-    return `<button class="tr${testDaFare(i)?' alarm':''}" data-id="${esc(i.id)}" aria-label="Apri la scheda di ${esc(nameOf(i))}"><div class="inf"><div><b>${esc(nameOf(i))}</b>${i.grado?`<span class="gr">${esc(i.grado)}</span>`:''}</div><div class="mu">${esc(sub||'—')}</div></div><div class="chips">${i.tipo?`<span class="chip">${esc(TIPO[i.tipo]||i.tipo)}</span>`:''}${testChip(i)}${cs&&cs.k!=='ok'?`<span class="chip ${cs.k}">Cert.: ${cs.t}</span>`:''}</div></button>`}).join('')
+    const tt=tessOf(i.id);
+    return `<button class="tr${testDaFare(i)?' alarm':''}" data-id="${esc(i.id)}" aria-label="Apri la scheda di ${esc(nameOf(i))}"><div class="inf"><div><b>${esc(nameOf(i))}</b>${i.grado?`<span class="gr">${esc(i.grado)}</span>`:''}</div><div class="mu">${esc(sub||'—')}</div></div><div class="chips">${i.tipo?`<span class="chip">${esc(TIPO[i.tipo]||i.tipo)}</span>`:''}${testChip(i)}${tt&&tt.numero?`<span class="chip ok">Tesserato · ${esc(tt.numero)}</span>`:''}</div></button>`}).join('')
   :`<div class="mu" style="padding:8px 0">${t||flt!=='all'?'Nessun risultato.':'Nessun atleta registrato.'+(perm()==='w'?' Compila il modulo qui sopra.':'')}</div>`);
   $('#fs').onchange=e=>{flt=e.target.value;renderList()};
   if(perm()==='w'){
@@ -279,7 +276,9 @@ else{
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
-      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
+      if(unsubs.length<2){
+        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
+        unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{tess=s.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.kind==='tessera');renderList()},()=>{tess=[]}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });

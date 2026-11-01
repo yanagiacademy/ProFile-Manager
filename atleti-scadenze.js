@@ -40,3 +40,14 @@ export const eventoInScadenza=(ev,gg=10)=>{
   if(isD(ev.data)&&giorni(ev.data)<0)return false;
   const u=d=>isD(d)&&giorni(d)>=0&&giorni(d)<=gg;
   return u(ev.scadReg)||(!!ev.hotel&&u(ev.scadHotel))};
+
+/* Tessere: scadenza della tessera e del certificato medico, avviso a 30 giorni (e se già scaduti) */
+export const GG_TESSERA=30;
+export function scadStato(d,gg=GG_TESSERA){
+  if(!isD(d))return null;
+  const g=giorni(d);
+  return {data:d,g,late:g<0,soon:g>=0&&g<=gg,alert:g<=gg}}
+export const tesseraAlert=t=>{
+  if(!t||t.kind!=='tessera')return false;
+  const a=scadStato(t.scadenza),b=scadStato(t.certScad);
+  return !!((a&&a.alert)||(b&&b.alert))};
