@@ -7,6 +7,7 @@ import {archivio,limiteMB} from "./archivio.js";
 import {showPreview,saveBlob} from "./file-tools.js";
 import {isD,fmtD,scadStato,tesseraAlert} from "./atleti-scadenze.js";
 import {parseTessera,parseCert,scadDaEmissione,ENTI,title} from "./tessere-lettura.js";
+import {archiviaFile} from "./conservazione.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -127,6 +128,14 @@ function renderList(){
   $('#fs').onchange=e=>{flt=e.target.value;renderList()};
   paintDetail()}
 
+/* Un file di tessera o di certificato non si cancella mai: va in Archivio (tipologia "Tessere" o "Certificati medici"), da conservare 10 anni.
+   r = riga con i dati com'erano PRIMA della modifica (servono per il riepilogo scritto in archivio). */
+async function archFile(f,r,ruolo,motivo){
+  if(!f)return;
+  const t=r.t||{},nome=nameOf(r),isT=ruolo==='tessera';
+  const dati=isT?['Tessera',t.ente,t.tipoTessera,t.numero&&'n. '+t.numero,isD(t.scadenza)&&'scadenza '+fmtD(t.scadenza)]:['Certificato medico',t.certTipo,isD(t.certScad)&&'scadenza '+fmtD(t.certScad)];
+  await archiviaFile(db,f,SEC,{tipo:isT?'Tessere':'Certificati medici',origine:'Tessere / '+nome,note:nome+' · '+dati.filter(Boolean).join(' · '),motivo})}
+
 /* ---------- scheda dell'atleta ---------- */
 function openDetail(id){
   if(!rows().find(r=>r.id===id))return;
@@ -146,8 +155,9 @@ function openDetail(id){
       else if(a==='dt'||a==='dc'){const f=fileOf(a==='dt'?r.t.tesFile:r.t.certFile);if(f)await download(f)}
       else if(a==='ot'||a==='oc'){const f=fileOf(a==='ot'?r.t.tesFile:r.t.certFile);if(f)showPreview({title:f.title,mime:f.mime,load:say=>arch.getBlob(f,say),errText:x=>'Impossibile aprire il file: '+arch.errText(x)})}
       else if(a==='del'&&perm()==='w'){
-        if(!confirm('Eliminare la tessera e il certificato di '+nameOf(r)+' (con i file caricati)? L’atleta resta in elenco.'))return;
-        for(const f of items.filter(x=>x.kind==='file'&&x.tesAtl===r.id)){try{await arch.remove(f)}catch(x){console.error(x)}}
+        const ft=fileOf(r.t&&r.t.tesFile),fc=fileOf(r.t&&r.t.certFile);
+        if(!confirm('Eliminare la tessera e il certificato di '+nameOf(r)+'? '+(ft||fc?'I file caricati non vengono cancellati: vanno in Archivio, da conservare 10 anni.':'Non ci sono file caricati da archiviare: i dati scritti vengono eliminati.')+' L’atleta resta in elenco.'))return;
+        await archFile(ft,r,'tessera','scheda eliminata');await archFile(fc,r,'certificato','scheda eliminata');
         await deleteDoc(doc(db,'sections',SEC,'items',r.id));close()}
     }catch(x){console.error(x);alert('Operazione non riuscita. Controlla la connessione e i permessi.')}});
   detail={id,o};document.body.append(o);paintDetail();o.querySelector('[data-a="x"]').focus()}
@@ -183,9 +193,9 @@ function openEdit(r){
       <div id="nw" hidden class="two"><div><label for="nc">Cognome</label><input id="nc" type="text" autocomplete="off"></div><div><label for="nn">Nome</label><input id="nn" type="text" autocomplete="off"></div></div>`}
     </fieldset>
     <fieldset><legend>Tessera</legend>
-      <label for="ft">Copia della tessera (foto o PDF)${ftOld?' — sostituisce quella attuale':''}</label><input id="ft" type="file" accept="image/*,application/pdf">
+      <label for="ft">Copia della tessera (foto o PDF)${ftOld?' — sostituisce quella attuale (che va in Archivio)':''}</label><input id="ft" type="file" accept="image/*,application/pdf">
       <div class="ocr" id="ot">${ftOld?'Caricata: '+esc(ftOld.title)+'.':'Con una foto o un PDF i dati si compilano da soli: poi controllali.'}</div>
-      ${ftOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rt" style="width:auto;min-height:0"> Togli la tessera caricata</label>':''}
+      ${ftOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rt" style="width:auto;min-height:0"> Togli la tessera caricata (va in Archivio)</label>':''}
       <div class="two"><div><label for="en">Ente / federazione</label><input id="en" type="text" list="le" autocomplete="off" value="${esc(t.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="nu">Numero tessera (ID atleta)</label><input id="nu" type="text" autocomplete="off" value="${esc(t.numero||'')}"></div></div>
       <div class="two"><div><label for="tp">Tipo di tessera</label><input id="tp" type="text" autocomplete="off" value="${esc(t.tipoTessera||'')}"></div><div><label for="sg">Stagione</label><input id="sg" type="text" autocomplete="off" placeholder="es. 25/26" value="${esc(t.stagione||'')}"></div></div>
       <div class="two"><div><label for="em">Data emissione / rilascio</label><input id="em" type="date" value="${esc(t.emissione||'')}"></div><div><label for="sc">Scadenza tessera</label><input id="sc" type="date" value="${esc(t.scadenza||'')}"></div></div>
@@ -195,9 +205,9 @@ function openEdit(r){
       <label for="cf">Codice fiscale</label><input id="cf" type="text" autocomplete="off" maxlength="16" value="${esc(t.cf||'')}">
     </fieldset>
     <fieldset><legend>Certificato medico</legend>
-      <label for="fc">Copia del certificato (foto o PDF)${fcOld?' — sostituisce quello attuale':''}</label><input id="fc" type="file" accept="image/*,application/pdf">
+      <label for="fc">Copia del certificato (foto o PDF)${fcOld?' — sostituisce quello attuale (che va in Archivio)':''}</label><input id="fc" type="file" accept="image/*,application/pdf">
       <div class="ocr" id="oc">${fcOld?'Caricato: '+esc(fcOld.title)+'.':''}</div>
-      ${fcOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rc" style="width:auto;min-height:0"> Togli il certificato caricato</label>':''}
+      ${fcOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rc" style="width:auto;min-height:0"> Togli il certificato caricato (va in Archivio)</label>':''}
       <div class="two"><div><label for="ct">Tipo</label><select id="ct"><option value=""></option><option value="agonistico">Agonistico</option><option value="non agonistico">Non agonistico</option></select></div><div><label for="cd">Scadenza certificato</label><input id="cd" type="date" value="${esc(t.certScad||'')}"></div></div>
     </fieldset>
     <label for="nt">Note</label><textarea id="nt">${esc(t.nota||'')}</textarea>`;
@@ -230,8 +240,8 @@ function openEdit(r){
       if(file){
         er.textContent='Caricamento '+(ruolo==='tessera'?'della tessera':'del certificato')+'…';
         const fid=await arch.save(file,{tesAtl:aid,ruolo,fb:true},p=>{er.textContent='Caricamento '+(ruolo==='tessera'?'della tessera':'del certificato')+' '+p+'%'});
-        await updateDoc(ref,{[fld]:fid});if(old)await arch.remove(old).catch(()=>{})}
-      else if(old&&rm){await arch.remove(old).catch(()=>{});await updateDoc(ref,{[fld]:''})}};
+        await updateDoc(ref,{[fld]:fid});if(old)await archFile(old,r,ruolo,'sostituito da un file nuovo')}
+      else if(old&&rm){await archFile(old,r,ruolo,'tolto dalla scheda');await updateDoc(ref,{[fld]:''})}};
     try{
       await put(ft,'tessera','tesFile',ftOld,(o.querySelector('#rt')||{}).checked);
       await put(fc,'certificato','certFile',fcOld,(o.querySelector('#rc')||{}).checked);

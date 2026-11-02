@@ -1,15 +1,15 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,updateDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,updateDoc} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {archivio} from "./archivio.js";
 import {tgErrText} from "./telegram.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,saveBlob,canThumb,makeThumb,okThumb} from "./file-tools.js";
 import {fmtD} from "./scadenze.js";
-import {archiviato,zona,riarchiviaDoc,archiviaScaduti,addMesi,oggiISO,ANNI} from "./conservazione.js";
+import {archiviato,zona,riarchiviaDoc,archiviaScaduti,addMesi,oggiISO,ANNI,tipologia} from "./conservazione.js";
 
-/* Archivio: documenti scaduti o sostituiti, conservati 10 anni (obbligo A.S.D.).
+/* Archivio: documenti scaduti o sostituiti e file eliminati da Tessere (tessere e certificati medici), conservati 10 anni (obbligo A.S.D.), divisi per tipologia.
    Da conservare = eliminazione bloccata. Verifica = periodo concluso: l'operatore guarda il documento e decide se eliminarlo o riarchiviarlo. */
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,9 +18,13 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='documenti',MINE='archivio';
-let auth,db,col,arch,uid=null,me=null,items=[],q='',tab='conservare',tabSet=false,unsubs=[],err='',memo=null;
+let auth,db,col,arch,archT,uid=null,me=null,items=[],itemsDoc=[],itemsTes=[],q='',tab='conservare',tipoSel='all',tabSet=false,unsubs=[],err='',memo=null;
 const level=k=>me?(me.admin?'w':((me.perms||{})[k]||'n')):'n';
 const perm=()=>level(MINE),canW=()=>level(SEC)==='w'&&level(MINE)==='w';
+/* ogni file si gestisce con i permessi della sua sezione d'origine (Documenti o Tessere) */
+const canWi=it=>level((it&&it._sec)||SEC)==='w'&&level(MINE)==='w';
+const archFor=it=>it&&it._sec==='tessere'?archT:arch;
+function merge(){items=[...itemsDoc.map(i=>({...i,_sec:SEC})),...itemsTes.filter(archiviato).map(i=>({...i,_sec:'tessere'}))]}
 const byId=id=>items.find(i=>i.id===id);
 const origine=i=>i.origine||'Documenti (cartella principale)';
 function icon(i){const m=i.mime||'',n=i.title.toLowerCase();
@@ -43,13 +47,13 @@ const dlErr=e=>e&&e.message==='MISSING'?'Il file non è più presente su Telegra
 
 async function download(it){
   const p=$('#prog');p.style.display='block';p.textContent='Preparazione del file…';
-  try{saveBlob(await arch.getBlob(it,t=>{p.textContent=t}),it.title);p.style.display='none'}
+  try{saveBlob(await archFor(it).getBlob(it,t=>{p.textContent=t}),it.title);p.style.display='none'}
   catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 function preview(it){
-  let pv;const dec=canW()&&zona(it)==='verifica';
+  let pv;const dec=canWi(it)&&zona(it)==='verifica';
   pv=showPreview({title:it.title,mime:it.mime,errText:dlErr,
-    load:async say=>{const b=await arch.getBlob(it,say);
-      if(canW()&&!it.thumb&&!it.thumbTry&&canThumb(it.title,it.mime))makeThumb(b,it.title,it.mime).then(u=>updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})).catch(()=>{});return b},
+    load:async say=>{const b=await archFor(it).getBlob(it,say);
+      if(canWi(it)&&!it.thumb&&!it.thumbTry&&canThumb(it.title,it.mime))makeThumb(b,it.title,it.mime).then(u=>updateDoc(doc(db,'sections',it._sec||SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})).catch(()=>{});return b},
     extra:dec?[{label:'Riarchivia…',fn:()=>{pv.close();rearchModal(it)}},{label:'Elimina…',fn:()=>{pv.close();delModal(it)}}]:[]})}
 
 /* ---------- decisioni sulla Verifica ---------- */
@@ -70,26 +74,29 @@ function delModal(it){
   modal('Eliminare definitivamente?',`<div class="mu">“${esc(it.title)}” ha concluso il periodo di conservazione (${esc(fmtD(it.conservaFino))}). Eliminandolo spariscono il documento e il file: l’operazione non si può annullare.</div>`,
     [cancel,{label:'Elimina',fn:async o=>{
       const cur=byId(it.id);if(!cur||zona(cur)!=='verifica')return merr(o,'Il documento non è più in Verifica.');
-      try{await arch.removeSafe(cur)}catch(e){console.error(e);return merr(o,'Eliminazione non riuscita: il documento risulta ancora in conservazione o non hai i permessi.')}}}])}
+      try{await archFor(cur).removeSafe(cur)}catch(e){console.error(e);return merr(o,'Eliminazione non riuscita: il documento risulta ancora in conservazione o non hai i permessi.')}}}])}
 
 /* ---------- elenco ---------- */
 function render(){
   if(!me||perm()==='n')return;
   const p=perm(),w=canW(),f=document.activeElement&&document.activeElement.id==='qa',t=q.trim().toLowerCase();
-  const arc=items.filter(archiviato).sort((a,b)=>String(a.conservaFino||'').localeCompare(String(b.conservaFino||''))||a.title.localeCompare(b.title,'it'));
+  const tutti=items.filter(archiviato),tipi=['Documenti','Tessere','Certificati medici',...new Set(tutti.map(tipologia))].filter((x,k,v)=>v.indexOf(x)===k&&tutti.some(i=>tipologia(i)===x));
+  if(tipoSel!=='all'&&!tipi.includes(tipoSel))tipoSel='all';
+  const arc=tutti.filter(i=>tipoSel==='all'||tipologia(i)===tipoSel).sort((a,b)=>String(a.conservaFino||'').localeCompare(String(b.conservaFino||''))||a.title.localeCompare(b.title,'it'));
   const con=arc.filter(i=>zona(i)==='conservare'),ver=arc.filter(i=>zona(i)==='verifica');
   if(!tabSet&&arc.length){tabSet=true;if(ver.length)tab='verifica'}
   const base=tab==='verifica'?ver:con,list=t?base.filter(i=>(i.title+' '+origine(i)+' '+(i.note||'')).toLowerCase().includes(t)):base;
   const rows=list.map(i=>{
     const r=nRiarch(i),info=`Archiviato il ${esc(fmtD(i.archiviatoIl))}${r?` · riarchiviato ${r} ${r===1?'volta':'volte'}`:''}`;
     const last=tab==='verifica'?`Conservazione terminata il ${esc(fmtD(i.conservaFino))}`:`🔒 Da conservare fino al ${esc(fmtD(i.conservaFino))} · non eliminabile`;
-    const acts=tab==='verifica'?(w?`<button class="btn sm" data-act="rea" data-id="${esc(i.id)}" aria-label="Riarchivia ${esc(i.title)}">Riarchivia</button><button class="btn ghost sm" data-act="del" data-id="${esc(i.id)}" aria-label="Elimina ${esc(i.title)}">Elimina</button>`:''):'';
-    return `<div class="frow"><span class="fi" aria-hidden="true">${okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b><div class="mu sm2">📁 ${esc(origine(i))}</div><div class="mu sm2">${info}</div><div class="mu sm2"${tab==='verifica'?' style="color:var(--tx);font-weight:700"':''}>${last}</div></button>${tab==='verifica'?'<span class="chip">Da verificare</span>':''}${acts}<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button></div>`}).join('');
+    const wi=canWi(i),acts=tab==='verifica'?(wi?`<button class="btn sm" data-act="rea" data-id="${esc(i.id)}" aria-label="Riarchivia ${esc(i.title)}">Riarchivia</button><button class="btn ghost sm" data-act="del" data-id="${esc(i.id)}" aria-label="Elimina ${esc(i.title)}">Elimina</button>`:''):'';
+    return `<div class="frow"><span class="fi" aria-hidden="true">${okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b><div class="mu sm2">📁 ${esc(origine(i))}</div>${i.note&&tipologia(i)!=='Documenti'?`<div class="mu sm2">${esc(i.note)}</div>`:''}<div class="mu sm2">${info}</div><div class="mu sm2"${tab==='verifica'?' style="color:var(--tx);font-weight:700"':''}>${last}</div></button>${tipi.length>1?`<span class="chip">${esc(tipologia(i))}</span>`:''}${tab==='verifica'?'<span class="chip">Da verificare</span>':''}${acts}<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button></div>`}).join('');
   const vuoto=t?'Nessun risultato.':err?'':tab==='verifica'?'Nessun documento da verificare.':'Nessun documento in conservazione. Qui arrivano i documenti scaduti o sostituiti.';
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="qa" type="search" placeholder="Cerca nell’archivio" aria-label="Cerca nell’archivio" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="bar"><h2>Archivio</h2><span class="badge">${p==='w'?'Lettura e scrittura':'Solo lettura'}</span></div>
   <p class="mu" style="margin:0 0 12px">Le A.S.D. devono conservare i documenti per ${ANNI} anni. In “Da conservare” i documenti non si possono eliminare; finito il periodo passano in “Verifica”.</p>
   ${err?`<p class="err" role="alert">${esc(err)}</p>`:''}
+  ${tipi.length>1?`<div class="seg" role="group" aria-label="Tipologia di documento" style="display:flex;flex-wrap:wrap;margin-bottom:8px"><button data-act="tipo" data-id="all" aria-pressed="${tipoSel==='all'}">Tutti (${tutti.length})</button>${tipi.map(x=>`<button data-act="tipo" data-id="${esc(x)}" aria-pressed="${tipoSel===x}">${esc(x)} (${tutti.filter(i=>tipologia(i)===x).length})</button>`).join('')}</div>`:''}
   <div class="seg" role="group" aria-label="Zona dell’archivio"><button data-act="tab" data-id="conservare" aria-pressed="${tab==='conservare'}">Da conservare (${con.length})</button><button data-act="tab" data-id="verifica" aria-pressed="${tab==='verifica'}">Verifica (${ver.length})</button></div>
   <div class="card">${list.length?rows:`<div class="mu">${vuoto}</div>`}</div>
   ${tab==='verifica'&&ver.length&&!w&&!err?'<p class="mu" style="margin-top:10px">Per eliminare o riarchiviare serve la scrittura su Documenti e su Archivio.</p>':''}</div>`;
@@ -98,6 +105,7 @@ function render(){
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{const a=b.dataset.act;
     if(a==='tab'){tab=b.dataset.id;tabSet=true;render();return}
+    if(a==='tipo'){tipoSel=b.dataset.id;render();return}
     const it=byId(b.dataset.id);if(!it)return;
     if(a==='open')preview(it);else if(a==='save')download(it);else if(a==='rea')rearchModal(it);else if(a==='del')delModal(it)});
 }
@@ -108,11 +116,14 @@ else{
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
     if(!u){location.href='index.html';return}
-    uid=u.uid;arch=archivio(db,SEC,uid);
+    uid=u.uid;arch=archivio(db,SEC,uid);archT=archivio(db,'tessere',uid);
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
-      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{err='';items=s.docs.map(d=>({id:d.id,...d.data()}));if(level(SEC)==='w')archiviaScaduti(db,items);render()},()=>{err='Per vedere l’archivio serve il permesso di lettura su Documenti. Chiedi all’admin.';items=[];render()}));
+      if(unsubs.length<2){
+        unsubs.push(onSnapshot(col,s=>{err='';itemsDoc=s.docs.map(d=>({id:d.id,...d.data()}));merge();if(level(SEC)==='w')archiviaScaduti(db,itemsDoc);render()},()=>{err='Per vedere l’archivio serve il permesso di lettura su Documenti. Chiedi all’admin.';itemsDoc=[];merge();render()}));
+        /* tessere e certificati medici eliminati dalla sezione Tessere (se non hai la lettura su Tessere, non compaiono) */
+        unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{itemsTes=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsTes=[];merge();render()}))}
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
