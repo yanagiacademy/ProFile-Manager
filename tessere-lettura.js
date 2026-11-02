@@ -58,6 +58,12 @@ export function cfOk(cf){
   for(let i=0;i<15;i++){const c=cf[i],v=DIG.includes(c)?+c:c.charCodeAt(0)-65;sum+=i%2===0?ODD[v]:v}
   return String.fromCharCode(65+sum%26)===cf[15]}
 
+/* scadenza della tessera = data di rilascio + 1 anno - 1 giorno (es. 03/04/2026 -> 02/04/2027) */
+export function scadDaEmissione(iso){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(iso||''))return '';
+  const [y,m,d]=iso.split('-').map(Number),x=new Date(y+1,m-1,d,12);x.setDate(x.getDate()-1);
+  return x.getFullYear()+'-'+p2(x.getMonth()+1)+'-'+p2(x.getDate())}
+
 /* ---------- tessera ---------- */
 export function parseTessera(text,atl=[]){
   const t=String(text||'').replace(/\r/g,''),L=rows(t),out={},ds=dateList(t);
@@ -75,10 +81,8 @@ export function parseTessera(text,atl=[]){
   /* stagione sportiva "25/26" (non confondere con le date gg/mm/aaaa) */
   const sg=t.match(/(?<![\d\/.])(\d{2})\s*\/\s*(\d{2})(?![\d\/.])/);
   if(sg&&+sg[2]===+sg[1]+1)out.stagione=sg[1]+'/'+sg[2];
-  /* la tessera CSEN non riporta la scadenza: la stagione termina il 31 agosto (valore dedotto, da verificare) */
-  if(!out.scadenza&&out.ente==='CSEN'){
-    if(out.stagione){out.scadenza='20'+out.stagione.slice(3)+'-08-31';out.dedotta='stagione'}
-    else if(out.emissione){const y=+out.emissione.slice(0,4),mo=+out.emissione.slice(5,7);out.scadenza=(mo<=8?y:y+1)+'-08-31';out.dedotta='stagione'}}
+  /* se la scadenza non è stampata: rilascio + 1 anno - 1 giorno (valore calcolato, da verificare) */
+  if(!out.scadenza&&out.emissione){out.scadenza=scadDaEmissione(out.emissione);out.dedotta='rilascio'}
   /* dati stampati con etichetta */
   const ass=valueAfter(L,/ASSOCIAZIONE/i);if(ass)out.associazione=ass;
   const ql=valueAfter(L,/QUALIFICA/i);if(ql)out.qualifica=ql;
@@ -87,7 +91,7 @@ export function parseTessera(text,atl=[]){
   if(sp)out.sport=sp;
   /* comitato / codice affiliazione: "ASCOLI PICENO APS 60915" */
   const ci=L.findIndex(x=>/COMITATO/i.test(x)&&/AFF/i.test(x));
-  if(ci>=0)for(let j=ci;j<Math.min(L.length,ci+7);j++){const mm=L[j].match(/([A-Z][A-Z' .]{3,}?)\s+(\d{4,6})\s*$/);if(mm&&!/^N\./.test(L[j])&&!dateList(L[j]).length){out.comitato=clean(mm[1]);out.codAff=mm[2];break}}
+  if(ci>=0)for(let j=ci;j<Math.min(L.length,ci+7);j++){const lj=L[j].replace(/\d{1,2}\s*[\/\-.]\s*\d{1,2}\s*[\/\-.]\s*\d{2,4}/g,' ').replace(/Rilascio/gi,' '),mm=lj.match(/([A-Z][A-Z' .]{3,}?)\s+(\d{4,6})\s*$/);if(mm&&!/^N\./.test(lj.trim())){out.comitato=clean(mm[1]);out.codAff=mm[2];break}}
   /* codice fiscale */
   let cf=fixCF(valueAfter(L,/CODICE\s+FISCALE/i));
   if(cf.length!==16){const c=(t.toUpperCase().match(/\b[A-Z0-9]{16}\b/g)||[]).map(fixCF).find(x=>/^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/.test(x));cf=c||''}

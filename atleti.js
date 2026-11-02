@@ -27,6 +27,8 @@ const cadTxt=i=>+i.cadN>0?'ogni '+(+i.cadN)+(i.cadU==='s'?(+i.cadN===1?' settima
 
 /* Tessera e certificato medico: li gestisce la sezione Tessere (qui si leggono soltanto, senza alert) */
 const tessOf=id=>tess.find(t=>t.atleta===id)||null;
+/* ID atleta = numero della tessera (sezione Tessere), aggiornato in automatico; per gli atleti senza tessera resta l'eventuale vecchio valore */
+const idAtleta=i=>(tessOf(i.id)&&tessOf(i.id).numero)||i.idAtl||'';
 
 /* Chip di stato del test: rosso quando l'alert è attivo */
 function testChip(i){
@@ -53,7 +55,7 @@ function shell(){
       <div class="two"><div><label for="sx">Sesso</label><select id="sx"><option value=""></option><option value="M">M</option><option value="F">F</option></select></div><div><label for="an">Anno di nascita</label><input id="an" type="number" inputmode="numeric" min="1900" max="2100" autocomplete="off"></div></div>
       <div class="two"><div><label for="gr">Grado</label><input id="gr" type="text" list="lg" autocomplete="off"><datalist id="lg"></datalist></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
-      <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div><div><label for="ida">ID atleta</label><input id="ida" type="text" autocomplete="off"></div></div>
+      <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div></div>
       <label for="tp">Agonista o Dilettante</label><select id="tp"><option value=""></option><option value="agonista">Agonista</option><option value="dilettante">Dilettante</option></select>
     </fieldset>
     <fieldset><legend>Scheda tecnica</legend>
@@ -85,7 +87,7 @@ function shell(){
 function setForm(o){
   const b=$('#fb'),t=$('#ftg');if(!b)return;
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?"Chiudi il modulo dell'atleta":"Apri il modulo dell'atleta")}
-const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grado'],['ct','categoria'],['pe','peso'],['al','altezza'],['at','allenatore'],['ida','idAtl'],['tp','tipo'],
+const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grado'],['ct','categoria'],['pe','peso'],['al','altezza'],['at','allenatore'],['tp','tipo'],
   ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['nt','annotazioni']];
 function resetForm(){
   setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');$('#cu').value='m';$('#fbk').checked=false;
@@ -103,11 +105,10 @@ async function save(){
   if(v.anno&&!(/^\d{4}$/.test(v.anno)&&+v.anno>=1900&&+v.anno<=new Date().getFullYear())){er.textContent='L’anno di nascita deve avere 4 cifre.';return}
   if(v.peso&&!/^\d{1,3}(\.\d{1,2})?$/.test(v.peso)){er.textContent='Il peso deve essere un numero (es. 66.5).';return}
   if(v.altezza&&!/^\d{2,3}$/.test(v.altezza)){er.textContent='L’altezza va indicata in centimetri (es. 172).';return}
-  if(v.idAtl&&items.some(i=>i.id!==editing&&(i.idAtl||'').toLowerCase()===v.idAtl.toLowerCase())){er.textContent='Esiste già un atleta con questo ID.';return}
   if(v.cadN&&!(+v.cadN>0)){er.textContent='La cadenza dei test deve essere un numero maggiore di zero.';return}
   if(v.cadN&&!v.cadU)v.cadU='m';
   const data={...v,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
-    note:[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],v.idAtl&&'ID '+v.idAtl,v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
+    note:[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
     if(editing)await updateDoc(doc(db,'sections',SEC,'items',editing),data);
@@ -229,7 +230,7 @@ function paintDetail(){
   const medH=med.length?`<div style="margin:2px 0 6px"><b>🥇 ${cnt('1')} · 🥈 ${cnt('2')} · 🥉 ${cnt('3')}</b></div>`+med.map(m=>`<div class="row" style="padding:6px 0"><div>${esc(POSTO[m.posto]||m.posto)} · <b>${esc(m.gara)}</b>${m.data?` <span class="mu">${esc(fmtD(m.data))}</span>`:''}</div>${w?`<button class="xb" data-a="delM" data-i="${esc(m.id)}" aria-label="Togli dal medagliere">✕</button>`:''}</div>`).join(''):'<div class="mu">Nessuna medaglia registrata.</div>';
   c.innerHTML=`<h2 style="margin:0">${esc(nameOf(it))}${it.grado?`<span class="gr">${esc(it.grado)}</span>`:''}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${it.tipo?`<span class="chip">${esc(TIPO[it.tipo]||it.tipo)}</span>`:''}${testChip(it)}</div>
-    <h3>Dati anagrafici</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Sesso',it.sesso)}${dd('Anno di nascita',it.anno)}${dd('Grado',it.grado)}${dd('Categoria',it.categoria)}${dd('Peso',it.peso?it.peso+' kg':'')}${dd('Altezza',it.altezza?it.altezza+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta',it.idAtl)}${dd('Tipo',TIPO[it.tipo]||'')}</dl>
+    <h3>Dati anagrafici</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Sesso',it.sesso)}${dd('Anno di nascita',it.anno)}${dd('Grado',it.grado)}${dd('Categoria',it.categoria)}${dd('Peso',it.peso?it.peso+' kg':'')}${dd('Altezza',it.altezza?it.altezza+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipo',TIPO[it.tipo]||'')}</dl>
     <h3>Tecniche</h3><dl>${dd('Kumi kata',it.kumi)}</dl><div class="cols"><div><div class="mu" style="margin-top:6px">Tachi waza</div>${ul(it.tachi)}</div><div><div class="mu" style="margin-top:6px">Ne waza</div>${ul(it.ne)}</div></div>
     <h3>Medagliere${w?'<button class="btn ghost sm" data-a="addM">+ Aggiungi</button>':''}</h3>${medH}
     <h3>Richieste</h3>${bl(it.richieste)}
@@ -237,7 +238,7 @@ function paintDetail(){
     <h3>Cadenza dei test</h3><dl>${dd('Cadenza',cadTxt(it))}${dd('Ultimo test',isD(ultimoTest(it))?fmtD(ultimoTest(it)):'')}<dt>Prossimo test</dt><dd>${ts?esc(fmtD(ts.data))+` <span class="chip ${ts.due?'bad':ts.g<=14?'warn':''}">${ts.due?(ts.late?'in ritardo di '+(-ts.g)+' g':'da fare'):testTesto(ts.g)}</span>`:'<span class="mu">— (imposta cadenza o data)</span>'}</dd>${dd('Avviso',+it.preavviso>0?(+it.preavviso)+' giorni prima':'dalla data del test')}</dl>
     <h3>Monitoraggio test${w?'<button class="btn ghost sm" data-a="addT">+ Nuova rilevazione</button>':''}</h3>${tbl}
     <h3>Conclusioni</h3>${bl(it.conclusioni)}
-    <h3>Tessera e certificato medico</h3>${tt&&(tt.numero||tt.scadenza||tt.certScad)?`<dl>${dd('ID tessera',tt.numero)}${dd('Ente',tt.ente)}${dd('Scadenza tessera',isD(tt.scadenza)?fmtD(tt.scadenza):'')}${dd('Scadenza certificato medico',isD(tt.certScad)?fmtD(tt.certScad):'')}</dl><div class="mu" style="font-size:.8rem;margin-top:4px">Dati aggiornati in automatico dalla sezione Tessere.</div>`:'<div class="mu">Atleta non ancora tesserato (nessuna tessera nella sezione Tessere).</div>'}
+    <h3>Tessera e certificato medico</h3>${tt&&(tt.numero||tt.scadenza||tt.certScad)?`<dl>${dd('ID atleta (n. tessera)',tt.numero)}${dd('Ente',tt.ente)}${dd('Scadenza tessera',isD(tt.scadenza)?fmtD(tt.scadenza):'')}${dd('Scadenza certificato medico',isD(tt.certScad)?fmtD(tt.certScad):'')}</dl><div class="mu" style="font-size:.8rem;margin-top:4px">Dati aggiornati in automatico dalla sezione Tessere.</div>`:'<div class="mu">Atleta non ancora tesserato (nessuna tessera nella sezione Tessere).</div>'}
     <h3>Salute</h3><dl>${dd('Infortuni',it.infortuni)}</dl>
     <h3>Note</h3>${bl(it.annotazioni)}<dl>${dd('Firebase',it.fb?'Salvato anche su Firebase':'Solo su Telegram')}</dl>
     <div class="dact">${w?'<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica dati</button>':''}<button class="btn" data-a="x">Chiudi</button></div>`}
@@ -246,7 +247,7 @@ function paintDetail(){
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const t=q.trim().toLowerCase();
-  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,i.idAtl,(tessOf(i.id)||{}).numero,TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
+  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,idAtleta(i),TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
   const all=items.filter(i=>i.nome||i.cognome||i.title);
   const ok={all:()=>true,test:testDaFare,agonista:i=>i.tipo==='agonista',dilettante:i=>i.tipo==='dilettante'};
   const list=all.filter(i=>(!t||hay(i).includes(t))&&(ok[flt]||ok.all)(i))

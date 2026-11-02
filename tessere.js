@@ -6,6 +6,7 @@ import {memoBar} from "./promemoria.js";
 import {archivio,limiteMB} from "./archivio.js";
 import {showPreview,saveBlob} from "./file-tools.js";
 import {isD,fmtD,scadStato,tesseraAlert} from "./atleti-scadenze.js";
+import {parseTessera,parseCert,scadDaEmissione,ENTI,title} from "./tessere-lettura.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,8 +19,6 @@ let auth,db,col,uid=null,me=null,items=[],atl=[],q='',flt='all',unsubs=[],starte
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const canNewAtl=()=>!!(me&&(me.admin||(me.perms||{}).atleti==='w'));
 const p2=n=>String(n).padStart(2,'0');
-const title=s=>String(s||'').toLowerCase().replace(/(^|[\s'’-])([a-zà-ÿ])/g,(m,a,b)=>a+b.toUpperCase()).trim();
-const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 
 /* ---------- dati: lista atleti + tessera (un record per atleta, id = id dell'atleta) ---------- */
 const tess=()=>items.filter(i=>i.kind==='tessera');
@@ -57,58 +56,47 @@ function modal(ttl,body,{ok='Salva',cancel='Annulla',onSave}={}){
     b.disabled=false};
   document.body.append(o);return o}
 
-/* ---------- lettura automatica (OCR nel browser, gratuita: Tesseract.js, italiano) ---------- */
+/* ---------- lettura automatica (OCR nel browser, gratuita: Tesseract.js + pdf.js, italiano) ---------- */
+const loadJs=src=>new Promise((res,rej)=>{const e=document.createElement('script');e.src=src;e.onload=res;e.onerror=()=>rej(new Error('LOAD'));document.head.append(e)});
 let tessP=null;
-const loadTess=()=>tessP||(tessP=new Promise((res,rej)=>{
-  const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-  s.onload=()=>res(window.Tesseract);s.onerror=()=>{tessP=null;rej(new Error('LOAD'))};document.head.append(s)}));
-async function prep(file){
-  const bmp=await createImageBitmap(file),k=Math.min(1,2000/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');
+const loadTess=()=>tessP||(tessP=loadJs('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js').then(()=>window.Tesseract).catch(e=>{tessP=null;throw e}));
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+/* foto: ridimensionata a una misura comoda per la lettura */
+async function imgCanvas(file){
+  const bmp=await createImageBitmap(file),m=Math.max(bmp.width,bmp.height),k=m>3000?3000/m:(m<1800?Math.min(2,1800/m):1),c=document.createElement('canvas');
   c.width=Math.round(bmp.width*k);c.height=Math.round(bmp.height*k);
-  const x=c.getContext('2d');x.filter='grayscale(1) contrast(1.35)';x.drawImage(bmp,0,0,c.width,c.height);
-  return await new Promise(r=>c.toBlob(r,'image/png'))}
+  const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(bmp,0,0,c.width,c.height);return c}
+/* PDF: se ha il testo lo usa direttamente, altrimenti disegna la prima pagina per leggerla come una foto */
+async function pdfCanvas(file){
+  if(!window.pdfjsLib){await loadJs(PDFJS+'pdf.min.js');window.pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS+'pdf.worker.min.js'}
+  const pdf=await window.pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise,page=await pdf.getPage(1);
+  let text='';
+  try{
+    const its=(await page.getTextContent()).items.filter(i=>i.str&&i.str.trim()).sort((a,b)=>(b.transform[5]-a.transform[5])||(a.transform[4]-b.transform[4]));
+    let y=null;its.forEach(i=>{const yy=Math.round(i.transform[5]);text+=(y===null?'':Math.abs(yy-y)>3?'\n':' ')+i.str;y=yy})}catch(e){}
+  const v1=page.getViewport({scale:1}),k=Math.min(5,Math.max(1,2600/v1.width)),vp=page.getViewport({scale:k}),c=document.createElement('canvas');
+  c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+  const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+  await page.render({canvasContext:x,viewport:vp}).promise;
+  return {canvas:c,text}}
+/* toglie i margini bianchi (una tessera stampata su un foglio A4 occupa una piccola parte della pagina) */
+function cropContent(c){
+  const k=Math.min(1,500/c.width),w=Math.max(1,Math.round(c.width*k)),h=Math.max(1,Math.round(c.height*k)),t=document.createElement('canvas');
+  t.width=w;t.height=h;const x=t.getContext('2d');x.drawImage(c,0,0,w,h);
+  const d=x.getImageData(0,0,w,h).data;let x0=w,y0=h,x1=-1,y1=-1;
+  for(let j=0;j<h;j++)for(let i=0;i<w;i++){const p=(j*w+i)*4;if(Math.min(d[p],d[p+1],d[p+2])<235){if(i<x0)x0=i;if(i>x1)x1=i;if(j<y0)y0=j;if(j>y1)y1=j}}
+  if(x1<0||(x1-x0+1)*(y1-y0+1)>.9*w*h)return c;
+  const px=Math.round(w*.02),py=Math.round(h*.02),X0=Math.max(0,x0-px)/w*c.width,Y0=Math.max(0,y0-py)/h*c.height,X1=Math.min(w,x1+px+1)/w*c.width,Y1=Math.min(h,y1+py+1)/h*c.height;
+  const o=document.createElement('canvas');o.width=Math.round(X1-X0);o.height=Math.round(Y1-Y0);o.getContext('2d').drawImage(c,X0,Y0,o.width,o.height,0,0,o.width,o.height);return o}
 async function ocr(file,say){
-  const T=await loadTess();say('Preparazione dell’immagine…');
-  const img=await prep(file);
+  const isPdf=file.type==='application/pdf'||/\.pdf$/i.test(file.name);
+  let canvas,text='';
+  if(isPdf){say('Apertura del PDF…');({canvas,text}=await pdfCanvas(file));if(text.replace(/\s/g,'').length>40)return text}
+  else{say('Preparazione dell’immagine…');canvas=await imgCanvas(file)}
+  const T=await loadTess(),img=await new Promise(r=>cropContent(canvas).toBlob(r,'image/png'));
   say('Lettura del testo (la prima volta scarica il dizionario italiano, può servire un minuto)…');
   const w=await T.createWorker('ita',1,{logger:m=>{if(m.status==='recognizing text')say('Lettura in corso '+Math.round(m.progress*100)+'%')}});
-  try{return (await w.recognize(img)).data.text||''}finally{await w.terminate()}}
-
-const ENTI=['FIJLKAM','UISP','CSEN','ENDAS','OPES','ACSI','AICS','LIBERTAS','CSI','ASI','CONI','FILPJ','MSP','USACLI','ACLI'];
-function dateIso(d,m,y){d=+d;m=+m;y=+y;if(y<100)y+=2000;return (m<1||m>12||d<1||d>31||y<1950||y>2100)?'':y+'-'+p2(m)+'-'+p2(d)}
-function dateList(t){
-  const low=t.toLowerCase(),re=/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4}|\d{2})\b/g,out=[];let m;
-  while((m=re.exec(t))){
-    const iso=dateIso(m[1],m[2],m[3]);if(!iso)continue;
-    const from=Math.max(t.lastIndexOf('\n',m.index-1),m.index-45);
-    out.push({iso,ctx:low.slice(from<0?0:from,m.index)})}
-  return out}
-/* scadenza: la data accanto a "scadenza/valido fino al"; se manca, la più recente tra quelle non di nascita (da verificare) */
-function pickScad(ds){
-  let d=ds.find(x=>/scad|valid|fino al|entro il/.test(x.ctx));
-  if(d)return {v:d.iso,dedotta:false};
-  const c=ds.filter(x=>!/nasc|nato/.test(x.ctx)&&!/emiss|rilasc|iscriz|affiliaz/.test(x.ctx)).map(x=>x.iso).sort();
-  return c.length?{v:c[c.length-1],dedotta:true}:null}
-function parseTessera(text){
-  const t=text.replace(/\r/g,''),out={},ds=dateList(t);
-  for(const e of ENTI)if(new RegExp('(^|[^A-Za-z])'+e+'([^A-Za-z]|$)','i').test(t)){out.ente=e;break}
-  const nm=t.match(/(?:tessera|tess\.?|n[°º]|numero|n\.|codice|matricola)\s*[:\-]?\s*([A-Z]{0,5}[\s\-]?\d[\dA-Z\-\/]{3,14})/i);
-  if(nm)out.numero=nm[1].replace(/\s+/g,'').toUpperCase();
-  else{const c=t.match(/\b[A-Z]{0,4}\d{6,12}\b/g);if(c)out.numero=c.sort((a,b)=>b.length-a.length)[0]}
-  const em=ds.find(x=>/emiss|rilasc|iscriz|affiliaz|data tessera/.test(x.ctx));if(em)out.emissione=em.iso;
-  const sc=pickScad(ds);if(sc){out.scadenza=sc.v;if(sc.dedotta)out.dedotta=true}
-  const nt=norm(t);let best=null;
-  atl.forEach(a=>{const c=norm(a.cognome),n=norm(a.nome);if(c&&n&&nt.includes(c)&&nt.includes(n))best=a});
-  if(best)out.atleta=best.id;
-  else{
-    const c=t.match(/cognome\s*[:\-]?\s*([^\n:]{2,30})/i),n=t.match(/\bnome\s*[:\-]?\s*([^\n:]{2,30})/i);
-    if(c)out.cognomeRil=title(c[1]);if(n)out.nomeRil=title(n[1])}
-  return out}
-function parseCert(text){
-  const t=text.replace(/\r/g,''),out={},sc=pickScad(dateList(t));
-  if(sc){out.certScad=sc.v;if(sc.dedotta)out.dedotta=true}
-  if(/non\s+agonistic/i.test(t))out.certTipo='non agonistico';else if(/agonistic/i.test(t))out.certTipo='agonistico';
-  return out}
+  try{await w.setParameters({tessedit_pageseg_mode:'11',preserve_interword_spaces:'1'});return (await w.recognize(img)).data.text||''}finally{await w.terminate()}}
 
 /* ---------- struttura della pagina ---------- */
 function shell(){
@@ -176,7 +164,7 @@ function paintDetail(){
   const fbox=(f,ko,kd)=>f?`<div class="fr"><span class="mu">${esc(f.title)}</span><button class="btn sm" data-a="${kd}">Scarica</button><button class="btn ghost sm" data-a="${ko}">Apri</button></div>`:'<div class="mu" style="margin-top:4px">Nessun file caricato.</div>';
   c.innerHTML=`<h2 style="margin:0">${esc(nameOf(r))}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${t?chip('Tessera',t.scadenza)+chip('Certificato',t.certScad):'<span class="chip">Senza tessera</span>'}</div>
-    <h3>Tessera</h3><dl>${dd('Ente / federazione',esc(t&&t.ente||''))}${dd('Numero tessera (ID)',esc(t&&t.numero||''))}${dd('Data emissione',t&&isD(t.emissione)?esc(fmtD(t.emissione)):'')}${dd('Scadenza',t&&isD(t.scadenza)?esc(fmtD(t.scadenza)):'')}</dl>${fbox(ft,'ot','dt')}
+    <h3>Tessera</h3><dl>${dd('Ente / federazione',esc(t&&t.ente||''))}${dd('Numero tessera (ID atleta)',esc(t&&t.numero||''))}${dd('Tipo di tessera',esc(t&&t.tipoTessera||''))}${dd('Stagione',esc(t&&t.stagione||''))}${dd('Data emissione',t&&isD(t.emissione)?esc(fmtD(t.emissione)):'')}${dd('Scadenza',t&&isD(t.scadenza)?esc(fmtD(t.scadenza)):'')}${dd('Associazione',esc(t&&t.associazione||''))}${dd('Qualifica',esc(t&&t.qualifica||''))}${dd('Sport',esc(t&&t.sport||''))}${dd('Comitato',esc(t&&t.comitato||''))}${dd('Codice affiliazione',esc(t&&t.codAff||''))}${dd('Codice fiscale',esc(t&&t.cf||''))}</dl>${fbox(ft,'ot','dt')}
     <h3>Certificato medico</h3><dl>${dd('Tipo',esc(t&&t.certTipo||''))}${dd('Scadenza',t&&isD(t.certScad)?esc(fmtD(t.certScad)):'')}</dl>${fbox(fc,'oc','dc')}
     ${t&&t.nota?`<h3>Note</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(t.nota)}</div>`:''}
     <div class="dact">${w?`${t?'<button class="btn ghost" data-a="del">Elimina</button>':''}<button class="btn ghost" data-a="edit">${t?'Modifica / sostituisci':'Aggiungi tessera'}</button>`:''}<button class="btn" data-a="x">Chiudi</button></div>`}
@@ -196,10 +184,15 @@ function openEdit(r){
     </fieldset>
     <fieldset><legend>Tessera</legend>
       <label for="ft">Copia della tessera (foto o PDF)${ftOld?' — sostituisce quella attuale':''}</label><input id="ft" type="file" accept="image/*,application/pdf">
-      <div class="ocr" id="ot">${ftOld?'Caricata: '+esc(ftOld.title)+'.':'Con una foto i dati si compilano da soli: poi controllali.'}</div>
+      <div class="ocr" id="ot">${ftOld?'Caricata: '+esc(ftOld.title)+'.':'Con una foto o un PDF i dati si compilano da soli: poi controllali.'}</div>
       ${ftOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rt" style="width:auto;min-height:0"> Togli la tessera caricata</label>':''}
-      <div class="two"><div><label for="en">Ente / federazione</label><input id="en" type="text" list="le" autocomplete="off" value="${esc(t.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="nu">Numero tessera (ID)</label><input id="nu" type="text" autocomplete="off" value="${esc(t.numero||'')}"></div></div>
-      <div class="two"><div><label for="em">Data emissione</label><input id="em" type="date" value="${esc(t.emissione||'')}"></div><div><label for="sc">Scadenza tessera</label><input id="sc" type="date" value="${esc(t.scadenza||'')}"></div></div>
+      <div class="two"><div><label for="en">Ente / federazione</label><input id="en" type="text" list="le" autocomplete="off" value="${esc(t.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="nu">Numero tessera (ID atleta)</label><input id="nu" type="text" autocomplete="off" value="${esc(t.numero||'')}"></div></div>
+      <div class="two"><div><label for="tp">Tipo di tessera</label><input id="tp" type="text" autocomplete="off" value="${esc(t.tipoTessera||'')}"></div><div><label for="sg">Stagione</label><input id="sg" type="text" autocomplete="off" placeholder="es. 25/26" value="${esc(t.stagione||'')}"></div></div>
+      <div class="two"><div><label for="em">Data emissione / rilascio</label><input id="em" type="date" value="${esc(t.emissione||'')}"></div><div><label for="sc">Scadenza tessera</label><input id="sc" type="date" value="${esc(t.scadenza||'')}"></div></div>
+      <label for="as">Associazione</label><input id="as" type="text" autocomplete="off" value="${esc(t.associazione||'')}">
+      <div class="two"><div><label for="ql">Qualifica</label><input id="ql" type="text" autocomplete="off" value="${esc(t.qualifica||'')}"></div><div><label for="sp">Sport</label><input id="sp" type="text" autocomplete="off" value="${esc(t.sport||'')}"></div></div>
+      <div class="two"><div><label for="cm">Comitato</label><input id="cm" type="text" autocomplete="off" value="${esc(t.comitato||'')}"></div><div><label for="ca">Codice affiliazione</label><input id="ca" type="text" autocomplete="off" value="${esc(t.codAff||'')}"></div></div>
+      <label for="cf">Codice fiscale</label><input id="cf" type="text" autocomplete="off" maxlength="16" value="${esc(t.cf||'')}">
     </fieldset>
     <fieldset><legend>Certificato medico</legend>
       <label for="fc">Copia del certificato (foto o PDF)${fcOld?' — sostituisce quello attuale':''}</label><input id="fc" type="file" accept="image/*,application/pdf">
@@ -218,7 +211,7 @@ function openEdit(r){
         cognome=title(g('nc'));nome=title(g('nn'));
         if(!cognome||!nome){er.textContent='Inserisci cognome e nome del nuovo atleta.';return false}
       }else{const a=atl.find(x=>x.id===sel);aid=sel;nome=a.nome||'';cognome=a.cognome||a.title||''}}
-    const v={ente:g('en'),numero:g('nu').toUpperCase(),emissione:g('em'),scadenza:g('sc'),certTipo:g('ct'),certScad:g('cd'),nota:g('nt')};
+    const v={ente:g('en'),numero:g('nu').toUpperCase(),tipoTessera:g('tp'),stagione:g('sg'),emissione:g('em'),scadenza:g('sc'),associazione:g('as'),qualifica:g('ql'),sport:g('sp').toUpperCase(),comitato:g('cm'),codAff:g('ca'),cf:g('cf').toUpperCase().replace(/\s+/g,''),certTipo:g('ct'),certScad:g('cd'),nota:g('nt')};
     for(const [k,l] of [['emissione','La data di emissione'],['scadenza','La scadenza della tessera'],['certScad','La scadenza del certificato']])if(v[k]&&!isD(v[k])){er.textContent=l+' non è valida.';return false}
     if(v.emissione&&v.scadenza&&v.emissione>v.scadenza){er.textContent='La scadenza della tessera è prima dell’emissione.';return false}
     const ft=o.querySelector('#ft').files[0],fc=o.querySelector('#fc').files[0];
@@ -230,7 +223,7 @@ function openEdit(r){
       aid=a.id}
     const ref=doc(db,'sections',SEC,'items',aid),ex=items.find(i=>i.id===aid&&i.kind==='tessera');
     const data={...v,kind:'tessera',atleta:aid,nome,cognome,title:cognome+' '+nome,fb:true,
-      note:[v.ente,v.numero&&'n. '+v.numero,v.scadenza&&'scade '+fmtD(v.scadenza)].filter(Boolean).join(' · ')};
+      note:[v.ente,v.tipoTessera,v.numero&&'n. '+v.numero,v.associazione,v.scadenza&&'scade '+fmtD(v.scadenza)].filter(Boolean).join(' · ')};
     if(ex)await updateDoc(ref,data);else await setDoc(ref,{...data,by:uid,at:serverTimestamp()});
     /* file: il nuovo sostituisce il vecchio (che viene tolto solo dopo il caricamento riuscito) */
     const put=async(file,ruolo,fld,old,rm)=>{
@@ -245,22 +238,25 @@ function openEdit(r){
     }catch(e){console.error(e);er.textContent='Dati salvati, ma un file non è stato caricato ('+arch.errText(e)+'). Riprova da Modifica.';return false}
     if(!r.id&&detail===null)openDetail(aid)}});
   o.querySelector('#ct').value=t.certTipo||'';
+  const emI=o.querySelector('#em'),scI=o.querySelector('#sc');
+  emI.onchange=()=>{if(!scI.value&&isD(emI.value))scI.value=scadDaEmissione(emI.value)};
   const ta=o.querySelector('#ta');if(ta)ta.onchange=()=>{o.querySelector('#nw').hidden=ta.value!=='__new'};
-  /* lettura automatica appena si sceglie un file */
+  /* lettura automatica appena si sceglie un file (foto o PDF) */
   const run=async(inp,out,kind)=>{
     const f=inp.files[0];if(!f)return;
     const say=m=>{out.textContent=m};
-    if(!f.type.startsWith('image/')){say('File PDF: la lettura automatica funziona sulle foto. Inserisci i dati a mano.');return}
     try{
-      const text=await ocr(f,say),set=(id,val)=>{if(val)o.querySelector('#'+id).value=val},got=[];
+      const text=await ocr(f,say),set=(id,val)=>{if(val)o.querySelector('#'+id).value=val},got=[],avv=[];
       if(kind==='t'){
-        const p=parseTessera(text);
-        set('en',p.ente);set('nu',p.numero);set('em',p.emissione);set('sc',p.scadenza);
-        ['ente','numero','emissione','scadenza'].forEach(k=>{if(p[k])got.push(k==='numero'?'numero':k==='scadenza'?'scadenza':k)});
+        const p=parseTessera(text,atl);
+        [['en',p.ente,'ente'],['nu',p.numero,'numero'],['tp',p.tipoTessera,'tipo'],['sg',p.stagione,'stagione'],['em',p.emissione,'emissione'],['sc',p.scadenza,'scadenza'],['as',p.associazione,'associazione'],['ql',p.qualifica,'qualifica'],['sp',p.sport,'sport'],['cm',p.comitato,'comitato'],['ca',p.codAff,'codice affiliazione'],['cf',p.cf,'codice fiscale']].forEach(([id,v,l])=>{if(v){set(id,v);got.push(l)}});
         if(ta){
           if(p.atleta){ta.value=p.atleta;ta.onchange();got.push('atleta')}
-          else if(canNewAtl()&&(p.cognomeRil||p.nomeRil)){ta.value='__new';ta.onchange();set('nc',p.cognomeRil);set('nn',p.nomeRil);got.push('nuovo atleta')}}
-        say(got.length?'Letti: '+got.join(', ')+'.'+(p.dedotta?' La scadenza è dedotta: verificala.':'')+' Controlla sempre i dati prima di salvare.':'Non sono riuscito a leggere dati utili: inseriscili a mano (prova con una foto più nitida e dritta).')
+          else if(canNewAtl()&&(p.cognomeRil||p.nomeRil)){ta.value='__new';ta.onchange();set('nc',p.cognomeRil);set('nn',p.nomeRil);got.push('nuovo atleta (cognome e nome da controllare)')}}
+        if(p.dedotta==='rilascio')avv.push('La scadenza non è stampata sulla tessera: l’ho calcolata come rilascio + 1 anno − 1 giorno ('+fmtD(p.scadenza)+'), verificala.');
+        else if(p.dedotta)avv.push('La scadenza è dedotta: verificala.');
+        if(p.cf&&p.cfValido===false)avv.push('Il codice fiscale letto non risulta valido: controllalo.');
+        say(got.length?'Letti: '+got.join(', ')+'. '+avv.join(' ')+' Controlla sempre i dati prima di salvare.':'Non sono riuscito a leggere dati utili: inseriscili a mano (prova con una foto più nitida e dritta).')
       }else{
         const p=parseCert(text);set('cd',p.certScad);if(p.certTipo)o.querySelector('#ct').value=p.certTipo;
         say(p.certScad?'Letta la scadenza.'+(p.dedotta?' È dedotta: verificala.':'')+' Controlla prima di salvare.':'Non ho trovato la scadenza: inseriscila a mano.')}
@@ -279,7 +275,6 @@ function exportCsv(){
   const {head,body}=tabella();
   const t='\ufeff'+[head,...body].map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')).join('\r\n');
   saveBlob(new Blob([t],{type:'text/csv;charset=utf-8'}),'Tessere atleti '+stamp()+'.csv')}
-const loadJs=src=>new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('LOAD'));document.head.append(s)});
 async function exportPdf(){
   const {head,body}=tabella(),b=$('#pdf');b.disabled=true;const old=b.textContent;b.textContent='Preparazione…';
   try{
