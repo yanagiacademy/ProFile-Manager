@@ -93,7 +93,7 @@ function mioView(){
   app.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioEdit')openMioDati(mioView);else mioAct(b.dataset.a)}}
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden||!mioP||isAdm()||document.querySelector('.ov'))return;
-  loadMio().then(()=>{if(perm()==='n'){if(mioId)mioView()}else renderList()})});
+  loadMio().then(()=>{if(noAcc()){if(mioId)mioView()}else renderList()})});
 const box2=(t,m)=>`<div class="card"><h2 style="margin:0 0 6px">${esc(t)}</h2><div class="mu">${esc(m)}</div></div>`;
 /* ---------- modifiche dei dati da parte dell'atleta ----------
    L'atleta (account con la stessa email inserita dall'admin) modifica solo i suoi dati personali (ATL_EDIT).
@@ -164,6 +164,7 @@ function openMioDati(after){
 const mioDatiHtml=()=>{
   const rows=ATL_EDIT.map(([k,l])=>{const v=mioCur(k);return `<dt>${l}</dt><dd style="white-space:pre-wrap">${v?esc(v):'<span class="mu">—</span>'}${k in mioMod?' <span class="chip">da confermare</span>':''}</dd>`}).join('');
   return `<h3>I miei dati</h3><dl>${rows}</dl>${Object.keys(mioMod).length?'<div class="mu" style="font-size:.8rem;margin-top:4px">Modifiche inviate: in attesa di conferma dell’admin.</div>':''}<div class="dact" style="justify-content:flex-start"><button class="btn ghost sm" data-a="mioEdit">Modifica i miei dati</button></div>`};
+const noAcc=()=>{const p=perm();return p==='n'||p==='u'};
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const nameOf=i=>((i.cognome||'')+' '+(i.nome||'')).trim()||i.title||'';
 const lines=s=>String(s||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
@@ -448,8 +449,8 @@ else{
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
-      if(!mioP)mioP=loadMio().then(()=>{if(perm()!=='n')renderList()});
-      if(perm()==='n'){shellFor='';if(memo)memo.setAccess('n',false);mioP.then(()=>{if(perm()!=='n')return;if(mioId||mioErr)mioView();else app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.')});return}
+      if(!mioP)mioP=loadMio().then(()=>{if(!noAcc())renderList()});
+      if(noAcc()){shellFor='';if(memo)memo.setAccess('n',false);mioP.then(()=>{if(!noAcc())return;if(mioId||mioErr)mioView();else app.innerHTML=box(perm()==='u'?'Account non collegato':'Nessun accesso',perm()==='u'?'Questo account non è collegato a nessuna scheda atleta. Chiedi all’admin di inserire la tua email nella scheda Atleti.':'Non hai i permessi per questa sezione. Chiedi all’admin.')});return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
       if(isAdm()&&!unsubs.mailSub){unsubs.mailSub=1;
