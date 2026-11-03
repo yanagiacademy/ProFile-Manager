@@ -1,8 +1,8 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 01/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 02/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
-Sezioni: Documenti, Mail, File importanti, Lezioni, Tecnici, Atleti, Eventi (ex Gare), Video, Foto. In più una Chat.
+Sezioni: Documenti, Mail, File importanti, Lezioni, Tecnici, Atleti, Tessere, Eventi (ex Gare), Video, Foto, Archivio. In più una Chat.
 Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a destra. In ogni sezione c'è il Promemoria in basso.
 
 ## DECISIONI
@@ -18,6 +18,11 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (03/11) – EMAIL DELL'ATLETA (SOLO ADMIN)
+- Scheda Atleti: campo "Email dell'atleta" nel modulo (gruppo Dati anagrafici) e riga "Email (solo admin)" nella scheda di dettaglio. Li vede e li modifica SOLO l'admin; per gli altri account il campo non esiste né nel modulo né nella scheda né nella ricerca. Controllo del formato; salvata in minuscolo; campo vuoto = email tolta.
+- Dati: raccolta Firestore a parte atletiMail/<idAtleta> ({email, by, at}), NON dentro sections/atleti/items (che finisce su Telegram e nella copia Firebase leggibile da chi ha la lettura su Atleti). Eliminando l'atleta si elimina anche la sua email. Modifiche in atleti.js; il resto della scheda non cambia.
+- Firestore rules: AGGIORNATE (nuova regola atletiMail: lettura e scrittura solo admin). COPIARE il nuovo firestore.rules e PUBBLICARLO, altrimenti l'email non si salva.
 
 ## NOVITÀ (01/11) – TESSERE
 - Sezione Tessere (tessere.html + tessere.js + tessere-lettura.js), gruppo Persone nella Home (nuova voce nei permessi: "Scrittura" modifica, "Lettura" vede e scarica). Pagina = LISTA DEGLI ATLETI (presa dalla sezione Atleti) con lo stato di tessera e certificato medico; un record per atleta (sections/tessere/items/<idAtleta>, kind:'tessera': ente, numero, emissione, scadenza, certTipo, certScad, nota, tesFile, certFile). Filtri: Tutti / In scadenza o scadute / Senza tessera / Regolari. Ordine: prima gli atleti in scadenza.

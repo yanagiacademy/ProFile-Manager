@@ -49,6 +49,12 @@ service cloud.firestore {
       }
     }
 
+    /* Email degli atleti (sezione Atleti): leggibile e scrivibile solo dall'admin, in una raccolta a parte
+       così non finisce nelle schede degli atleti che vedono anche gli altri account. */
+    match /atletiMail/{id} {
+      allow read, write: if isAdmin();
+    }
+
     match /sections/{sec}/items/{id} {
       allow read: if hasAccount() && level(sec) in ['r', 'w'];
       allow create: if hasAccount() && level(sec) == 'w';

@@ -1,6 +1,6 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,setDoc,serverTimestamp} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,testTesto} from "./atleti-scadenze.js";
@@ -12,7 +12,16 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='atleti';
-let auth,db,col,uid=null,me=null,items=[],tess=[],q='',flt='all',unsubs=[],shellFor='',editing=null,memo=null,detail=null;
+let auth,db,col,uid=null,me=null,items=[],tess=[],mails={},q='',flt='all',unsubs=[],shellFor='',editing=null,memo=null,detail=null;
+/* Email dell'atleta: solo admin. Sta in una raccolta Firestore a parte (atletiMail/<idAtleta>), NON nella scheda su Telegram/Firebase, e le regole la fanno leggere solo all'admin */
+const isAdm=()=>!!(me&&me.admin);
+const mailOf=id=>(mails[id]&&mails[id].email)||'';
+const MAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+async function saveMail(id,email){
+  if(!isAdm())return;
+  const r=doc(db,'atletiMail',id);
+  if(email)await setDoc(r,{email,by:uid,at:serverTimestamp()});
+  else if(mails[id])await deleteDoc(r)}
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const nameOf=i=>((i.cognome||'')+' '+(i.nome||'')).trim()||i.title||'';
 const lines=s=>String(s||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
@@ -55,7 +64,7 @@ function shell(){
       <div class="two"><div><label for="sx">Sesso</label><select id="sx"><option value=""></option><option value="M">M</option><option value="F">F</option></select></div><div><label for="an">Anno di nascita</label><input id="an" type="number" inputmode="numeric" min="1900" max="2100" autocomplete="off"></div></div>
       <div class="two"><div><label for="gr">Grado</label><input id="gr" type="text" list="lg" autocomplete="off"><datalist id="lg"></datalist></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
-      <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div></div>
+      <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"></div>':''}</div>
       <label for="tp">Agonista o Dilettante</label><select id="tp"><option value=""></option><option value="agonista">Agonista</option><option value="dilettante">Dilettante</option></select>
     </fieldset>
     <fieldset><legend>Scheda tecnica</legend>
@@ -90,10 +99,10 @@ function setForm(o){
 const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grado'],['ct','categoria'],['pe','peso'],['al','altezza'],['at','allenatore'],['tp','tipo'],
   ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['nt','annotazioni']];
 function resetForm(){
-  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');$('#cu').value='m';$('#fbk').checked=false;
+  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;
   $('#ft').textContent='Nuovo atleta';$('#sv').textContent='Salva atleta';$('#cx').hidden=true;$('#er').textContent=''}
 function edit(it){
-  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
+  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
   $('#ft').textContent='Modifica atleta';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 
@@ -107,12 +116,16 @@ async function save(){
   if(v.altezza&&!/^\d{2,3}$/.test(v.altezza)){er.textContent='L’altezza va indicata in centimetri (es. 172).';return}
   if(v.cadN&&!(+v.cadN>0)){er.textContent='La cadenza dei test deve essere un numero maggiore di zero.';return}
   if(v.cadN&&!v.cadU)v.cadU='m';
+  const em=$('#em')?$('#em').value.trim().toLowerCase():null;
+  if(em&&!MAIL_RE.test(em)){er.textContent='L’indirizzo email non è valido (es. nome@dominio.it).';return}
   const data={...v,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
     note:[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
+    let id=editing;
     if(editing)await updateDoc(doc(db,'sections',SEC,'items',editing),data);
-    else await addDoc(col,{...data,test:[],medaglie:[],by:uid,at:serverTimestamp()});
+    else{const r=await addDoc(col,{...data,test:[],medaglie:[],by:uid,at:serverTimestamp()});id=r&&r.id}
+    if(em!==null&&id)await saveMail(id,em);
     resetForm();
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}
@@ -203,7 +216,7 @@ function openDetail(id){
     else if(a==='edit'){close();edit(it)}
     else if(a==='del'){
       if(!confirm('Eliminare '+nameOf(it)+'? L’operazione non si può annullare.'))return;
-      try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(editing===it.id)resetForm();close()}
+      try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()&&mails[it.id])await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(editing===it.id)resetForm();close()}
       catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
     else if(perm()!=='w')return;
     else if(a==='addT')openTest(it);
@@ -230,7 +243,7 @@ function paintDetail(){
   const medH=med.length?`<div style="margin:2px 0 6px"><b>🥇 ${cnt('1')} · 🥈 ${cnt('2')} · 🥉 ${cnt('3')}</b></div>`+med.map(m=>`<div class="row" style="padding:6px 0"><div>${esc(POSTO[m.posto]||m.posto)} · <b>${esc(m.gara)}</b>${m.data?` <span class="mu">${esc(fmtD(m.data))}</span>`:''}</div>${w?`<button class="xb" data-a="delM" data-i="${esc(m.id)}" aria-label="Togli dal medagliere">✕</button>`:''}</div>`).join(''):'<div class="mu">Nessuna medaglia registrata.</div>';
   c.innerHTML=`<h2 style="margin:0">${esc(nameOf(it))}${it.grado?`<span class="gr">${esc(it.grado)}</span>`:''}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${it.tipo?`<span class="chip">${esc(TIPO[it.tipo]||it.tipo)}</span>`:''}${testChip(it)}</div>
-    <h3>Dati anagrafici</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Sesso',it.sesso)}${dd('Anno di nascita',it.anno)}${dd('Grado',it.grado)}${dd('Categoria',it.categoria)}${dd('Peso',it.peso?it.peso+' kg':'')}${dd('Altezza',it.altezza?it.altezza+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipo',TIPO[it.tipo]||'')}</dl>
+    <h3>Dati anagrafici</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Sesso',it.sesso)}${dd('Anno di nascita',it.anno)}${dd('Grado',it.grado)}${dd('Categoria',it.categoria)}${dd('Peso',it.peso?it.peso+' kg':'')}${dd('Altezza',it.altezza?it.altezza+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipo',TIPO[it.tipo]||'')}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
     <h3>Tecniche</h3><dl>${dd('Kumi kata',it.kumi)}</dl><div class="cols"><div><div class="mu" style="margin-top:6px">Tachi waza</div>${ul(it.tachi)}</div><div><div class="mu" style="margin-top:6px">Ne waza</div>${ul(it.ne)}</div></div>
     <h3>Medagliere${w?'<button class="btn ghost sm" data-a="addM">+ Aggiungi</button>':''}</h3>${medH}
     <h3>Richieste</h3>${bl(it.richieste)}
@@ -247,7 +260,7 @@ function paintDetail(){
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const t=q.trim().toLowerCase();
-  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,idAtleta(i),TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
+  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,idAtleta(i),isAdm()?mailOf(i.id):'',TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
   const all=items.filter(i=>i.nome||i.cognome||i.title);
   const ok={all:()=>true,test:testDaFare,agonista:i=>i.tipo==='agonista',dilettante:i=>i.tipo==='dilettante'};
   const list=all.filter(i=>(!t||hay(i).includes(t))&&(ok[flt]||ok.all)(i))
@@ -277,7 +290,8 @@ else{
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
-      if(unsubs.length<2){
+      if(isAdm()&&!unsubs.mailSub){unsubs.mailSub=1;unsubs.push(onSnapshot(collection(db,'atletiMail'),s=>{mails={};s.docs.forEach(d=>mails[d.id]=d.data());renderList()},()=>{mails={}}))}
+      if(unsubs.length<2||(unsubs.mailSub&&unsubs.length<3)){
         unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
         unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{tess=s.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.kind==='tessera');renderList()},()=>{tess=[]}))}
       renderList();
