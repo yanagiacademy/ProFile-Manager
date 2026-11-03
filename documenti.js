@@ -6,7 +6,9 @@ import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile,tgTopic} 
 import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
 import {inScadenza,giorni,fmtD,isD,testo} from "./scadenze.js";
-import {archiviaScaduti} from "./conservazione.js";
+import {archiviaScaduti,archiviaDoc,addMesi,oggiISO,ANNI} from "./conservazione.js";
+import {stelle} from "./stella.js";
+const stella=stelle();
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -34,7 +36,7 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);if(canW())archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
+        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW())archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
@@ -55,11 +57,19 @@ function icon(i){if(i.kind==='folder')return '📁';if(i.kind==='text')return '�
 const starBtn=i=>`<button class="star${i.star?' on':''}" data-act="star" data-id="${esc(i.id)}" aria-pressed="${!!i.star}" aria-label="${i.star?'Togli dai file importanti':'Aggiungi ai file importanti'}: ${esc(i.title)}">${i.star?'★':'☆'}</button>`;
 const chk=i=>`<input type="checkbox" class="sk" data-act="sel" data-id="${esc(i.id)}" ${sel.has(i.id)?'checked':''} aria-label="Seleziona ${esc(i.title)}">`;
 const lead=i=>selMode?chk(i):starBtn(i);
+/* La stella cambia subito a schermo; il salvataggio (Telegram) segue in coda. Alla fine le altre schede aperte (File importanti) si ricaricano. */
+const pendStar=new Map();let starQ=Promise.resolve();
 async function toggleStar(it){
   if(!it)return false;
   if(!canW()){modal('Permesso mancante','<div class="mu">Per mettere la stella serve il permesso di scrittura su Documenti. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
-  try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:!it.star});return true}
-  catch(e){console.error(e);modal('Errore','<div class="mu">Impossibile aggiornare la stella'+(e&&e.code?' ('+esc(e.code)+')':'')+'. Riprova tra poco.</div>',[{label:'Chiudi'}]);return false}}
+  const cur=byId(it.id)||it,nv=!cur.star,id=cur.id;
+  pendStar.set(id,nv);cur.star=nv;render();
+  const job=starQ.then(async()=>{
+    try{await updateDoc(doc(db,'sections',SEC,'items',id),{star:nv});if(pendStar.get(id)===nv)pendStar.delete(id);stella.cambiata();return true}
+    catch(e){console.error(e);
+      if(pendStar.get(id)===nv){pendStar.delete(id);const c=byId(id);if(c)c.star=!nv;render()}
+      modal('Errore','<div class="mu">Impossibile aggiornare la stella'+(e&&e.code?' ('+esc(e.code)+')':'')+'. Riprova tra poco.</div>',[{label:'Chiudi'}]);return false}});
+  starQ=job;return job}
 
 const scadLine=i=>{if(i.kind!=='file'||!isD(i.scadenza))return '';const g=giorni(i.scadenza),hot=inScadenza(i);
   return `<div class="mu" style="font-size:.75rem${hot?';color:var(--er);font-weight:700':''}">Scadenza ${esc(fmtD(i.scadenza))} · ${esc(testo(g))}</div>`};
@@ -184,6 +194,7 @@ function moreModal(it){
     b.push({label:it.fb?'Togli da Firebase':'Salva anche su Firebase',cls:'ghost',fn:()=>{setTimeout(()=>fbSet(it,!it.fb),0)}});
     b.push({label:'Rinomina',cls:'ghost',fn:()=>{setTimeout(()=>renameModal(it),0)}});
     b.push({label:'Sposta',cls:'ghost',fn:()=>{setTimeout(()=>moveModal(it),0)}});
+    if(it.kind==='file')b.push({label:'Archivia',cls:'ghost',fn:()=>{setTimeout(()=>archModal(it),0)}});
     b.push({label:'Elimina',cls:'ghost',fn:()=>{setTimeout(()=>delModal(it),0)}})}
   const o=modal(it.title,'<div class="acts"></div>',[{label:'Chiudi',cls:'ghost'}]);
   const c=o.querySelector('.acts');b.forEach(x=>{const e=document.createElement('button');e.className='btn '+(x.cls||'');e.textContent=x.label;e.onclick=()=>{o.remove();x.fn()};c.append(e)});
@@ -218,9 +229,15 @@ function moveModal(it){
   const dirs=items.filter(i=>i.kind==='folder'&&!bad.has(i.id)).map(i=>({id:i.id,p:pathOf(i.id)})).sort((a,b)=>a.p.localeCompare(b.p,'it'));
   modal('Sposta in…',`<label for="d" style="margin-top:0">Cartella di destinazione</label><select id="d"><option value="">Documenti (radice)</option>${dirs.map(d=>`<option value="${esc(d.id)}" ${d.id===(it.parent||'')?'selected':''}>${esc(d.p)}</option>`).join('')}</select>`,
     [cancel,{label:'Sposta',fn:async o=>{try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{parent:o.querySelector('#d').value})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
+/* Archivia: sposta il file nell'Archivio (conservazione 10 anni, come i documenti scaduti). Da lì non si elimina fino alla fine del periodo. */
+function archModal(it){
+  const fino=addMesi(oggiISO(),12*ANNI);
+  modal('Archiviare?',`<div class="mu">Spostare “${esc(it.title)}” nell’Archivio? Verrà conservato per ${ANNI} anni, fino al ${fmtD(fino)}: in questo periodo non si potrà eliminare.</div>`,[cancel,{label:'Archivia',fn:async o=>{
+    try{await archiviaDoc(db,byId(it.id)||it,items,'archiviato manualmente');stella.cambiata()}
+    catch(e){console.error(e);return merr(o,'Archiviazione non riuscita'+(e&&e.code?' ('+e.code+')':'')+'.')}}}])}
 function delModal(it){
   const n=it.kind==='folder'?descendants(it.id).length:0;
-  modal('Eliminare?',`<div class="mu">Eliminare “${esc(it.title)}”${n?` e i suoi ${n} elementi`:''}? L’operazione non si può annullare.</div>`,[cancel,{label:'Elimina',fn:async o=>{
+  modal('Eliminare definitivamente?',`<div class="mu">Eliminare definitivamente “${esc(it.title)}”${n?` e i suoi ${n} elementi`:''}? Il file viene cancellato per sempre e l’operazione non si può annullare. Per conservarlo usa “Archivia”.</div>`,[cancel,{label:'Elimina definitivamente',fn:async o=>{
     const all=[it,...(it.kind==='folder'?descendants(it.id):[])];
     try{await Promise.all(all.map(async x=>{
       if(x.kind==='file'&&x.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[x.tg],{revoke:true})}catch(e){}}
