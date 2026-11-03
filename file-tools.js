@@ -44,6 +44,20 @@ function css(){if(cssDone)return;cssDone=true;const s=document.createElement('st
 `;document.head.append(s)}
 
 /* Apre il file online. load(say) deve restituire un Blob; extra: [{label, fn(button)}] pulsanti aggiuntivi */
+/* Disegna le pagine di un PDF (max 30) una sotto l'altra, adattate alla larghezza della finestra */
+async function pdfPages(blob,body){
+  const L=await tmo(loadPdfJs(),20000),pdf=await L.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
+  const wrap=document.createElement('div');
+  wrap.style.cssText='width:100%;height:100%;overflow:auto;align-self:flex-start;display:flex;flex-direction:column;align-items:center;gap:8px';
+  body.append(wrap);
+  const w=Math.max(260,(body.clientWidth||600)-8),dpr=Math.min(window.devicePixelRatio||1,2),n=Math.min(pdf.numPages,30);
+  for(let k=1;k<=n;k++){
+    const pg=await pdf.getPage(k),v0=pg.getViewport({scale:1}),vp=pg.getViewport({scale:w/v0.width*dpr});
+    const c=document.createElement('canvas');c.width=Math.round(vp.width);c.height=Math.round(vp.height);
+    c.style.cssText='width:'+w+'px;max-width:100%;height:auto;background:#fff;border-radius:4px;flex:none';
+    const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+    await pg.render({canvasContext:x,viewport:vp}).promise;wrap.append(c)}
+  if(pdf.numPages>n){const p=document.createElement('p');p.className='mu';p.textContent='Mostrate le prime '+n+' pagine di '+pdf.numPages+': scarica il file per leggerlo tutto.';wrap.append(p)}}
 export function showPreview({title,mime,load,extra=[],errText,fileName}){
   css();
   const o=document.createElement('div');o.className='pv-ov';
@@ -64,10 +78,13 @@ export function showPreview({title,mime,load,extra=[],errText,fileName}){
     try{
       const raw=await load(say),type=guessMime(title,mime||raw.type);
       blob=new Blob([raw],{type});url=URL.createObjectURL(blob);dl.disabled=false;body.innerHTML='';
-      if(type.startsWith('image/')){const i=document.createElement('img');i.src=url;i.alt=title;body.append(i)}
+      if(type.startsWith('image/')){const i=document.createElement('img');i.src=url;i.alt=title;
+        i.onerror=()=>{body.innerHTML='';const p=document.createElement('p');p.className='mu';p.textContent='Questo formato di immagine (es. HEIC) non si può mostrare nel browser. Usa “Scarica” per aprirla con la sua app.';body.append(p)};body.append(i)}
       else if(type==='application/pdf'){
-        const f=document.createElement('iframe');f.src=url;f.title=title;body.append(f);
-        const a=document.createElement('a');a.className='btn ghost sm';a.href=url;a.target='_blank';a.rel='noopener';a.textContent='Apri in una scheda';bar.insertBefore(a,dl)}
+        const a=document.createElement('a');a.className='btn ghost sm';a.href=url;a.target='_blank';a.rel='noopener';a.textContent='Apri in una scheda';bar.insertBefore(a,dl);
+        /* le pagine si disegnano con pdf.js (funziona anche su telefono); se non parte, si usa il visualizzatore del browser */
+        try{await pdfPages(raw,body)}
+        catch(x){console.warn('anteprima PDF con pdf.js non riuscita',x);body.innerHTML='';const f=document.createElement('iframe');f.src=url;f.title=title;body.append(f)}}
       else if(type.startsWith('video/')){const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;body.append(v)}
       else if(type.startsWith('audio/')){const a=document.createElement('audio');a.src=url;a.controls=true;body.append(a)}
       else if(type.startsWith('text/')){const t=await blob.text(),pre=document.createElement('pre');pre.textContent=t.length>300000?t.slice(0,300000)+'\n\n[…anteprima troncata: scarica il file per leggerlo tutto]':t;body.append(pre)}
