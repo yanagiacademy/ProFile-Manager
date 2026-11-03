@@ -71,6 +71,8 @@ async function kvGet(k){try{const d=await idb();return await new Promise((res,re
 async function kvSet(k,v){try{const d=await idb();await new Promise((res,rej)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}catch(e){}}
 
 /* ---------- stato: registro sommato ---------- */
+let auto=true;
+export const setAutoSync=v=>{auto=!!v};
 let C={v:1,lastId:0,full:0,recs:{}},loaded=false,firstDone=false,startP=null,syncP=null,timer=null;
 const subs=new Set();
 const recOf=(sec,id)=>(C.recs[sec]||{})[id];
@@ -121,10 +123,12 @@ function startOnce(){
     if(firstDone)fireAll();
     try{await sync(!C.full||Date.now()-C.full>FULL_MS)}
     catch(e){console.error(e);if(!firstDone){startP=null;throw e}avviso('Telegram non raggiungibile: vedi i dati dell’ultima sincronizzazione ('+tgErrText(e)+').')}
-    if(!timer)timer=setInterval(()=>{if(document.visibilityState==='visible'&&subs.size)sync(false).catch(e=>console.error(e))},20000);
+    if(!timer)timer=setInterval(()=>{if(auto&&document.visibilityState==='visible'&&subs.size)sync(false).catch(e=>console.error(e))},20000);
   })();
   return startP}
 export const caricaDati=startOnce;
+/* ricarica subito i dati da Telegram (usata quando cambia una stella) */
+export const syncNow=()=>startOnce().then(()=>sync(false));
 export const datiPronti=ready;
 
 /* ---------- riferimenti ---------- */

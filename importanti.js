@@ -1,10 +1,12 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,serverTimestamp} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {tgClient,tgEntity,tgErrText,tgConfigured,hasSession} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
+import {stelle} from "./stella.js";
+const stella=stelle();
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
 /* File importanti: mostra i documenti di "Documenti" contrassegnati con la stella.
@@ -45,12 +47,12 @@ const cancel={label:'Annulla',cls:'ghost'};
 
 async function getBlob(it,say=()=>{}){
   if(it.kind==='text')return new Blob([it.text||''],{type:'text/plain'});
-  if(it.tg){
+  if(it.tg&&!(it.chunks&&tgConfigured()&&!hasSession())){try{
     say('Collegamento a Telegram…');
     const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
     if(!m||!m.media)throw new Error('MISSING');
     const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
-    return new Blob([buf],{type:guessMime(it.title,it.mime)})}
+    return new Blob([buf],{type:guessMime(it.title,it.mime)})}catch(e){if(!it.chunks)throw e}}
   say('Preparazione del file…');
   const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
@@ -100,11 +102,19 @@ async function open1(it){
   if(it.kind==='folder')location.href='documenti.html#'+it.id;
   else if(it.kind==='text')editText(it);
   else preview(it)}
+/* Il file sparisce subito dall'elenco; il salvataggio (Telegram) segue in coda, poi Documenti (se aperto) si ricarica. */
+const pendStar=new Map();let starQ=Promise.resolve();
 async function unstar(it){
   if(!it)return false;
   if(!canW()){modal('Permesso mancante','<div class="mu">Per togliere la stella serve il permesso di scrittura su Documenti. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
-  try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{star:false});return true}
-  catch(e){console.error(e);modal('Errore','<div class="mu">Operazione non riuscita'+(e&&e.code?' ('+esc(e.code)+')':'')+'.</div>',[{label:'Chiudi'}]);return false}}
+  const cur=byId(it.id)||it,id=cur.id;
+  pendStar.set(id,false);cur.star=false;render();
+  const job=starQ.then(async()=>{
+    try{await updateDoc(doc(db,'sections',SEC,'items',id),{star:false});if(pendStar.get(id)===false)pendStar.delete(id);stella.cambiata();return true}
+    catch(e){console.error(e);
+      if(pendStar.get(id)===false){pendStar.delete(id);const c=byId(id);if(c)c.star=true;render()}
+      modal('Errore','<div class="mu">Operazione non riuscita'+(e&&e.code?' ('+esc(e.code)+')':'')+'.</div>',[{label:'Chiudi'}]);return false}});
+  starQ=job;return job}
 function moreModal(it){
   const w=canW(),b=[];
   b.push({label:it.kind==='folder'?'Apri cartella':'Apri online',cls:'ghost',fn:()=>{setTimeout(()=>open1(it),0)}});
@@ -160,7 +170,7 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{err='';items=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{err='Per vedere i file importanti serve il permesso di lettura su Documenti. Chiedi all’admin.';items=[];render()}));
+        unsubs.push(onSnapshot(col,s=>{err='';items=s.docs.map(d=>({id:d.id,...d.data()}));items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});render()},()=>{err='Per vedere i file importanti serve il permesso di lettura su Documenti. Chiedi all’admin.';items=[];render()}));
         unsubs.push(onSnapshot(collection(db,'sections',MINE,'items'),s=>{mine=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();
