@@ -56,7 +56,7 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,serverTimestamp} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp} from "./fsx.js";
 
 import {firebaseConfig} from "./firebase-config.js";
 import {inScadenza} from "./scadenze.js";
@@ -90,13 +90,16 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
+function cleanup(){mio=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
+let mio=false;
+/* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
+function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{if(s.exists()!==mio){mio=s.exists();render()}}).catch(()=>{})}
 function onMe(){
   unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
   if(!me){app.innerHTML=box('Account non abilitato','Hai effettuato l’accesso ma un admin deve ancora abilitarti.','<p><button class="btn ghost" id="out">Esci</button></p>');$('#out').onclick=()=>signOut(auth);return}
   SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=sn.docs.map(d=>({id:d.id,...d.data()}));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
   if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));render()});
-  render();
+  cercaMio();render();
 }
 function loginView(){
   app.innerHTML=box('Accedi','Inserisci le credenziali fornite dall’admin.',`<label for="em">Email</label><input id="em" type="text" autocomplete="username"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password"><p class="err" id="er" role="alert"></p><button class="btn" id="go">Accedi</button>`);
@@ -114,12 +117,13 @@ function bindTop(){$('#q').oninput=e=>{q=e.target.value;if(view!=='home'){view='
 function homeView(){app.innerHTML=topbar()+'<div class="wrap"><div id="body"></div></div>';bindTop();results()}
 function results(){
   const t=q.trim().toLowerCase(),b=$('#body');
-  if(!t){b.innerHTML=alertsHtml()+GROUPS.map(groupHtml).join('')+adminHtml();bindTiles();bindRes(b);return}
+  if(!t){b.innerHTML=mioHtml()+alertsHtml()+GROUPS.map(groupHtml).join('')+adminHtml();bindTiles();bindRes(b);return}
   const secs=SEC.filter(s=>perm(s)!=='n'&&s.toLowerCase().includes(t));
   const hits=allItems().filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t));
   b.innerHTML=`<div class="grid">${secs.map(tile).join('')}</div><div class="card" style="margin-top:16px"><h2>Risultati (${hits.length})</h2>${hits.length?hits.map(i=>`<button class="res" data-s="${esc(i.sec)}"><b>${esc(i.title)}</b><div class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</div></button>`).join(''):'<div class="mu">Nessun elemento trovato nelle sezioni a cui hai accesso.</div>'}</div>`;
   bindTiles();bindRes(b);
 }
+const mioHtml=()=>mio?'<h3 class="gt">Area personale</h3><div class="grid"><a class="tile" href="atleti.html" style="text-decoration:none;color:inherit"><b>Atleti</b><span class="badge">La mia tessera e il certificato</span></a></div>':'';
 /* Strumenti riservati all'admin (visibili solo a lui) */
 const adminHtml=()=>me.admin?'<h3 class="gt">Strumenti admin</h3><div class="grid"><a class="tile" href="migra.html" style="display:block;text-decoration:none;text-align:left;color:inherit"><b>Migrazione su Telegram</b><span class="badge">Una tantum · solo admin</span></a></div>':'';
 const bindRes=b=>b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
