@@ -58,6 +58,18 @@ async function pdfPages(blob,body){
     const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
     await pg.render({canvasContext:x,viewport:vp}).promise;wrap.append(c)}
   if(pdf.numPages>n){const p=document.createElement('p');p.className='mu';p.textContent='Mostrate le prime '+n+' pagine di '+pdf.numPages+': scarica il file per leggerlo tutto.';wrap.append(p)}}
+/* Riconosce il tipo dai primi byte del file (PDF, JPEG, PNG, GIF, WEBP, HEIC): non dipende da nome ed estensione */
+async function sniffType(blob){
+  try{
+    const b=new Uint8Array(await blob.slice(0,16).arrayBuffer()),a=(i,s)=>[...s].every((c,k)=>b[i+k]===c.charCodeAt(0));
+    if(a(0,'%PDF'))return 'application/pdf';
+    if(b[0]===0xFF&&b[1]===0xD8)return 'image/jpeg';
+    if(b[0]===0x89&&a(1,'PNG'))return 'image/png';
+    if(a(0,'GIF8'))return 'image/gif';
+    if(a(0,'RIFF')&&a(8,'WEBP'))return 'image/webp';
+    if(a(4,'ftyp')&&/^(heic|heix|hevc|mif1|msf1)/.test(String.fromCharCode(...b.slice(8,12))))return 'image/heic';
+  }catch(e){}
+  return '';}
 export function showPreview({title,mime,load,extra=[],errText,fileName}){
   css();
   const o=document.createElement('div');o.className='pv-ov';
@@ -76,7 +88,7 @@ export function showPreview({title,mime,load,extra=[],errText,fileName}){
   const say=t=>{body.innerHTML='<p class="mu"></p>';body.firstChild.textContent=t};
   (async()=>{
     try{
-      const raw=await load(say),type=guessMime(title,mime||raw.type);
+      const raw=await load(say),sn=await sniffType(raw),type=sn||guessMime(title,mime||raw.type);
       blob=new Blob([raw],{type});url=URL.createObjectURL(blob);dl.disabled=false;body.innerHTML='';
       if(type.startsWith('image/')){const i=document.createElement('img');i.src=url;i.alt=title;
         i.onerror=()=>{body.innerHTML='';const p=document.createElement('p');p.className='mu';p.textContent='Questo formato di immagine (es. HEIC) non si può mostrare nel browser. Usa “Scarica” per aprirla con la sua app.';body.append(p)};body.append(i)}
