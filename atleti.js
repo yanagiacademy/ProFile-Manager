@@ -39,7 +39,7 @@ function syncKeys(){
     setDoc(doc(db,'atletiEmail',e),{atleta:id}).catch(()=>synced.delete(id+'|'+e))})}
 /* ---------- la mia tessera: l'atleta loggato (email uguale a quella inserita dall'admin) scarica la propria tessera e il proprio certificato ----------
    Legge solo la copia su Firebase (senza Telegram) dal percorso sections/tessere/items; permessi applicati dalle regole Firestore. */
-let mioP=null,mioId='',mioT=null,mioF={t:null,c:null};
+let mioP=null,mioId='',mioT=null,mioF={t:null,c:null},mioErr=false;
 async function loadMio(){
   const e=auth.currentUser&&auth.currentUser.email;if(!e||isAdm())return;
   try{
@@ -47,11 +47,11 @@ async function loadMio(){
     mioId=k.data().atleta;
     try{const d=await rgetDoc(rdoc(db,'atletiDati',mioId));mioDati=d.exists()?d.data():null}catch(x){mioDati=null}
     try{const m=await rgetDoc(rdoc(db,'atletiModifiche',mioId));mioMod=m.exists()?(m.data().campi||{}):{}}catch(x){mioMod={}}
-    const tr=await rgetDoc(rdoc(db,'sections','tessere','items',mioId));if(!tr.exists())return;
+    const tr=await rgetDoc(rdoc(db,'sections','tessere','items',mioId));if(!tr.exists()){mioT=null;return}
     mioT=tr.data();
     const fl=async id=>{if(!id)return null;try{const sn=await rgetDoc(rdoc(db,'sections','tessere','items',id));return sn.exists()&&sn.data().kind==='file'?{id:sn.id,...sn.data()}:null}catch(x){return null}};
-    mioF={t:await fl(mioT.tesFile),c:await fl(mioT.certFile)}
-  }catch(x){console.error(x)}}
+    mioF={t:await fl(mioT.tesFile),c:await fl(mioT.certFile)};mioErr=false
+  }catch(x){console.error(x);mioErr=true}}
 async function mioBlob(f){
   const sn=await rgetDocs(rcollection(db,'sections','tessere','items',f.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
@@ -62,22 +62,38 @@ async function mioAct(a){
   try{if(a[0]==='d')saveBlob(await mioBlob(f),f.title);
     else showPreview({title:f.title,mime:f.mime,load:()=>mioBlob(f),errText:()=>'Impossibile aprire il file.'})}
   catch(x){console.error(x);alert('Impossibile scaricare il file. Controlla la connessione e riprova.')}}
-const mioRow=(f,ko,kd,vuoto)=>f?(f.chunks?`<div class="fr"><span class="mu">${esc(f.title)}</span><button class="btn sm" data-a="${kd}">Scarica</button><button class="btn ghost sm" data-a="${ko}">Apri</button></div>`:'<div class="mu" style="margin-top:8px">Il file non è disponibile online. Chiedi all’admin.</div>'):`<div class="mu" style="margin-top:8px">${vuoto}</div>`;
-const mioFiles=()=>mioT?`<div style="margin-top:10px"><b style="font-size:.9rem">I miei file</b><div class="mu" style="margin-top:6px">Tessera</div>${mioRow(mioF.t,'ot','dt','Nessun file caricato.')}<div class="mu" style="margin-top:10px">Certificato medico</div>${mioRow(mioF.c,'oc','dc','Nessun file caricato.')}</div>`:'';
+const mioRow=(f,ko,kd,vuoto,idSet)=>f?(f.chunks?`<div class="fr"><span class="mu">${esc(f.title)}</span><button class="btn sm" data-a="${kd}">Scarica</button><button class="btn ghost sm" data-a="${ko}">Apri</button></div>`:'<div class="mu" style="margin-top:8px">Il file non è disponibile online. Chiedi all’admin di ricaricarlo.</div>'):(idSet?'<div class="mu" style="margin-top:8px">Il file non è disponibile online. Chiedi all’admin di ricaricarlo.</div>':`<div class="mu" style="margin-top:8px">${vuoto}</div>`);
+const mioFiles=()=>mioT?`<div style="margin-top:10px"><b style="font-size:.9rem">I miei file</b><div class="mu" style="margin-top:6px">Tessera</div>${mioRow(mioF.t,'ot','dt','Nessun file caricato.',!!mioT.tesFile)}<div class="mu" style="margin-top:10px">Certificato medico</div>${mioRow(mioF.c,'oc','dc','Nessun file caricato.',!!mioT.certFile)}</div>`:'';
 const mioChip=(l,d)=>{const s=scadStato(d);return !s?`<span class="chip">${l}: —</span>`:s.late?`<span class="chip bad">${l} scaduta da ${-s.g} g</span>`:s.soon?`<span class="chip bad">${l} ${s.g===0?'scade oggi':'scade tra '+s.g+' g'}</span>`:`<span class="chip">${l} fino al ${esc(fmtD(d))}</span>`};
 /* pagina Atleti per l'atleta senza permessi sulla sezione: vede solo la propria scheda tessera */
+/* La mia scheda: dati personali + tessera e certificato (con Scarica/Apri). Sempre disponibile all'atleta collegato, qualunque permesso abbia su Atleti. */
+function mioCardsHtml(){
+  const t=mioT||{},nome=((t.cognome||'')+' '+(t.nome||'')).trim()||t.title||'';
+  const d=(l,v)=>v?`<dt>${l}</dt><dd>${esc(v)}</dd>`:'';
+  const err=mioErr?box2('Impossibile leggere i tuoi dati','Non riesco a collegarmi ai tuoi dati. Riprova tra poco; se il problema continua avvisa l’admin (le regole di sicurezza potrebbero non essere aggiornate).'):'';
+  if(!mioId)return err;
+  return err+`<div class="card dl"><h2 style="margin:0">${esc(nome||[mioCur('nome'),mioCur('cognome')].filter(Boolean).join(' '))}</h2>${mioDatiHtml()}</div>
+  ${mioT?`<div class="card dl" style="margin-top:12px"><h2 style="margin:0">Tessera e certificato</h2><div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${mioChip('Tessera',t.scadenza)}${mioChip('Certificato',t.certScad)}</div>
+    <h3>Tessera</h3><dl>${d('Ente / federazione',t.ente)}${d('Numero tessera (ID atleta)',t.numero)}${d('Tipo di tessera',t.tipoTessera)}${d('Stagione',t.stagione)}${d('Data emissione',isD(t.emissione)?fmtD(t.emissione):'')}${d('Scadenza',isD(t.scadenza)?fmtD(t.scadenza):'')}${d('Associazione',t.associazione)}</dl>
+    <h3>Certificato medico</h3><dl>${d('Tipo',t.certTipo)}${d('Scadenza',isD(t.certScad)?fmtD(t.certScad):'')}</dl>
+    ${mioFiles()}</div>`:(mioErr?'':box2('Tessera non ancora caricata','L’admin non ha ancora inserito la tua tessera. Riprova più tardi.'))}`}
+/* riquadro fisso in cima alla sezione Atleti per l'atleta che ha anche accesso alla sezione (lettura/scrittura) */
+function paintMio(){
+  const c=$('#mioc');if(!c)return;
+  if(!mioId&&!mioErr||isAdm()){c.innerHTML='';return}
+  c.innerHTML=`<h3 style="margin:0 0 8px">La mia scheda</h3>`+mioCardsHtml();
+  c.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioEdit')openMioDati(paintMio);else mioAct(b.dataset.a)}}
 function mioView(){
   const t=mioT||{},nome=((t.cognome||'')+' '+(t.nome||'')).trim()||t.title||'';
   const d=(l,v)=>v?`<dt>${l}</dt><dd>${esc(v)}</dd>`:'';
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Atleti</h2><span class="badge">La mia scheda</span></div></div>
-  <div class="card dl"><h2 style="margin:0">${esc(nome||[mioCur('nome'),mioCur('cognome')].filter(Boolean).join(' '))}</h2>${mioDatiHtml()}</div>
-  ${mioT?`<div class="card dl" style="margin-top:12px"><h2 style="margin:0">Tessera e certificato</h2><div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${mioChip('Tessera',t.scadenza)}${mioChip('Certificato',t.certScad)}</div>
-    <h3>Tessera</h3><dl>${d('Ente / federazione',t.ente)}${d('Numero tessera (ID atleta)',t.numero)}${d('Tipo di tessera',t.tipoTessera)}${d('Stagione',t.stagione)}${d('Data emissione',isD(t.emissione)?fmtD(t.emissione):'')}${d('Scadenza',isD(t.scadenza)?fmtD(t.scadenza):'')}${d('Associazione',t.associazione)}</dl>
-    <h3>Certificato medico</h3><dl>${d('Tipo',t.certTipo)}${d('Scadenza',isD(t.certScad)?fmtD(t.certScad):'')}</dl>
-    ${mioFiles()}</div>`:box2('Tessera non ancora caricata','L’admin non ha ancora inserito la tua tessera. Riprova più tardi.')}</div>`;
+  ${mioCardsHtml()}</div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   app.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioEdit')openMioDati(mioView);else mioAct(b.dataset.a)}}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden||!mioP||isAdm()||document.querySelector('.ov'))return;
+  loadMio().then(()=>{if(perm()==='n'){if(mioId)mioView()}else renderList()})});
 const box2=(t,m)=>`<div class="card"><h2 style="margin:0 0 6px">${esc(t)}</h2><div class="mu">${esc(m)}</div></div>`;
 /* ---------- modifiche dei dati da parte dell'atleta ----------
    L'atleta (account con la stessa email inserita dall'admin) modifica solo i suoi dati personali (ATL_EDIT).
@@ -183,6 +199,7 @@ function shell(){
   const w=perm()==='w';shellFor=perm();
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca negli atleti" aria-label="Cerca negli atleti" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Atleti</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div></div>
+  <div id="mioc" style="margin-bottom:12px"></div>
   ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 id="ft" style="margin:0">Nuovo atleta</h3><button class="btn sm" id="ftg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="fb" aria-label="Apri il modulo dell'atleta">+</button></div>
     <div id="fb" hidden>
     <fieldset><legend>Dati anagrafici</legend>
@@ -419,7 +436,7 @@ function renderList(){
   if(perm()==='w'){
     const fill=(id,k)=>{const dl=$('#'+id);if(dl)dl.innerHTML=[...new Set(all.map(i=>i[k]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'it')).map(v=>`<option value="${esc(v)}">`).join('')};
     fill('lg','grado');fill('lc','categoria');fill('la','allenatore')}
-  syncDati();paintDetail()}
+  syncDati();paintMio();paintDetail()}
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
@@ -432,7 +449,7 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!mioP)mioP=loadMio().then(()=>{if(perm()!=='n')renderList()});
-      if(perm()==='n'){shellFor='';if(memo)memo.setAccess('n',false);mioP.then(()=>{if(perm()!=='n')return;if(mioId)mioView();else app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.')});return}
+      if(perm()==='n'){shellFor='';if(memo)memo.setAccess('n',false);mioP.then(()=>{if(perm()!=='n')return;if(mioId||mioErr)mioView();else app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.')});return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
       if(isAdm()&&!unsubs.mailSub){unsubs.mailSub=1;
