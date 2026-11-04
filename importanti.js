@@ -9,21 +9,23 @@ import {stelle} from "./stella.js";
 const stella=stelle();
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
-/* File importanti: mostra i documenti di "Documenti" contrassegnati con la stella.
-   I file restano in Documenti: qui si possono scaricare, togliere dagli importanti, modificare e rinominare. */
+/* File importanti: mostra i file di Documenti, Video e Foto contrassegnati con la stella.
+   I file restano nella loro sezione: qui si possono scaricare, togliere dagli importanti, modificare e rinominare. */
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div><p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a></p></div></div>`;
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 
-const SEC='documenti',MINE='file-importanti',cur='';
+const SEC='documenti',SECS=['documenti','video','foto'],SECL={documenti:'Documenti',video:'Video',foto:'Foto'},MINE='file-importanti',cur='';
+const S=it=>(it&&it._sec)||SEC;
+const itemsBy={documenti:[],video:[],foto:[]},denied=new Set();
 let auth,db,col,uid=null,me=null,items=[],mine=[],q='',unsubs=[],err='';
 let memo=null;
 let selMode=false,sel=new Set(),vis=[];
 const children=id=>items.filter(i=>(i.parent||'')===id);
 const level=k=>me?(me.admin?'w':((me.perms||{})[k]||'n')):'n';
-const perm=()=>level(MINE),canW=()=>level(SEC)==='w';
+const perm=()=>level(MINE),canW=it=>level(S(it))==='w';
 const byId=id=>items.find(i=>i.id===id);
 const pathOf=id=>{const a=[];let x=byId(id);while(x){a.unshift(x.title);x=byId(x.parent)}return a.join(' / ')};
 const sortL=l=>l.sort((a,b)=>(a.kind==='folder'?0:1)-(b.kind==='folder'?0:1)||a.title.localeCompare(b.title,'it',{numeric:true}));
@@ -54,7 +56,7 @@ async function getBlob(it,say=()=>{}){
     const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
     return new Blob([buf],{type:guessMime(it.title,it.mime)})}catch(e){if(!it.chunks)throw e}}
   say('Preparazione del file…');
-  const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
+  const sn=await getDocs(collection(db,'sections',S(it),'items',it.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
   if(!parts.length)throw new Error('EMPTY');
   return new Blob(parts,{type:guessMime(it.title,it.mime)})}
@@ -64,15 +66,15 @@ async function download(it){
   try{saveBlob(await getBlob(it,t=>{p.textContent=t}),it.title);p.style.display='none'}
   catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 function preview(it){
-  showPreview({title:it.title,mime:it.mime,load:async say=>{const b=await getBlob(it,say);if(canW()&&!it.thumb&&!it.thumbTry&&canThumb(it.title,it.mime))makeThumb(b,it.title,it.mime).then(u=>updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})).catch(()=>{});return b},errText:dlErr,
-    extra:canW()?[{label:'★ Togli dai file importanti',fn:async b=>{if(await unstar(byId(it.id)||it))b.disabled=true,b.textContent='Tolto dai file importanti'}}]:[]})}
+  showPreview({title:it.title,mime:it.mime,load:async say=>{const b=await getBlob(it,say);if(canW(it)&&!it.thumb&&!it.thumbTry&&canThumb(it.title,it.mime))makeThumb(b,it.title,it.mime).then(u=>updateDoc(doc(db,'sections',S(it),'items',it.id),u?{thumb:u}:{thumbTry:true})).catch(()=>{});return b},errText:dlErr,
+    extra:canW(it)?[{label:'★ Togli dai file importanti',fn:async b=>{if(await unstar(byId(it.id)||it))b.disabled=true,b.textContent='Tolto dai file importanti'}}]:[]})}
 /* Miniature automatiche: solo per i file rimasti visibili a schermo per un paio di secondi */
 const tw=thumbWatcher(async id=>{
-  const it=byId(id);if(!it||it.thumb||it.thumbTry||!canW())return;
+  const it=byId(id);if(!it||it.thumb||it.thumbTry||!canW(it))return;
   if(it.tg&&tgConfigured()&&!hasSession())return;
   const b=await getBlob(it),u=await makeThumb(b,it.title,it.mime);
-  await updateDoc(doc(db,'sections',SEC,'items',it.id),u?{thumb:u}:{thumbTry:true})});
-const thAttr=i=>canW()&&i.kind==='file'&&!i.thumb&&!i.thumbTry&&canThumb(i.title,i.mime)&&(i.size||0)<=40*1024*1024?` data-thid="${esc(i.id)}"`:'';
+  await updateDoc(doc(db,'sections',S(it),'items',it.id),u?{thumb:u}:{thumbTry:true})});
+const thAttr=i=>canW(i)&&i.kind==='file'&&!i.thumb&&!i.thumbTry&&canThumb(i.title,i.mime)&&(i.size||0)<=40*1024*1024?` data-thid="${esc(i.id)}"`:'';
 async function dlSel(){
   const picked=[...sel].map(byId).filter(Boolean);if(!picked.length)return;
   const p=$('#prog');p.style.display='block';const say=t=>{p.textContent=t};
@@ -85,38 +87,38 @@ async function dlSel(){
     if(bad)modal('Download completato in parte','<div class="mu">'+bad+' file non sono stati inclusi nello ZIP perché non è stato possibile leggerli.</div>',[{label:'Chiudi'}])
   }catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 
-function noteModal(it){const w=canW();
+function noteModal(it){const w=canW(it);
   modal('Note – '+it.title,`<label for="nt" style="margin-top:0">Note su questo ${it.kind==='folder'?'elemento':'file'}</label><textarea id="nt" ${w?'':'readonly'}>${esc(it.note||'')}</textarea>`,
-    w?[cancel,{label:'Salva',fn:async o=>{try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{note:o.querySelector('#nt').value.trim()})}catch(e){return merr(o,'Salvataggio non riuscito.')}}}]:[{label:'Chiudi'}])}
-function editText(it){const w=canW();
+    w?[cancel,{label:'Salva',fn:async o=>{try{await updateDoc(doc(db,'sections',S(it),'items',it.id),{note:o.querySelector('#nt').value.trim()})}catch(e){return merr(o,'Salvataggio non riuscito.')}}}]:[{label:'Chiudi'}])}
+function editText(it){const w=canW(it);
   modal(it?it.title:'Nuova nota .txt',`<label for="n" style="margin-top:0">Nome file</label><input id="n" type="text" value="${esc(it?it.title:'note.txt')}" ${it&&!w?'readonly':''}><label for="tx">Testo</label><textarea id="tx" ${w?'':'readonly'}>${esc(it?it.text:'')}</textarea>`,
     w?[cancel,{label:'Salva',fn:async o=>{let n=o.querySelector('#n').value.trim();if(!n)return merr(o,'Inserisci un nome.');if(!/\.txt$/i.test(n))n+='.txt';
       const text=o.querySelector('#tx').value;
-      try{if(it)await updateDoc(doc(db,'sections',SEC,'items',it.id),{title:n,text,size:text.length});
+      try{if(it)await updateDoc(doc(db,'sections',S(it),'items',it.id),{title:n,text,size:text.length});
         else await addDoc(col,{title:n,kind:'text',parent:cur,text,size:text.length,mime:'text/plain',note:'',by:uid,at:serverTimestamp()})}catch(e){return merr(o,'Salvataggio non riuscito.')}}}]:[{label:'Chiudi'}])}
 function renameModal(it){
   modal('Rinomina',`<label for="n" style="margin-top:0">Nuovo nome</label><input id="n" type="text" value="${esc(it.title)}">`,[cancel,{label:'Rinomina',fn:async o=>{const n=o.querySelector('#n').value.trim();if(!n)return merr(o,'Inserisci un nome.');
-    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{title:n})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
+    try{await updateDoc(doc(db,'sections',S(it),'items',it.id),{title:n})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
 
 async function open1(it){
-  if(it.kind==='folder')location.href='documenti.html#'+it.id;
+  if(it.kind==='folder')location.href=S(it)+'.html#'+it.id;
   else if(it.kind==='text')editText(it);
   else preview(it)}
 /* Il file sparisce subito dall'elenco; il salvataggio (Telegram) segue in coda, poi Documenti (se aperto) si ricarica. */
 const pendStar=new Map();let starQ=Promise.resolve();
 async function unstar(it){
   if(!it)return false;
-  if(!canW()){modal('Permesso mancante','<div class="mu">Per togliere la stella serve il permesso di scrittura su Documenti. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
   const cur=byId(it.id)||it,id=cur.id;
+  if(!canW(cur)){modal('Permesso mancante','<div class="mu">Per togliere la stella serve il permesso di scrittura su '+SECL[S(cur)]+'. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
   pendStar.set(id,false);cur.star=false;render();
   const job=starQ.then(async()=>{
-    try{await updateDoc(doc(db,'sections',SEC,'items',id),{star:false});if(pendStar.get(id)===false)pendStar.delete(id);stella.cambiata();return true}
+    try{await updateDoc(doc(db,'sections',S(cur),'items',id),{star:false});if(pendStar.get(id)===false)pendStar.delete(id);stella.cambiata();return true}
     catch(e){console.error(e);
       if(pendStar.get(id)===false){pendStar.delete(id);const c=byId(id);if(c)c.star=true;render()}
       modal('Errore','<div class="mu">Operazione non riuscita'+(e&&e.code?' ('+esc(e.code)+')':'')+'.</div>',[{label:'Chiudi'}]);return false}});
   starQ=job;return job}
 function moreModal(it){
-  const w=canW(),b=[];
+  const w=canW(it),b=[];
   b.push({label:it.kind==='folder'?'Apri cartella':'Apri online',cls:'ghost',fn:()=>{setTimeout(()=>open1(it),0)}});
   if(it.kind!=='folder')b.push({label:'Scarica',cls:'ghost',fn:()=>{setTimeout(()=>download(it),0)}});
   b.push({label:'Note',cls:'ghost',fn:()=>{setTimeout(()=>noteModal(it),0)}});
@@ -131,7 +133,7 @@ function render(){
   if(!me||perm()==='n')return;
   const p=perm(),w=canW(),f=document.activeElement&&document.activeElement.id==='qi',t=q.trim().toLowerCase();
   const all=sortL(items.filter(i=>i.star)),list=t?all.filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t)):all;vis=list;
-  const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
+  const rows=list.map(i=>{const meta=[S(i)!==SEC?SECL[S(i)]:'',i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     const star=selMode?`<input type="checkbox" class="sk" data-act="sel" data-id="${esc(i.id)}" ${sel.has(i.id)?'checked':''} aria-label="Seleziona ${esc(i.title)}">`:`<button class="star on" data-act="unstar" data-id="${esc(i.id)}" aria-pressed="true" aria-label="Togli dai file importanti: ${esc(i.title)}">★</button>`;
     return `<div class="frow"${thAttr(i)}>${star}<span class="fi" aria-hidden="true">${okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${where}</button><span class="meta">${esc(meta)}</span>${i.kind==='folder'?'':`<button class="btn ghost sm" data-act="save" data-id="${esc(i.id)}" aria-label="Scarica ${esc(i.title)}">Scarica</button>`}<button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
@@ -141,7 +143,7 @@ function render(){
   <input id="qi" type="search" placeholder="Cerca nei file importanti" aria-label="Cerca nei file importanti" value="${esc(q)}" style="margin-bottom:12px">
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   ${err?`<p class="err" role="alert">${esc(err)}</p>`:''}
-  <div class="card">${list.length?rows:`<div class="mu">${t?'Nessun risultato.':(err?'':'Nessun file importante. Metti la stella a un documento in Documenti per vederlo qui.')}</div>`}</div>
+  <div class="card">${list.length?rows:`<div class="mu">${t?'Nessun risultato.':(err?'':'Nessun file importante. Metti la stella a un file in Documenti, Video o Foto per vederlo qui.')}</div>`}</div>
   ${old.length?`<h3 style="margin:16px 0 8px">Altri elementi</h3><div class="card">${old.map(i=>`<div class="row"><div><b>${esc(i.title)}</b><div class="mu">${esc(i.note||'')}</div></div>${p==='w'?`<button class="btn ghost sm" data-d="${esc(i.id)}">Elimina</button>`:''}</div>`).join('')}</div>`:''}</div>`;
   if(f){const i=$('#qi');i.focus();i.setSelectionRange(q.length,q.length)}
   $('#qi').oninput=e=>{q=e.target.value;render()};
@@ -169,8 +171,10 @@ else{
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
-      if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{err='';items=s.docs.map(d=>({id:d.id,...d.data()}));items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});render()},()=>{err='Per vedere i file importanti serve il permesso di lettura su Documenti. Chiedi all’admin.';items=[];render()}));
+      if(!unsubs.secSub){unsubs.secSub=1;
+        const merge=()=>{items=SECS.flatMap(x=>itemsBy[x].map(i=>({...i,_sec:x})));items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});
+          err=denied.size===SECS.length?'Per vedere i file importanti serve il permesso di lettura su Documenti, Video o Foto. Chiedi all’admin.':'';render()};
+        SECS.forEach(x=>unsubs.push(onSnapshot(collection(db,'sections',x,'items'),s=>{denied.delete(x);itemsBy[x]=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);merge()},()=>{denied.add(x);itemsBy[x]=[];merge()})));
         unsubs.push(onSnapshot(collection(db,'sections',MINE,'items'),s=>{mine=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();

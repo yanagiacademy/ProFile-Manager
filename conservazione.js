@@ -23,7 +23,7 @@ export const zona=i=>!archiviato(i)?'':(isD(i.conservaFino)&&giorni(i.conservaFi
 /* un file archiviato resta nella raccolta della sezione d'origine (Documenti, Tessere…): it._sec la indica */
 const ref=(db,it)=>doc(db,'sections',it._sec||'documenti','items',it.id);
 /* tipologia di documento archiviato: Documenti (predefinita), Tessere, Certificati medici */
-export const tipologia=i=>(i&&i.tipo)||'Documenti';
+export const tipologia=i=>(i&&i.tipo)||({video:'Video',foto:'Foto'}[i&&i._sec])||'Documenti';
 const cartelle=(items,id)=>{const a=[];let x=items.find(i=>i.id===id);while(x){a.unshift(x.title);x=items.find(i=>i.id===x.parent)}return a.join(' / ')};
 
 /* Archivia un documento per 10 anni dalla data di oggi. items = elenco di Documenti (serve a ricostruire la cartella d'origine) */

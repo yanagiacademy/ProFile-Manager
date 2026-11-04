@@ -17,9 +17,14 @@ const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager<
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 
-const SEC='documenti',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
+/* Questa pagina serve tre sezioni: Documenti (predefinita), Video e Foto (la pagina imposta window.PFM_SEC). Stesse funzioni: cartelle,
+   file su Telegram, anteprima, download, rinomina, sposta, stella (File importanti), archivio, elimina. Video e Foto non hanno scadenze né note .txt. */
+const SEC=window.PFM_SEC||'documenti',NOME={documenti:'Documenti',video:'Video',foto:'Foto'}[SEC]||'Documenti',MEDIA=SEC!=='documenti';
+const ACCEPT={video:'video/*',foto:'image/*'}[SEC]||'';
+const MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 let auth,db,col,uid=null,me=null,items=[],cur='',q='',unsubs=[],hashDone=false,selMode=false,sel=new Set(),vis=[];
-let view=(()=>{try{return localStorage.getItem('doc_view')||'list'}catch(e){return 'list'}})();
+const VKEY=SEC==='documenti'?'doc_view':SEC+'_view';
+let view=(()=>{try{return localStorage.getItem(VKEY)||'list'}catch(e){return 'list'}})();
 let memo=null;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const canW=()=>perm()==='w';
@@ -36,7 +41,7 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW())archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
+        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW()&&!MEDIA)archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
@@ -61,7 +66,7 @@ const lead=i=>selMode?chk(i):starBtn(i);
 const pendStar=new Map();let starQ=Promise.resolve();
 async function toggleStar(it){
   if(!it)return false;
-  if(!canW()){modal('Permesso mancante','<div class="mu">Per mettere la stella serve il permesso di scrittura su Documenti. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
+  if(!canW()){modal('Permesso mancante','<div class="mu">Per mettere la stella serve il permesso di scrittura su '+NOME+'. Chiedi all’admin.</div>',[{label:'Chiudi'}]);return false}
   const cur=byId(it.id)||it,nv=!cur.star,id=cur.id;
   pendStar.set(id,nv);cur.star=nv;render();
   const job=starQ.then(async()=>{
@@ -71,7 +76,7 @@ async function toggleStar(it){
       modal('Errore','<div class="mu">Impossibile aggiornare la stella'+(e&&e.code?' ('+esc(e.code)+')':'')+'. Riprova tra poco.</div>',[{label:'Chiudi'}]);return false}});
   starQ=job;return job}
 
-const scadLine=i=>{if(i.kind!=='file'||!isD(i.scadenza))return '';const g=giorni(i.scadenza),hot=inScadenza(i);
+const scadLine=i=>{if(MEDIA||i.kind!=='file'||!isD(i.scadenza))return '';const g=giorni(i.scadenza),hot=inScadenza(i);
   return `<div class="mu" style="font-size:.75rem${hot?';color:var(--er);font-weight:700':''}">Scadenza ${esc(fmtD(i.scadenza))} · ${esc(testo(g))}</div>`};
 const ico=i=>okThumb(i.thumb)?`<img class="th" src="${i.thumb}" alt="" loading="lazy">`:icon(i);
 
@@ -97,11 +102,11 @@ function render(){
     return view==='list'
       ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${i.fb?' <span class="mu" title="Salvato anche su Firebase" aria-label="Salvato anche su Firebase">☁</span>':''}${where}${scadLine(i)}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
       :`<div class="ico"${thAttr(i)}>${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
-  app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Documenti" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
-  <div class="wrap"><div class="bar"><h2>Documenti</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
-  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button><button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button><label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem"><input type="checkbox" data-act="fbn" ${fbNew?'checked':''}> Salva anche su Firebase</label><input type="file" id="uf" multiple hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
+  app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in ${NOME}" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
+  <div class="wrap"><div class="bar"><h2>${NOME}</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
+  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button>${MEDIA?'':'<button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button>'}<label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem"><input type="checkbox" data-act="fbn" ${fbNew?'checked':''}> Salva anche su Firebase</label><input type="file" id="uf" multiple ${ACCEPT?`accept="${ACCEPT}"`:''} hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
-  <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">Documenti</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
+  <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">${NOME}</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
   <div class="card">${list.length?(view==='list'?rows:`<div class="icons">${rows}</div>`):`<div class="mu">${t?'Nessun risultato.':'Cartella vuota.'+(w?' Carica file o crea una cartella.':'')}</div>`}</div></div>`;
   if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
   $('#q').oninput=e=>{q=e.target.value;render()};
@@ -115,7 +120,7 @@ function render(){
 
 function act(a,id){
   const it=id?byId(id):null;
-  if(a==='view'){view=id;try{localStorage.setItem('doc_view',view)}catch(e){}render()}
+  if(a==='view'){view=id;try{localStorage.setItem(VKEY,view)}catch(e){}render()}
   else if(a==='goto'){cur=id;q='';render()}
   else if(a==='upf')$('#uf').click();
   else if(a==='upd')$('#ud').click();
@@ -179,7 +184,7 @@ async function dlSel(){
     const entries=[];const walk=(x,base)=>{if(x.kind==='folder')children(x.id).forEach(c=>walk(c,base+x.title+'/'));else entries.push({path:base+x.title,load:()=>getBlob(x,say)})};
     picked.forEach(x=>walk(x,''));
     if(!entries.length){p.style.display='none';modal('Selezione vuota','<div class="mu">Le cartelle scelte non contengono file.</div>',[{label:'Chiudi'}]);return}
-    const bad=await saveZip(entries,'documenti.zip',say);p.style.display='none';
+    const bad=await saveZip(entries,SEC+'.zip',say);p.style.display='none';
     if(bad)modal('Download completato in parte','<div class="mu">'+bad+' file non sono stati inclusi nello ZIP perché non è stato possibile leggerli.</div>',[{label:'Chiudi'}])
   }catch(e){p.style.display='none';console.error(e);modal('Errore','<div class="mu">'+esc(dlErr(e))+'</div>',[{label:'Chiudi'}])}}
 
@@ -190,7 +195,7 @@ function moreModal(it){
   b.push({label:'Note',cls:'ghost',fn:()=>{setTimeout(()=>noteModal(it),0)}});
   if(w){b.push({label:it.star?'Togli dai file importanti':'Aggiungi ai file importanti',cls:'ghost',fn:()=>{toggleStar(it)}});
     if(it.kind==='text')b.push({label:'Modifica',cls:'ghost',fn:()=>{setTimeout(()=>editText(it),0)}});
-    if(it.kind==='file')b.push({label:it.scadenza?'Scadenza…':'Imposta scadenza',cls:'ghost',fn:()=>{setTimeout(()=>scadModal(it),0)}});
+    if(it.kind==='file'&&!MEDIA)b.push({label:it.scadenza?'Scadenza…':'Imposta scadenza',cls:'ghost',fn:()=>{setTimeout(()=>scadModal(it),0)}});
     b.push({label:it.fb?'Togli da Firebase':'Salva anche su Firebase',cls:'ghost',fn:()=>{setTimeout(()=>fbSet(it,!it.fb),0)}});
     b.push({label:'Rinomina',cls:'ghost',fn:()=>{setTimeout(()=>renameModal(it),0)}});
     b.push({label:'Sposta',cls:'ghost',fn:()=>{setTimeout(()=>moveModal(it),0)}});
@@ -227,13 +232,13 @@ function renameModal(it){
 function moveModal(it){
   const bad=new Set([it.id,...(it.kind==='folder'?descendants(it.id).map(d=>d.id):[])]);
   const dirs=items.filter(i=>i.kind==='folder'&&!bad.has(i.id)).map(i=>({id:i.id,p:pathOf(i.id)})).sort((a,b)=>a.p.localeCompare(b.p,'it'));
-  modal('Sposta in…',`<label for="d" style="margin-top:0">Cartella di destinazione</label><select id="d"><option value="">Documenti (radice)</option>${dirs.map(d=>`<option value="${esc(d.id)}" ${d.id===(it.parent||'')?'selected':''}>${esc(d.p)}</option>`).join('')}</select>`,
+  modal('Sposta in…',`<label for="d" style="margin-top:0">Cartella di destinazione</label><select id="d"><option value="">${NOME} (radice)</option>${dirs.map(d=>`<option value="${esc(d.id)}" ${d.id===(it.parent||'')?'selected':''}>${esc(d.p)}</option>`).join('')}</select>`,
     [cancel,{label:'Sposta',fn:async o=>{try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{parent:o.querySelector('#d').value})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
 /* Archivia: sposta il file nell'Archivio (conservazione 10 anni, come i documenti scaduti). Da lì non si elimina fino alla fine del periodo. */
 function archModal(it){
   const fino=addMesi(oggiISO(),12*ANNI);
   modal('Archiviare?',`<div class="mu">Spostare “${esc(it.title)}” nell’Archivio? Verrà conservato per ${ANNI} anni, fino al ${fmtD(fino)}: in questo periodo non si potrà eliminare.</div>`,[cancel,{label:'Archivia',fn:async o=>{
-    try{await archiviaDoc(db,byId(it.id)||it,items,'archiviato manualmente');stella.cambiata()}
+    try{await archiviaDoc(db,{...(byId(it.id)||it),_sec:SEC},items,'archiviato manualmente');stella.cambiata()}
     catch(e){console.error(e);return merr(o,'Archiviazione non riuscita'+(e&&e.code?' ('+e.code+')':'')+'.')}}}])}
 function delModal(it){
   const n=it.kind==='folder'?descendants(it.id).length:0;

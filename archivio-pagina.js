@@ -18,15 +18,15 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='documenti',MINE='archivio';
-let auth,db,col,arch,archT,uid=null,me=null,items=[],itemsDoc=[],itemsTes=[],q='',tab='conservare',tipoSel='all',tabSet=false,unsubs=[],err='',memo=null;
+let auth,db,col,arch,archT,archV,archF,uid=null,me=null,items=[],itemsDoc=[],itemsTes=[],itemsVid=[],itemsFot=[],q='',tab='conservare',tipoSel='all',tabSet=false,unsubs=[],err='',memo=null;
 const level=k=>me?(me.admin?'w':((me.perms||{})[k]||'n')):'n';
 const perm=()=>level(MINE),canW=()=>level(SEC)==='w'&&level(MINE)==='w';
 /* ogni file si gestisce con i permessi della sua sezione d'origine (Documenti o Tessere) */
 const canWi=it=>level((it&&it._sec)||SEC)==='w'&&level(MINE)==='w';
-const archFor=it=>it&&it._sec==='tessere'?archT:arch;
-function merge(){items=[...itemsDoc.map(i=>({...i,_sec:SEC})),...itemsTes.filter(archiviato).map(i=>({...i,_sec:'tessere'}))]}
+const archFor=it=>it&&it._sec==='tessere'?archT:it&&it._sec==='video'?archV:it&&it._sec==='foto'?archF:arch;
+function merge(){items=[...itemsDoc.map(i=>({...i,_sec:SEC})),...itemsTes.filter(archiviato).map(i=>({...i,_sec:'tessere'})),...itemsVid.filter(archiviato).map(i=>({...i,_sec:'video'})),...itemsFot.filter(archiviato).map(i=>({...i,_sec:'foto'}))]}
 const byId=id=>items.find(i=>i.id===id);
-const origine=i=>i.origine||'Documenti (cartella principale)';
+const origine=i=>i.origine||({video:'Video',foto:'Foto'}[i._sec]||'Documenti')+' (cartella principale)';
 function icon(i){const m=i.mime||'',n=i.title.toLowerCase();
   if(m.startsWith('image/'))return '🖼️';if(m.startsWith('video/'))return '🎞️';if(m.startsWith('audio/'))return '🎵';if(m==='application/pdf'||n.endsWith('.pdf'))return '📕';
   if(/\.(xlsx?|csv|ods)$/.test(n))return '📊';if(/\.(docx?|odt|rtf)$/.test(n))return '📘';if(/\.(zip|rar|7z)$/.test(n))return '🗜️';return '📄'}
@@ -116,14 +116,17 @@ else{
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
     if(!u){location.href='index.html';return}
-    uid=u.uid;arch=archivio(db,SEC,uid);archT=archivio(db,'tessere',uid);
+    uid=u.uid;arch=archivio(db,SEC,uid);archT=archivio(db,'tessere',uid);archV=archivio(db,'video',uid);archF=archivio(db,'foto',uid);
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
-      if(unsubs.length<2){
+      if(!unsubs.colSub){unsubs.colSub=1;
         unsubs.push(onSnapshot(col,s=>{err='';itemsDoc=s.docs.map(d=>({id:d.id,...d.data()}));merge();if(level(SEC)==='w')archiviaScaduti(db,itemsDoc);render()},()=>{err='Per vedere l’archivio serve il permesso di lettura su Documenti. Chiedi all’admin.';itemsDoc=[];merge();render()}));
         /* tessere e certificati medici eliminati dalla sezione Tessere (se non hai la lettura su Tessere, non compaiono) */
-        unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{itemsTes=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsTes=[];merge();render()}))}
+        unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{itemsTes=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsTes=[];merge();render()}));
+        /* video e foto archiviati (se non hai la lettura su Video o Foto, non compaiono) */
+        unsubs.push(onSnapshot(collection(db,'sections','video','items'),s=>{itemsVid=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsVid=[];merge();render()}));
+        unsubs.push(onSnapshot(collection(db,'sections','foto','items'),s=>{itemsFot=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsFot=[];merge();render()}))}
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
