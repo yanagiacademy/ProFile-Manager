@@ -25,24 +25,8 @@ input[type=text],input[type=password],input[type=search],select,textarea{width:1
 .btn.ghost{background:transparent;color:var(--tx);border:1px solid var(--ln)}
 .btn.sm{padding:6px 10px;font-size:.85rem}
 .err{color:var(--er);min-height:1.4em;margin:8px 0 0;font-size:.9rem}
-.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--ln);padding:10px 16px;display:flex;gap:10px;align-items:center}
-.top input{flex:1;min-width:0}
-.top .who{white-space:nowrap;font-size:.85rem;color:var(--mu)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:8px}
-.gt{margin:24px 0 0;font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--mu)}
-.alert{margin-top:16px;border:2px solid var(--er);border-left-width:8px}
-.alert h2{color:var(--er);margin-bottom:4px}
-.tile{background:var(--sf);border:1px solid var(--ln);border-left:4px solid var(--ac2);border-radius:10px;padding:18px 14px;text-align:left;min-height:96px;display:flex;flex-direction:column;justify-content:space-between}
-.tile b{font-size:1.05rem}
-.tile:hover{border-color:var(--ac)}
-.tile[disabled]{opacity:.45;cursor:not-allowed}
-.tile.mod{border-color:#E6B800;box-shadow:0 0 0 3px #E6B800}
-.tile.alarm{background:var(--er);border-color:var(--er);color:var(--bg)}
-.tile.alarm .badge{color:inherit;font-weight:700}
-.badge{font-size:.78rem;color:var(--mu)}
 .row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--ln)}
 .row:last-child{border:0}
-.res{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ln);padding:10px 0}
 .clock{position:fixed;right:0;bottom:0;padding:8px 16px calc(8px + env(safe-area-inset-bottom,0px));background:var(--sf);border-top:1px solid var(--ln);border-left:1px solid var(--ln);border-radius:10px 0 0 0;font-size:.9rem;font-variant-numeric:tabular-nums}
 table{width:100%;border-collapse:collapse;font-size:.88rem}
 th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
@@ -60,6 +44,44 @@ th,td{padding:6px 4px;text-align:left;border-bottom:1px solid var(--ln)}
 .pr{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--ln)}
 .pr:last-child{border:0}
 .pr select{width:auto;min-width:130px}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--ln);padding:8px 16px;display:flex;gap:8px;align-items:center}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--ac);margin-right:auto;white-space:nowrap;min-width:0}
+.brand .lg{background:#1B2A4A;border-radius:8px;padding:4px 7px;display:inline-flex;flex:none}.brand .lg img{height:26px;width:auto;display:block}
+.ib{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;min-height:42px;border:1px solid var(--ln);border-radius:10px;background:transparent;color:var(--tx);text-decoration:none;font-weight:500;font-size:.9rem}
+.ib:hover{border-color:var(--ac)}.ib svg{width:18px;height:18px;flex:none}
+@media (max-width:520px){.ib span{display:none}.ib{padding:8px 11px}}
+.hero{margin:8px 0 2px}.hi{font-size:1.5rem;margin:12px 0 2px}
+.srch{position:relative;margin-top:14px}
+.srch svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:20px;height:20px;color:var(--mu);pointer-events:none}
+.srch input[type=search]{padding:12px 14px 12px 44px;min-height:50px;font-size:1rem;border-radius:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px}
+.gt{margin:26px 0 0;font-size:1rem;font-weight:700;color:var(--tx)}
+.alert{margin-top:18px;border:2px solid var(--er);padding:14px 16px}
+.alert h2{color:var(--er);margin:0 0 4px;display:flex;align-items:center;gap:8px;font-size:1.05rem}
+.alert h2 svg{width:20px;height:20px;flex:none}
+.tile{background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:14px;text-align:left;min-height:112px;display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-decoration:none;color:inherit}
+.tile:hover{border-color:var(--ac)}.tile:active{transform:scale(.98)}
+.tile.hot{border-color:var(--er)}.tile.mod{border-color:var(--ac2)}
+.ico{width:40px;height:40px;border-radius:10px;background:var(--bg);color:var(--ac);display:grid;place-items:center;margin-bottom:6px;flex:none}
+.ico svg{width:22px;height:22px}
+.tn{font-weight:700;font-size:1.02rem;line-height:1.25}
+.ts{font-size:.82rem;color:var(--mu);display:flex;align-items:center;gap:4px}.ts svg{width:13px;height:13px;flex:none}
+.pill{display:inline-block;margin-top:4px;padding:2px 9px;border-radius:99px;font-size:.76rem;font-weight:700;background:var(--er);color:var(--bg)}
+.pill.am{background:var(--ac2);color:#14213D}
+.res{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--ln);padding:11px 0;min-height:52px;text-decoration:none;color:inherit}
+.res:last-child{border-bottom:0}
+.res .ico{width:36px;height:36px;margin:0}.res .ico svg{width:20px;height:20px}
+.res .rt{flex:1;min-width:0}.res .rt b{display:block}
+.res .rt .mu{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res .go{width:18px;height:18px;color:var(--mu);flex:none}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;min-height:42px;border:1px solid var(--ln);border-radius:99px;background:var(--sf);font-weight:500}
+.chip:hover{border-color:var(--ac)}.chip svg{width:16px;height:16px;color:var(--ac);flex:none}
+details.adm{margin-top:28px;border:1px solid var(--ln);border-radius:12px;background:var(--sf);padding:0 14px}
+details.adm summary{cursor:pointer;min-height:50px;display:flex;align-items:center;gap:8px;font-weight:700}
+details.adm summary svg{width:18px;height:18px;color:var(--mu)}
+.emp{margin-top:24px;text-align:center;padding:32px 16px}
+.lgb{background:#1B2A4A;border-radius:12px;padding:8px 12px;display:inline-flex;margin-bottom:12px}.lgb img{height:52px;width:auto;display:block}
 </style>
 </head>
 <body>
@@ -81,6 +103,31 @@ const SEC=GROUPS.flatMap(g=>g[1]);
 const key=s=>s.toLowerCase().replace(/\s+/g,'-');
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* Icone a linea (24x24), tutte decorative: accanto c'è sempre il testo */
+const P={
+ documenti:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+ 'file-importanti':'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+ 'documenti-in-scadenza':'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+ archivio:'<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+ tecnici:'<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>',
+ atleti:'<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+ tessere:'<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+ lezioni:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+ eventi:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+ video:'<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>',
+ foto:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+ commercialista:'<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="12" y1="11" x2="12.01" y2="11"/><line x1="16" y1="11" x2="16.01" y2="11"/><line x1="8" y1="15" x2="8.01" y2="15"/><line x1="12" y1="15" x2="12.01" y2="15"/><line x1="16" y1="15" x2="16.01" y2="15"/><line x1="8" y1="18" x2="8.01" y2="18"/><line x1="12" y1="18" x2="16" y2="18"/>',
+ mail:'<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
+ chat:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+ user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+ out:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+ search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+ go:'<polyline points="9 18 15 12 9 6"/>',
+ alert:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+ lock:'<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+ tool:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'
+};
+const ic=(n,c='')=>`<svg${c?` class="${c}"`:''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${P[n]||''}</svg>`;
 let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',unsubs=[],unsubUsers=null,unsubMe=null;
 const page=s=>key(s)+'.html';
 /* 'u' = "Solo dati utente" (solo Atleti): nessun accesso ai dati degli altri, vede soltanto la propria scheda. Per i dati vale come 'n'. */
@@ -103,7 +150,7 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
   onAuthStateChanged(auth,u=>{cleanup();uid=u?u.uid:null;me=null;if(!u){loginView();return}
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
-function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
+function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
 function cleanup(){mio=false;modN=0;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
 let mio=false,modN=0;
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
@@ -127,24 +174,45 @@ function render(){
   if(view==='admin'&&me.admin)adminView();else{view='home';homeView()}
   if(f){const i=$('#q');if(i){i.focus();i.setSelectionRange(q.length,q.length)}}
 }
-const topbar=()=>`<div class="top"><input id="q" type="search" placeholder="Cerca in tutte le sezioni" aria-label="Cerca" value="${esc(q)}"><a class="btn ghost sm" href="chat.html" style="text-decoration:none">Chat</a>${me.admin?'<button class="btn ghost sm" id="adm">Account</button>':''}<span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>`;
-function bindTop(){$('#q').oninput=e=>{q=e.target.value;if(view!=='home'){view='home';render()}else results()};
+/* Barra in alto: logo, Chat, Account (solo admin), Esci. Su telefono restano le sole icone (con etichetta per gli screen reader). */
+const topbar=()=>`<div class="top"><span class="brand"><span class="lg"><img src="logo-yanagi.png" alt=""></span>ProFile Manager</span><a class="ib" href="chat.html" aria-label="Chat" title="Chat">${ic('chat')}<span>Chat</span></a>${me.admin?`<button class="ib" id="adm" aria-label="Gestione account" title="Gestione account">${ic('user')}<span>Account</span></button>`:''}<button class="ib" id="out" aria-label="Esci" title="Esci">${ic('out')}<span>Esci</span></button></div>`;
+function bindTop(){const s=$('#q');
+  if(s){s.oninput=e=>{q=e.target.value;if(view!=='home'){view='home';render()}else results()};
+    s.onkeydown=e=>{if(e.key==='Escape'&&q){q='';s.value='';results()}}}
   $('#out').onclick=()=>{q='';view='home';signOut(auth)};if($('#adm'))$('#adm').onclick=()=>{view='admin';render()}}
-function homeView(){app.innerHTML=topbar()+'<div class="wrap"><div id="body"></div></div>';bindTop();results()}
+const saluto=()=>{const h=new Date().getHours();return h>=5&&h<13?'Buongiorno':h>=13&&h<18?'Buon pomeriggio':'Buonasera'};
+const nome=()=>{const n=(me.name||'').trim()||String(me.email||'').split('@')[0];return n.split(/\s+/)[0]};
+const dataOggi=()=>{const s=new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});return s[0].toUpperCase()+s.slice(1)};
+const heroHtml=()=>`<div class="hero"><h1 class="hi">${saluto()}${nome()?', '+esc(nome()):''}</h1><div class="mu">${esc(dataOggi())}</div><div class="srch">${ic('search')}<input id="q" type="search" placeholder="Cerca in tutte le sezioni" aria-label="Cerca in tutte le sezioni" enterkeyhint="search" autocomplete="off" value="${esc(q)}"></div></div>`;
+function homeView(){app.innerHTML=topbar()+'<div class="wrap">'+heroHtml()+'<div id="body"></div></div>';bindTop();results()}
+const resHtml=i=>`<button class="res" data-s="${esc(i.sec)}"><span class="ico">${ic(key(i.sec))}</span><span class="rt"><b>${esc(i.title)}</b><span class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</span></span>${ic('go','go')}</button>`;
 function results(){
   const t=q.trim().toLowerCase(),b=$('#body');
-  if(!t){b.innerHTML=mioHtml()+alertsHtml()+GROUPS.map(groupHtml).join('')+adminHtml();bindTiles();bindRes(b);return}
+  if(!t){
+    const mi=mioHtml(),g=GROUPS.map(groupHtml).join('');
+    b.innerHTML=mi+alertsHtml()+recentiHtml()+g+(g||mi?'':nessunaHtml())+adminHtml();
+    bindNav(b);return}
   const secs=SEC.filter(s=>(perm(s)!=='n'||solo(s))&&s.toLowerCase().includes(t));
   const hits=allItems().filter(i=>(i.title+' '+(i.note||'')).toLowerCase().includes(t));
-  b.innerHTML=`<div class="grid">${secs.map(tile).join('')}</div><div class="card" style="margin-top:16px"><h2>Risultati (${hits.length})</h2>${hits.length?hits.map(i=>`<button class="res" data-s="${esc(i.sec)}"><b>${esc(i.title)}</b><div class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</div></button>`).join(''):'<div class="mu">Nessun elemento trovato nelle sezioni a cui hai accesso.</div>'}</div>`;
-  bindTiles();bindRes(b);
-}
-const mioHtml=()=>mio&&!solo('Atleti')?'<h3 class="gt">Area personale</h3><div class="grid"><a class="tile" href="atleti.html" style="text-decoration:none;color:inherit"><b>Atleti</b><span class="badge">La mia tessera e il certificato</span></a></div>':'';
-/* Strumenti riservati all'admin (visibili solo a lui) */
-const adminHtml=()=>me.admin?'<h3 class="gt">Strumenti admin</h3><div class="grid"><a class="tile" href="migra.html" style="display:block;text-decoration:none;text-align:left;color:inherit"><b>Migrazione su Telegram</b><span class="badge">Una tantum · solo admin</span></a><a class="tile" href="cifra-esistenti.html" style="display:block;text-decoration:none;text-align:left;color:inherit"><b>Cifratura contenuti Telegram</b><span class="badge">Una tantum · solo admin</span></a></div>':'';
-const bindRes=b=>b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
-const groupHtml=g=>g[1].every(s=>perm(s)==='n'&&!solo(s))?'':`<h3 class="gt">${esc(g[0])}</h3><div class="grid">${g[1].map(tile).join('')}</div>`;
-/* Riquadro "Da controllare" in cima alla Home: documenti in scadenza e documenti da verificare in Archivio */
+  b.innerHTML=(secs.length?`<h3 class="gt">Schede</h3><div class="grid">${secs.map(tile).join('')}</div>`:'')
+    +`<div class="card" style="margin-top:16px"><h2>Risultati${hits.length?' ('+hits.length+')':''}</h2>${hits.length?hits.map(resHtml).join(''):`<div class="mu">Nessun elemento trovato per «${esc(q.trim())}» nelle sezioni a cui hai accesso. Prova con una parola più breve.</div>`}</div>`;
+  bindNav(b)}
+const nessunaHtml=()=>'<div class="card emp"><b>Nessuna scheda abilitata</b><div class="mu">Non hai ancora accesso a nessuna sezione. Chiedi all’admin di abilitarti.</div></div>';
+const mioHtml=()=>mio&&!solo('Atleti')?`<h3 class="gt">La mia area</h3><div class="grid"><a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">La mia tessera</span><span class="ts">Tessera e certificato medico</span></a></div>`:'';
+/* Strumenti riservati all'admin (visibili solo a lui), raccolti in un riquadro chiuso: si usano di rado */
+let admOpen=false;
+const adminHtml=()=>me.admin?`<details class="adm"><summary>${ic('tool')}Strumenti admin</summary><div style="padding-bottom:6px"><a class="res" href="migra.html"><span class="ico">${ic('tool')}</span><span class="rt"><b>Migrazione su Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a><a class="res" href="cifra-esistenti.html"><span class="ico">${ic('lock')}</span><span class="rt"><b>Cifratura contenuti Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a></div></details>`:'';
+/* Schede usate di recente (solo su questo dispositivo) */
+const REC='pfm_recenti';
+const recGet=()=>{try{return JSON.parse(localStorage.getItem(REC)||'[]')}catch(e){return []}};
+const recAdd=s=>{try{localStorage.setItem(REC,JSON.stringify([s,...recGet().filter(x=>x!==s)].slice(0,4)))}catch(e){}};
+const recentiHtml=()=>{const l=recGet().filter(s=>SEC.includes(s)&&(perm(s)!=='n'||solo(s)));return l.length?`<h3 class="gt">Usate di recente</h3><div class="chips">${l.map(s=>`<button class="chip" data-s="${esc(s)}">${ic(key(s))}${esc(s)}</button>`).join('')}</div>`:''};
+function bindNav(b){
+  b.querySelectorAll('[data-s]:not([disabled])').forEach(t=>t.onclick=()=>{if(SEC.includes(t.dataset.s))recAdd(t.dataset.s);location.href=page(t.dataset.s)});
+  const d=b.querySelector('details.adm');if(d){d.open=admOpen;d.ontoggle=()=>{admOpen=d.open}}}
+/* Si mostrano solo le schede a cui l'account ha accesso (niente riquadri grigi "Nessun accesso") */
+const groupHtml=g=>{const l=g[1].filter(s=>perm(s)!=='n'||solo(s));return l.length?`<h3 class="gt">${esc(g[0])}</h3><div class="grid">${l.map(tile).join('')}</div>`:''};
+/* Riquadro "Da controllare" in cima alla Home: documenti in scadenza, test, tessere, eventi e documenti da verificare in Archivio */
 function alertsHtml(){
   const a=[];
   if(perm('Documenti in scadenza')!=='n'){const n=count('Documenti in scadenza');if(n)a.push(['Documenti in scadenza',n+(n===1?' documento in scadenza':' documenti in scadenza')])}
@@ -152,9 +220,31 @@ function alertsHtml(){
   if(perm('Tessere')!=='n'){const n=(items.tessere||[]).filter(tesseraAlert).length;if(n)a.push(['Tessere',n+(n===1?' atleta con tessera o certificato in scadenza':' atleti con tessera o certificato in scadenza')])}
   if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(perm('Archivio')!=='n'){const k=[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
-  return a.length?`<div class="card alert" role="status"><h2>Da controllare</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><b>${esc(t)}</b><div class="mu">Apri ${esc(s)}</div></button>`).join('')}</div>`:''}
-function tile(s){if(solo(s))return`<button class="tile" data-s="${esc(s)}"><b>${esc(s)}</b><span class="badge">Solo dati utente</span></button>`;const p=perm(s),n=count(s),ver=key(s)==='archivio'?[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length:0,nt=key(s)==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,ne=key(s)==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,ntes=key(s)==='tessere'?(items.tessere||[]).filter(tesseraAlert).length:0,hot=p!=='n'&&((key(s)==='documenti-in-scadenza'&&n>0)||nt>0||ne>0||ntes>0),nm=key(s)==='atleti'&&me.admin?modN:0;return`<button class="tile${hot?' alarm':''}${nm?' mod':''}" data-s="${esc(s)}" ${p==='n'?'disabled':''}><b>${esc(s)}</b><span class="badge">${p==='n'?'Nessun accesso':(p==='w'?'Lettura e scrittura':'Solo lettura')}${p!=='n'?' · '+n+(hot&&!nt&&!ne&&!ntes?' in scadenza':'')+(ntes?' · '+ntes+' in scadenza':'')+(ne?' · '+ne+' in scadenza':'')+(nt?' · '+nt+' test da fare':'')+(nm?' · '+nm+' con modifiche da rivedere':'')+(ver?' · '+ver+' da verificare':''):''}</span></button>`}
-function bindTiles(){document.querySelectorAll('.tile:not([disabled])').forEach(t=>t.onclick=()=>{location.href=page(t.dataset.s)})}
+  return a.length?`<div class="card alert" role="status"><h2>${ic('alert')}Da controllare (${a.length})</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><span class="ico">${ic(key(s))}</span><span class="rt"><b>${esc(t)}</b><span class="mu">Apri ${esc(s)}</span></span>${ic('go','go')}</button>`).join('')}</div>`:''}
+const NOUN={documenti:['documento','documenti'],'file-importanti':['file','file'],'documenti-in-scadenza':['documento','documenti'],archivio:['documento','documenti'],tecnici:['tecnico','tecnici'],atleti:['atleta','atleti'],tessere:['tessera','tessere'],lezioni:['lezione','lezioni'],eventi:['evento','eventi'],video:['video','video'],foto:['foto','foto'],commercialista:['voce','voci']};
+const loaded=k=>k==='file-importanti'||k==='documenti-in-scadenza'?items.documenti!==undefined:k==='archivio'?(items.documenti!==undefined||items.tessere!==undefined):items[k]!==undefined;
+/* Riquadro di una sezione: icona, nome, quanti elementi; badge rosso = da fare/in scadenza, giallo = da rivedere/verificare */
+function tile(s){
+  const k=key(s),ico=`<span class="ico">${ic(k)}</span>`;
+  if(solo(s))return`<button class="tile" data-s="${esc(s)}">${ico}<span class="tn">${esc(s)}</span><span class="ts">La mia scheda</span></button>`;
+  const p=perm(s);if(p==='n')return'';
+  const n=count(s),pills=[];
+  const ver=k==='archivio'?[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length:0,
+    nt=k==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,
+    ne=k==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,
+    ntes=k==='tessere'?(items.tessere||[]).filter(tesseraAlert).length:0,
+    nm=k==='atleti'&&me.admin?modN:0,nsc=k==='documenti-in-scadenza'?n:0;
+  if(nsc)pills.push(['',nsc+' in scadenza']);
+  if(ntes)pills.push(['',ntes+' in scadenza']);
+  if(ne)pills.push(['',ne+' in scadenza']);
+  if(nt)pills.push(['',nt+' test da fare']);
+  if(nm)pills.push(['am',nm+' da rivedere']);
+  if(ver)pills.push(['am',ver+' da verificare']);
+  const hot=pills.some(x=>x[0]===''),mod=pills.some(x=>x[0]==='am');
+  const nn=NOUN[k];let sub='';
+  if(nn&&loaded(k)&&!nsc)sub=k==='documenti-in-scadenza'?'Nessuno in scadenza':(n?n+' '+nn[n===1?0:1]:'Ancora vuoto');
+  if(p==='r')sub=(sub?sub+' · ':'')+'sola lettura';
+  return`<button class="tile${hot?' hot':''}${mod&&!hot?' mod':''}" data-s="${esc(s)}">${ico}<span class="tn">${esc(s)}</span>${sub?`<span class="ts">${p==='r'?ic('lock'):''}${esc(sub)}</span>`:''}${pills.map(([c,t])=>`<span class="pill${c?' '+c:''}">${esc(t)}</span>`).join('')}</button>`}
 /* Gestione account: per ogni account due menu a tendina.
    "Schede visibili" = quali sezioni vede (casella spuntata = visibile, altrimenti perms[sezione]='n');
    "Permessi" = per ogni scheda visibile, Lettura o Scrittura (perms[sezione]='r'|'w'). Le regole Firestore non cambiano. */
