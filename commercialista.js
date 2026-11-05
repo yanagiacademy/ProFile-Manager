@@ -107,7 +107,7 @@ function shell(){
         <button class="eq" data-k="=" style="grid-column:1/-1">=</button>
       </div>
       <div class="ivar"><span class="mu">IVA</span><select id="cr" aria-label="Aliquota IVA"><option>22</option><option>10</option><option>5</option><option>4</option></select>
-        <button class="btn ghost sm" id="civ+">+ IVA</button><button class="btn ghost sm" id="civ-">Scorpora IVA</button><button class="btn ghost sm" id="civ0">Solo IVA</button></div>
+        <button class="btn ghost sm" id="civp">+ IVA</button><button class="btn ghost sm" id="civm">Scorpora IVA</button><button class="btn ghost sm" id="civ0">Solo IVA</button></div>
       <div class="acts" style="margin-top:10px"><button class="btn ghost sm" id="ccp">Copia risultato</button>${w?'<button class="btn ghost sm" id="cbl">Usa nel bilancio</button>':''}</div>
       <div class="hist" id="ch"></div>
     </div>
@@ -320,8 +320,8 @@ function bindCalc(){
   const base=()=>{try{const v=calcola(ce.value);if(v===null)throw 0;return v}catch(x){$('#cp').textContent='Inserisci prima un importo.';return null}};
   const setV=(v,lab)=>{hist.unshift({e:lab,r:fmtNum(v)});hist=hist.slice(0,8);ce.value=fmtNum(v);$('#cp').textContent='';drawHist()};
   const aliq=()=>Number($('#cr').value)/100;
-  $('#civ+').onclick=()=>{const v=base();if(v!==null)setV(v*(1+aliq()),fmtNum(v)+' + IVA '+$('#cr').value+'%')};
-  $('#civ-').onclick=()=>{const v=base();if(v!==null)setV(v/(1+aliq()),fmtNum(v)+' scorporo IVA '+$('#cr').value+'%')};
+  $('#civp').onclick=()=>{const v=base();if(v!==null)setV(v*(1+aliq()),fmtNum(v)+' + IVA '+$('#cr').value+'%')};
+  $('#civm').onclick=()=>{const v=base();if(v!==null)setV(v/(1+aliq()),fmtNum(v)+' scorporo IVA '+$('#cr').value+'%')};
   $('#civ0').onclick=()=>{const v=base();if(v!==null)setV(v-v/(1+aliq()),'IVA '+$('#cr').value+'% contenuta in '+fmtNum(v))};
   $('#ccp').onclick=async()=>{const v=base();if(v===null)return;
     try{await navigator.clipboard.writeText(fmtNum(v));$('#cp').textContent='Copiato: '+fmtNum(v)}catch(x){$('#cp').textContent='Copia non riuscita'}};
