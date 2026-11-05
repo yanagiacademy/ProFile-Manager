@@ -4,6 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {tgClient,tgEntity,tgErrText,tgConfigured,hasSession} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
+import {decifraBlob} from "./cifra.js";
 import {memoBar} from "./promemoria.js";
 import {stelle} from "./stella.js";
 const stella=stelle();
@@ -54,7 +55,7 @@ async function getBlob(it,say=()=>{}){
     const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
     if(!m||!m.media)throw new Error('MISSING');
     const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
-    return new Blob([buf],{type:guessMime(it.title,it.mime)})}catch(e){if(!it.chunks)throw e}}
+    return await decifraBlob(new Blob([buf]),guessMime(it.title,it.mime))}catch(e){if(!it.chunks)throw e}}
   say('Preparazione del file…');
   const sn=await getDocs(collection(db,'sections',S(it),'items',it.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);

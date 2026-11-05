@@ -4,6 +4,7 @@ import {collection,doc,setDoc,addDoc,getDocs,deleteDoc,updateDoc,deleteField,Byt
 import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile,tgTopic} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
 import {guessMime,makeThumb} from "./file-tools.js";
+import {tgSendCifrato,decifraBlob,CIFRA_ATTIVA} from "./cifra.js";
 
 const MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 export const limiteMB=()=>tgConfigured()?500:20;
@@ -27,7 +28,7 @@ export function archivio(db,sec,uid){
       if(tgConfigured()){
         if(file.size>MAX_TG)throw new Error('size');
         const {client,tg}=await tgClient(),ent=await tgEntity(TG_FILES);
-        const r=await tgSendFile(tg,client,ent,file,pr=>onProgress(Math.round(pr*100)),'auto',undefined,await tgTopic(TG_FILES,sec));
+        const r=await tgSendCifrato(tg,client,ent,file,pr=>onProgress(Math.round(pr*100)),await tgTopic(TG_FILES,sec),sec);if(CIFRA_ATTIVA)base.enc=true;
         if(extra.fb&&file.size<=MAX){const dref=doc(col),n=await writeChunks(dref.id,file);await setDoc(dref,{...base,tg:r.id,chunks:n});return dref.id}
         return (await addDoc(col,{...base,tg:r.id})).id}
       if(file.size>MAX)throw new Error('size');
@@ -45,7 +46,7 @@ export function archivio(db,sec,uid){
         const {client}=await tgClient(),ent=await tgEntity(TG_FILES),[m]=await client.getMessages(ent,{ids:[it.tg]});
         if(!m||!m.media)throw new Error('MISSING');
         const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
-        return new Blob([buf],{type:guessMime(it.title,it.mime)})}catch(e){if(!it.chunks)throw e}}
+        return await decifraBlob(new Blob([buf]),guessMime(it.title,it.mime))}catch(e){if(!it.chunks)throw e}}
       say('Preparazione del file…');
       const sn=await getDocs(collection(db,'sections',sec,'items',it.id,'chunks'));
       const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);

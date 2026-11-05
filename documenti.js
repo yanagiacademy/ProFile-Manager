@@ -3,6 +3,7 @@ import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/fireba
 import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,deleteField,getDocs,Bytes,serverTimestamp} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {tgConfigured,tgClient,tgEntity,hasSession,tgErrText,tgSendFile,tgTopic} from "./telegram.js";
+import {tgSendCifrato,decifraBlob,CIFRA_ATTIVA} from "./cifra.js";
 import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
 import {inScadenza,giorni,fmtD,isD,testo} from "./scadenze.js";
@@ -147,7 +148,7 @@ async function getBlob(it,say=()=>{}){
     const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});
     if(!m||!m.media)throw new Error('MISSING');
     const buf=await client.downloadMedia(m,{progressCallback:(r,t)=>say('Download: '+Math.round(Number(r)/Number(t)*100)+'%')});
-    return new Blob([buf],{type:guessMime(it.title,it.mime)})}catch(e){if(!it.chunks)throw e}}
+    return await decifraBlob(new Blob([buf]),guessMime(it.title,it.mime))}catch(e){if(!it.chunks)throw e}}
   say('Preparazione del file…');
   const sn=await getDocs(collection(db,'sections',SEC,'items',it.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
@@ -170,7 +171,7 @@ function preview(it){
     extra:[{label:()=>lab(!!(byId(it.id)||it).star),fn:async b=>{const cur0=byId(it.id)||it,was=!!cur0.star;if(await toggleStar(cur0))b.textContent=lab(!was)}}]})}
 async function upTg(file){
   const {client,tg}=await tgClient();const ent=await tgEntity(TG_FILES);
-  const r=await tgSendFile(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'},'auto',undefined,await tgTopic(TG_FILES,SEC));
+  const r=await tgSendCifrato(tg,client,ent,file,pr=>{$('#prog').textContent=file.name+': '+Math.round(pr*100)+'%'},await tgTopic(TG_FILES,SEC),SEC);
   return r.id}
 async function download(it){
   const p=$('#prog');p.style.display='block';p.textContent='Preparazione del file…';
@@ -271,7 +272,7 @@ async function up1(file,parent){
   if(tgConfigured()){
     if(file.size>MAX_TG)throw new Error('size');
     const id=await upTg(file);
-    const base={title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',tg:id,note:'',by:uid,at:serverTimestamp(),...tx};
+    const base={title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',tg:id,...(CIFRA_ATTIVA?{enc:true}:{}),note:'',by:uid,at:serverTimestamp(),...tx};
     if(fbNew&&file.size<=MAX){const dref=doc(col),n=await putChunks(dref.id,file);await setDoc(dref,{...base,chunks:n,fb:true});return}
     await addDoc(col,{...base,...fbx()});return}
   if(file.size>MAX)throw new Error('size');

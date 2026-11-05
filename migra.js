@@ -8,6 +8,7 @@ import {firebaseConfig} from "./firebase-config.js";
 import {caricaDati,haRecord,scriviRecord,GRUPPO_DATI} from "./fsx.js";
 import {hasSession,tgConfigured,tgClient,tgEntity,tgSendFile,tgErrText,tgTopic,topicTitle} from "./telegram.js";
 import {TG_FILES} from "./telegram-config.js";
+import {tgSendCifrato} from "./cifra.js";
 import {guessMime} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -57,7 +58,7 @@ async function run(db){
             if(!parts.length)throw new Error('blocchi mancanti');
             const f=new File(parts,data.title||d.id,{type:guessMime(data.title||'',data.mime)});
             const {client,tg}=await tgClient(),ent=await tgEntity(TG_FILES);
-            const r=await tgSendFile(tg,client,ent,f,()=>{},'auto',undefined,await tgTopic(TG_FILES,sec));data.tg=r.id;files++;await sleep(700)}
+            const r=await tgSendCifrato(tg,client,ent,f,()=>{},await tgTopic(TG_FILES,sec),sec);data.tg=r.id;data.enc=true;files++;await sleep(700)}
           await scriviRecord(sec,d.id,data,db);ok++;
           if(ok%10===0)log('  … '+ok+' migrati');
           await sleep(700)

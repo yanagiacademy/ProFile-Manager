@@ -10,8 +10,9 @@
 import * as SDK from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {tgConfigured,hasSession,tgClient,tgEntity,tgSendFile,tgErrText,tgTopic} from "./telegram.js";
 import * as CFG from "./telegram-config.js";
+import {setDb,CIFRA_ATTIVA,cifraBlob,cifraTesto,decifraBlob,decifraTesto,keyIdOf,haChiave,b64e} from "./cifra.js";
 
-export const getFirestore=SDK.getFirestore,Bytes=SDK.Bytes,Timestamp=SDK.Timestamp;
+export const getFirestore=(...a)=>{const d=SDK.getFirestore(...a);setDb(d);return d},Bytes=SDK.Bytes,Timestamp=SDK.Timestamp;
 const okName=v=>typeof v==='string'&&v.trim()!==''&&v.trim()!=='INSERISCI';
 export const GRUPPO_DATI=okName(CFG.TG_DATI)?CFG.TG_DATI:CFG.TG_FILES;
 const TAG='#pfm',COMPACT=12,FULL_MS=24*3600*1000;
@@ -76,12 +77,12 @@ export const setAutoSync=v=>{auto=!!v};
 let C={v:1,lastId:0,full:0,recs:{}},loaded=false,firstDone=false,startP=null,syncP=null,timer=null;
 const subs=new Set();
 const recOf=(sec,id)=>(C.recs[sec]||{})[id];
-function apply(sec,rid,mid,o,d){
+function apply(sec,rid,mid,o,d,enc){
   const S=C.recs[sec]||(C.recs[sec]={});let r=S[rid];
   if(r&&r.mids.includes(mid))return;
-  if(o==='set'){S[rid]={st:cleanSet(d||{}),mids:[mid],x:0};return}
-  if(!r)r=S[rid]={st:{},mids:[],x:0};
-  r.mids.push(mid);
+  if(o==='set'){S[rid]={st:cleanSet(d||{}),mids:[mid],x:0,pl:enc?0:1};return}
+  if(!r)r=S[rid]={st:{},mids:[],x:0,pl:0};
+  r.mids.push(mid);if(!enc)r.pl=(r.pl||0)+1;
   if(o==='del'){r.x=1;return}
   if(r.x)return;
   applyUpd(r.st,d||{})}
@@ -89,15 +90,31 @@ const fireAll=()=>{for(const s of subs)s.fire()};
 const ready=()=>loaded&&firstDone;
 
 async function decode(client,m){
-  let raw;
-  if(m.media&&m.media.document){const buf=await client.downloadMedia(m,{});raw=new TextDecoder().decode(buf)}
-  else{const t=m.message||'',i=t.indexOf('\n');if(i<0)return null;try{raw=decodeURIComponent(escape(atob(t.slice(i+1).trim())))}catch(e){return null}}
-  try{const j=JSON.parse(raw);if(!j||!j.s||!j.r||!j.o)return null;return {s:j.s,r:j.r,o:j.o,d:j.d,mid:m.id}}catch(e){return null}}
+  let raw,enc=false;
+  try{
+    if(m.media&&m.media.document){
+      const buf=await client.downloadMedia(m,{});          /* un errore di rete qui interrompe la sincronizzazione: niente va perso */
+      const bl=new Blob([buf]),dl=await decifraBlob(bl);enc=dl!==bl;
+      raw=new TextDecoder().decode(await dl.arrayBuffer())}
+    else{
+      const t=m.message||'',i=t.indexOf('\n');if(i<0)return null;
+      const body=t.slice(i+1).trim();
+      if(body.startsWith('E1:')){raw=await decifraTesto(body.slice(3));enc=true}
+      else raw=decodeURIComponent(escape(atob(body)))}
+  }catch(e){
+    if(e&&e.message==='NOKEY')return {noKey:e.keyId||'?'};     /* messaggio cifrato con una chiave che questo utente non può leggere */
+    if(e&&e.message==='CORROTTO'){console.warn('Messaggio cifrato non valido',m.id);return null}
+    if(m.media&&m.media.document)throw e;return null}
+  try{const j=JSON.parse(raw);if(!j||!j.s||!j.r||!j.o)return null;return {s:j.s,r:j.r,o:j.o,d:j.d,mid:m.id,enc}}catch(e){return null}}
 async function pool(list,n,fn){const out=new Array(list.length);let i=0;await Promise.all(Array.from({length:Math.min(n,list.length)},async()=>{while(i<list.length){const k=i++;out[k]=await fn(list[k])}}));return out}
 
 async function doSync(full){
   status('Sincronizzazione con Telegram…');
   try{
+    /* se ora si ha la chiave di una sezione che prima non si poteva leggere, si rilegge tutto */
+    if(!full&&C.miss&&C.miss.length&&Date.now()-(C.missChk||0)>5*60*1000){
+      C.missChk=Date.now();
+      for(const id of C.miss){if(await haChiave(id)){full=true;break}}}
     const {client}=await tgClient(),ent=await tgEntity(GRUPPO_DATI);
     const base=full?{v:1,lastId:0,full:Date.now(),recs:{}}:C;
     const msgs=[];let maxSeen=base.lastId||0;
@@ -106,7 +123,9 @@ async function doSync(full){
     msgs.sort((a,b)=>a.id-b.id);
     const dec=await pool(msgs,5,m=>decode(client,m));      /* un errore di rete interrompe: niente va perso */
     if(full)C=base;
-    for(const x of dec)if(x)apply(x.s,x.r,x.mid,x.o,x.d);
+    const miss=new Set(full?[]:(C.miss||[]));
+    for(const x of dec){if(!x)continue;if(x.noKey){miss.add(x.noKey);continue}apply(x.s,x.r,x.mid,x.o,x.d,x.enc)}
+    C.miss=[...miss];
     C.lastId=Math.max(C.lastId||0,maxSeen);if(!C.full)C.full=Date.now();
     kvSet('cache:'+GRUPPO_DATI,C);
     firstDone=true;fireAll();
@@ -172,8 +191,15 @@ async function tgSend(sec,rid,o,d){
   if(!hasSession())throw new Error('NO_SESSION');
   const {client,tg}=await tgClient(),ent=await tgEntity(GRUPPO_DATI),topic=await tgTopic(GRUPPO_DATI,sec);
   const body=JSON.stringify({s:sec,r:rid,o,t:Date.now(),d});
-  const b64=btoa(unescape(encodeURIComponent(body)));
   const head=TAG+' #s_'+sec.replace(/[^a-z0-9]/gi,'_')+' #r_'+rid;
+  if(CIFRA_ATTIVA){
+    /* cifrato: se la chiave non è disponibile si ferma con errore, non si scrive mai in chiaro */
+    const id=keyIdOf(sec),bytes=new TextEncoder().encode(body);
+    const blob=await cifraBlob(new Blob([bytes]),id),b64=b64e(new Uint8Array(await blob.arrayBuffer()));
+    if(head.length+4+b64.length<=3800){const m=await client.sendMessage(ent,{message:head+'\nE1:'+b64,silent:true,...(topic?{replyTo:topic}:{})});return m.id}
+    const f=new File([blob],rid+'.bin',{type:'application/octet-stream'});
+    const m=await tgSendFile(tg,client,ent,f,()=>{},'auto',head,topic);return m.id}
+  const b64=btoa(unescape(encodeURIComponent(body)));
   if(head.length+1+b64.length<=3800){const m=await client.sendMessage(ent,{message:head+'\n'+b64,silent:true,...(topic?{replyTo:topic}:{})});return m.id}
   const f=new File([body],rid+'.json',{type:'application/json'});
   const m=await tgSendFile(tg,client,ent,f,()=>{},'auto',head,topic);return m.id}
@@ -226,3 +252,27 @@ export async function deleteDoc(ref){
 /* ---------- uso diretto (strumento di migrazione) ---------- */
 export const haRecord=(sec,id)=>{const r=recOf(sec,id);return !!r&&!r.x};
 export async function scriviRecord(sec,id,data,db){const ref=tgRef(db,sec,'items',id);return write(ref,'set',ser(data),true)}
+
+/* ---------- cifratura dei dati già presenti (strumento di migrazione, solo admin) ---------- */
+export async function statoRegistro(){
+  await startOnce();await sync(true);
+  let tot=0,chiaro=0,cifrati=0;
+  for(const sec in C.recs)for(const id in C.recs[sec]){const r=C.recs[sec][id];if(r.x)continue;tot++;if(r.pl>0)chiaro++;else cifrati++}
+  return {tot,chiaro,cifrati,senzaChiave:(C.miss||[]).slice()}}
+/* Riscrive in forma cifrata ogni record ancora in chiaro, poi cancella i vecchi messaggi. Restituisce quanti record e quanti messaggi non cancellabili. */
+export async function ricifraRegistro(log=()=>{},stopped=()=>false){
+  await startOnce();await sync(true);
+  const lista=[];for(const sec in C.recs)for(const id in C.recs[sec]){const r=C.recs[sec][id];if(!r.x&&r.pl>0)lista.push([sec,id])}
+  let n=0,fail=0,noDel=0;
+  log('Record da cifrare: '+lista.length);
+  for(const [sec,id] of lista){
+    if(stopped())break;
+    try{
+      const r=recOf(sec,id);if(!r||r.x)continue;
+      const old=r.mids.slice(),mid=await tgSend(sec,id,'set',clone(r.st));
+      await syncUntil(mid);
+      try{const {client}=await tgClient(),ent=await tgEntity(GRUPPO_DATI);await client.deleteMessages(ent,old,{revoke:true})}catch(e){noDel+=old.length;console.warn(e)}
+      n++;if(n%10===0)log('  … '+n+' record cifrati');
+      await new Promise(r=>setTimeout(r,700))
+    }catch(e){fail++;log('  ✗ '+sec+'/'+id+': '+tgErrText(e));console.error(e)}}
+  return {n,fail,noDel}}

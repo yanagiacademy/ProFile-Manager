@@ -115,17 +115,36 @@ export async function tgLogin(tg,client,ui,log=()=>{}){
    ui = {link(url), password()}. link() riceve un indirizzo tg://login?token=… che si rinnova ogni 30 secondi. */
 const b64u=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 export async function tgLoginQr(tg,client,ui,log=()=>{}){
-  const creds={apiId:Number(String(TG_API_ID).trim()),apiHash:String(TG_API_HASH).trim()};
-  if(typeof client.signInUserWithQrCode!=='function')throw new Error('QR_NON_SUPPORTATO');
+  const A=tg.Api,creds={apiId:Number(String(TG_API_ID).trim()),apiHash:String(TG_API_HASH).trim()};
   log('In attesa della conferma dall’app Telegram');
-  let last=null;
-  await withTimeout(client.signInUserWithQrCode(creds,{
-    qrCode:async({token})=>{ui.link('tg://login?token='+b64u(token))},
-    password:ui.password,
-    onError:async er=>{last=er;return true}
-  }),300000,'TIMEOUT_QR').catch(e=>{throw last||e});
-  saveSession(client.session.save());
-}
+  if(typeof client.signInUserWithQrCode==='function'){
+    let last=null;
+    await withTimeout(client.signInUserWithQrCode(creds,{
+      qrCode:async({token})=>{ui.link('tg://login?token='+b64u(token))},
+      password:ui.password,
+      onError:async er=>{last=er;return true}
+    }),300000,'TIMEOUT_QR').catch(e=>{throw last||e});
+    saveSession(client.session.save());return}
+  /* Ripiego se la libreria non ha la funzione: interrogo Telegram ogni 4 secondi; il collegamento mostrato si rinnova ogni 25 secondi */
+  const t0=Date.now();let shown='',shownAt=0;
+  while(Date.now()-t0<300000){
+    let r;
+    try{
+      r=await withTimeout(client.invoke(new A.auth.ExportLoginToken({apiId:creds.apiId,apiHash:creds.apiHash,exceptIds:[]})),30000,'TIMEOUT_QR');
+      if(A.auth.LoginTokenMigrateTo&&r instanceof A.auth.LoginTokenMigrateTo){
+        await client._switchDC(r.dcId);
+        r=await withTimeout(client.invoke(new A.auth.ImportLoginToken({token:r.token})),30000,'TIMEOUT_QR')}
+    }catch(e){
+      const m=(e&&(e.errorMessage||e.message))||'';
+      if(/SESSION_PASSWORD_NEEDED/.test(m)){
+        let last=null;
+        try{await withTimeout(client.signInWithPassword(creds,{password:ui.password,onError:async er=>{last=er;return true}}),600000,'TIMEOUT_PASSWORD')}catch(e2){throw last||e2}
+        saveSession(client.session.save());return}
+      throw e}
+    if(A.auth.LoginTokenSuccess&&r instanceof A.auth.LoginTokenSuccess){saveSession(client.session.save());return}
+    if(r&&r.token){const tok=b64u(r.token);if(!shown||Date.now()-shownAt>25000){shown=tok;shownAt=Date.now();ui.link('tg://login?token='+tok)}}
+    await new Promise(res=>setTimeout(res,4000))}
+  throw new Error('TIMEOUT_QR')}
 let cache=null;
 export function tgClient(){
   if(cache)return cache;
@@ -179,6 +198,8 @@ export function tgErrText(e){
   if(/PASSWORD_HASH_INVALID/.test(m))return 'Password a due fattori errata.';
   if(/FLOOD/.test(m))return 'Troppi tentativi: Telegram chiede di attendere ('+m+').';
   if(/AUTH_USER_CANCEL/.test(m))return 'Accesso annullato.';
+  if(m==='NOKEY')return 'Chiave di cifratura non disponibile: servono i permessi su questa sezione e le regole Firestore aggiornate (vedi firestore.rules, sezione \"chiavi\").';
+  if(m==='CORROTTO')return 'File cifrato danneggiato o chiave non corrispondente.';
   return m;
 }
 /* Invio di un file nel gruppo: prova prima il File del browser, poi CustomFile. */

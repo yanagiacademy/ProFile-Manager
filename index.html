@@ -141,7 +141,7 @@ function results(){
 }
 const mioHtml=()=>mio&&!solo('Atleti')?'<h3 class="gt">Area personale</h3><div class="grid"><a class="tile" href="atleti.html" style="text-decoration:none;color:inherit"><b>Atleti</b><span class="badge">La mia tessera e il certificato</span></a></div>':'';
 /* Strumenti riservati all'admin (visibili solo a lui) */
-const adminHtml=()=>me.admin?'<h3 class="gt">Strumenti admin</h3><div class="grid"><a class="tile" href="migra.html" style="display:block;text-decoration:none;text-align:left;color:inherit"><b>Migrazione su Telegram</b><span class="badge">Una tantum · solo admin</span></a></div>':'';
+const adminHtml=()=>me.admin?'<h3 class="gt">Strumenti admin</h3><div class="grid"><a class="tile" href="migra.html" style="display:block;text-decoration:none;text-align:left;color:inherit"><b>Migrazione su Telegram</b><span class="badge">Una tantum · solo admin</span></a><a class="tile" href="cifra-esistenti.html" style="display:block;text-decoration:none;text-align:left;color:inherit"><b>Cifratura contenuti Telegram</b><span class="badge">Una tantum · solo admin</span></a></div>':'';
 const bindRes=b=>b.querySelectorAll('.res').forEach(r=>r.onclick=()=>{location.href=page(r.dataset.s)});
 const groupHtml=g=>g[1].every(s=>perm(s)==='n'&&!solo(s))?'':`<h3 class="gt">${esc(g[0])}</h3><div class="grid">${g[1].map(tile).join('')}</div>`;
 /* Riquadro "Da controllare" in cima alla Home: documenti in scadenza e documenti da verificare in Archivio */
