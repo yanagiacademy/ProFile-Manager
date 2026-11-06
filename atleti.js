@@ -366,7 +366,7 @@ function openDetail(id){
     else if(a==='edit'){close();edit(it)}
     else if(a==='del'){
       if(!confirm('Eliminare '+nameOf(it)+'? La scheda va nel Cestino (recuperabile per 30 giorni); l’email dell’atleta e il collegamento al suo account vengono invece rimossi subito.'))return;
-      try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()&&mails[it.id]){await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(mailOf(it.id))await deleteDoc(doc(db,'atletiEmail',mailOf(it.id))).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
+      try{const em=mailOf(it.id);await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()){if(mails[it.id])await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(em)await deleteDoc(doc(db,'atletiEmail',em)).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
       catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
     else if(perm()!=='w')return;
     else if(a==='addT')openTest(it);

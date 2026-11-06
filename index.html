@@ -82,6 +82,8 @@ details.adm summary{cursor:pointer;min-height:50px;display:flex;align-items:cent
 details.adm summary svg{width:18px;height:18px;color:var(--mu)}
 .emp{margin-top:24px;text-align:center;padding:32px 16px}
 .lgb{background:#1B2A4A;border-radius:12px;padding:8px 12px;display:inline-flex;margin-bottom:12px}.lgb img{height:52px;width:auto;display:block}
+.ov2{position:fixed;inset:0;background:rgba(10,16,30,.55);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlg2{max-width:420px;width:100%}.dact2{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -89,7 +91,7 @@ details.adm summary svg{width:18px;height:18px;color:var(--mu)}
 <div class="clock" id="clock" aria-live="off"></div>
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp,logEvento} from "./fsx.js";
 import {assicuraCoppia} from "./cifra.js";
 
@@ -134,6 +136,8 @@ const P={
 };
 const ic=(n,c='')=>`<svg${c?` class="${c}"`:''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${P[n]||''}</svg>`;
 let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',unsubs=[],unsubUsers=null,unsubMe=null;
+let msgAcc='',msgNew='',newMail='',newExtra='';
+let accReg={},accRegOk=false,allineaT=null;const inVolo=new Map();     /* elenco cifrato degli account su Telegram (argomento «Account»): attivi e rimossi */
 const page=s=>key(s)+'.html';
 /* 'u' = "Solo dati utente" (solo Atleti): nessun accesso ai dati degli altri, vede soltanto la propria scheda. Per i dati vale come 'n'. */
 const perm=s=>{if(!me)return 'n';if(me.admin)return 'w';const v=(me.perms||{})[key(s)]||'n';return v==='u'?'n':v};
@@ -157,7 +161,7 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){mio=false;modN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
+function cleanup(){mio=false;modN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
 let mio=false,modN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
@@ -169,7 +173,8 @@ function onMe(){
   SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=sn.docs.map(d=>({id:d.id,...d.data()}));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
   /* admin: quante schede atleta hanno modifiche proposte dall'atleta (riquadro Atleti con bordo giallo) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
-  if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));render()});
+  if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));pianificaAllinea();render()});
+  if(me.admin)unsubs.push(onSnapshot(collection(db,'sections','account','items'),sn=>{accReg=Object.fromEntries(sn.docs.map(d=>[d.id,d.data()]));accRegOk=true;for(const [id,v] of [...inVolo]){const r=accReg[id];if(r&&firmaReg(r)===v.f)inVolo.delete(id)}pianificaAllinea();if(view==='admin')render()},()=>{}));
   cercaMio();render();
   if(!setupFatto){setupFatto=true;
     try{if(!sessionStorage.getItem('pfm_acc')){sessionStorage.setItem('pfm_acc','1');logEvento('accesso','','',me.name||me.email||'','Accesso all’app')}}catch(e){}
@@ -193,7 +198,7 @@ const topbar=()=>`<div class="top"><span class="brand"><span class="lg"><img src
 function bindTop(){const s=$('#q');
   if(s){s.oninput=e=>{q=e.target.value;if(view!=='home'){view='home';render()}else results()};
     s.onkeydown=e=>{if(e.key==='Escape'&&q){q='';s.value='';results()}}}
-  $('#out').onclick=()=>{q='';view='home';signOut(auth)};if($('#adm'))$('#adm').onclick=()=>{view='admin';render()}}
+  $('#out').onclick=()=>{q='';view='home';signOut(auth)};if($('#adm'))$('#adm').onclick=()=>{view='admin';msgAcc=msgNew='';render()}}
 const saluto=()=>{const h=new Date().getHours();return h>=5&&h<13?'Buongiorno':h>=13&&h<18?'Buon pomeriggio':'Buonasera'};
 const nome=()=>{const n=(me.name||'').trim()||String(me.email||'').split('@')[0];return n.split(/\s+/)[0]};
 const dataOggi=()=>{const s=new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});return s[0].toUpperCase()+s.slice(1)};
@@ -287,29 +292,92 @@ function bindEd(root){
 function setPerm(sc,k,v){
   if(sc==='new'){if(v==='n')delete newPerms[k];else newPerms[k]=v;paintNew();return}
   updateDoc(doc(db,'users',sc),{['perms.'+k]:v}).then(()=>logEvento('account','',sc,nomeAcc(sc),'permesso '+k+': '+(v==='w'?'lettura e scrittura':v==='r'?'sola lettura':'nessun accesso'))).catch(()=>{const e=$('#er2');if(e)e.textContent='Modifica non riuscita. Riprova.'})}
+/* ---------- elenco account su Telegram (sezione cifrata «account», argomento «Account») ---------- */
+const permsN=p=>JSON.stringify(Object.entries(p||{}).filter(([,v])=>v&&v!=='n').sort());
+const schedaReg=(a,stato)=>({kind:'account',title:a.name||a.email||a.id,name:a.name||'',email:a.email||'',admin:!!a.admin,perms:{...(a.perms||{})},stato,agg:Date.now()});
+const firmaReg=r=>[r.name||'',r.email||'',!!r.admin,permsN(r.perms),r.stato].join('|');
+function pianificaAllinea(){clearTimeout(allineaT);allineaT=setTimeout(allinea,1500)}
+async function allinea(){      /* tiene l'elenco allineato agli account veri: crea, aggiorna, segna come rimossi */
+  if(!me||!me.admin||!accRegOk||!accounts.length)return;
+  const vivi=new Set(accounts.map(a=>a.id)),now=Date.now();
+  for(const a of accounts){
+    const rec=schedaReg(a,'attivo'),f=firmaReg(rec),r=accReg[a.id],v=inVolo.get(a.id);
+    if(r&&firmaReg(r)===f)continue;
+    if(v&&v.f===f&&now-v.t<8000)continue;
+    inVolo.set(a.id,{f,t:now});
+    try{await setDoc(doc(db,'sections','account','items',a.id),rec)}catch(e){console.warn('Elenco account:',e&&e.message)}}
+  for(const [id,r] of Object.entries(accReg)){
+    if(r.stato==='attivo'&&!vivi.has(id)){
+      try{await setDoc(doc(db,'sections','account','items',id),{...r,stato:'rimosso',rimossoIl:now,agg:now})}catch(e){console.warn('Elenco account:',e&&e.message)}}}}
+const rimossi=()=>Object.entries(accReg).filter(([id,r])=>r.stato==='rimosso'&&!accounts.some(a=>a.id===id)).sort((a,b)=>String(a[1].name).localeCompare(String(b[1].name),'it'));
+const rimossiHtml=()=>{const l=rimossi();return l.length?`<div class="card" style="margin-top:12px"><h2 style="margin:0">Account rimossi (${l.length})</h2><div class="mu" style="margin:4px 0 8px">Il loro login esiste ancora: «Riattiva» ridà l’accesso con i permessi di prima, con la loro vecchia password.</div>${l.map(([id,r])=>`<div class="acc"><div class="acc-h"><div><b>${esc(r.name||'—')}</b><div class="mu">${esc(r.email||'')}${r.rimossoIl?' · rimosso il '+esc(new Date(r.rimossoIl).toLocaleDateString('it-IT')):''}</div></div><div class="acc-a"><button class="btn sm" data-ri="${esc(id)}">Riattiva</button><button class="btn ghost sm" data-lk="${esc(id)}">Invia link password</button><button class="btn ghost sm" data-df="${esc(id)}">Dimentica</button></div></div></div>`).join('')}</div>`:''};
+async function inviaResetA(email){      /* restituisce il messaggio da mostrare */
+  try{await sendPasswordResetEmail(getAuth(initializeApp(firebaseConfig,'rst'+Date.now())),email);return {ok:true,t:'Link inviato a '+email+': l’utente sceglie la nuova password dal messaggio che riceve.'}}
+  catch(z){return {ok:false,t:'Invio non riuscito: controlla che l’email sia scritta bene e riprova.'}}}
+const mAcc=t=>{msgAcc=t;const e=$('#er2');if(e)e.textContent=t};
+function mNew(html,mail,extra){msgNew=html;newMail=mail||'';newExtra=extra||'';const e=$('#er');if(e){e.innerHTML=html;bindRst()}}
+function bindRst(){const b=$('#rst');if(b)b.onclick=async()=>{const r=await inviaResetA(newMail);mNew(esc(r.t)+(r.ok&&newExtra?' '+esc(newExtra):''),newMail,newExtra)}}
 function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked);bindEd(n)}
 function adminView(){
   const adminsLeft=accounts.filter(a=>a.admin).length;
   const keep=['#nn2','#ne','#np'].map(i=>$(i)?$(i).value:''),keepA=$('#na')?$('#na').checked:false;
   app.innerHTML=topbar()+`<div class="wrap"><div class="bar"><button class="btn ghost sm" id="bk">Indietro</button><h2>Gestione account</h2></div>
   <div class="card"><h2 style="margin:0">Account (${accounts.length})</h2>
-  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${editorHtml(a.id,a.perms,!!a.admin)}</div>`).join('')}
-  <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso; per cancellare anche il login usa la console Firebase.</p></div>
+  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${editorHtml(a.id,a.perms,!!a.admin)}</div>`).join('')}
+  <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso ma il login resta: per riattivare la stessa email basta crearla di nuovo (se non ricordi la sua password, l’app ti offre di inviare il link per sceglierne una nuova). Per cancellare del tutto il login usa la console Firebase.</p></div>
+  ${rimossiHtml()}
   <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label class="ck" style="margin-top:8px"><input type="checkbox" id="na"> Admin</label><div id="ned" style="margin-top:4px"></div><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
   $('#nn2').value=keep[0];$('#ne').value=keep[1];$('#np').value=keep[2];$('#na').checked=keepA;
+  if(msgAcc)$('#er2').textContent=msgAcc;if(msgNew){$('#er').innerHTML=msgNew;bindRst()}
   paintNew();bindEd(app);$('#na').onchange=paintNew;
   bindTop();$('#bk').onclick=()=>{view='home';render()};
   document.querySelectorAll('[data-a]').forEach(c=>c.onchange=()=>{if(!c.checked&&adminsLeft<2){c.checked=true;$('#er2').textContent='Deve restare almeno un admin.';return}updateDoc(doc(db,'users',c.dataset.a),{admin:c.checked}).then(()=>logEvento('account','',c.dataset.a,nomeAcc(c.dataset.a),c.checked?'reso admin':'tolto il ruolo admin')).catch(()=>{})});
-  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.x);if(a.admin&&adminsLeft<2){$('#er2').textContent='Non puoi rimuovere l’ultimo admin.';return}if(confirm('Revocare l’accesso a '+(a.name||a.email)+'?'))deleteDoc(doc(db,'users',a.id)).then(()=>logEvento('account','',a.id,a.name||a.email||a.id,'accesso revocato')).catch(()=>{})});
-  $('#cr').onclick=async()=>{const n=$('#nn2').value.trim(),e=$('#ne').value.trim(),p=$('#np').value,er=$('#er');
-    if(!n||!e||p.length<6){er.textContent='Inserisci nome, email e una password di almeno 6 caratteri.';return}
+  document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const a=accounts.find(z=>z.id===b.dataset.pw);if(!a||!a.email)return;if(confirm('Inviare a '+a.email+' il link per scegliere una nuova password?'))mAcc((await inviaResetA(a.email)).t)});
+  document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.ed);if(a)modificaAccount(a)});
+  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.x);if(a.admin&&adminsLeft<2){$('#er2').textContent='Non puoi rimuovere l’ultimo admin.';return}if(!confirm('Revocare l’accesso a '+(a.name||a.email)+'? Potrai riattivarlo dall’elenco «Account rimossi».'))return;(async()=>{try{await setDoc(doc(db,'sections','account','items',a.id),{...schedaReg(a,'rimosso'),rimossoIl:Date.now()})}catch(e){console.warn('Elenco account:',e&&e.message)}
+    deleteDoc(doc(db,'users',a.id)).then(()=>logEvento('account','',a.id,a.name||a.email||a.id,'accesso revocato')).catch(()=>{})})()});
+  document.querySelectorAll('[data-ri]').forEach(b=>b.onclick=async()=>{const r=accReg[b.dataset.ri];if(!r)return;
+    if(!confirm('Riattivare '+(r.name||r.email)+(r.admin?' (era admin)':'')+' con i permessi che aveva?'))return;
+    try{await setDoc(doc(db,'users',b.dataset.ri),{name:r.name||'',email:r.email||'',admin:!!r.admin,perms:{...(r.perms||{})}});logEvento('account','',b.dataset.ri,r.name||r.email,'account riattivato');mAcc('Account riattivato: entra con la sua vecchia password. Se non la ricorda, usa «Password» accanto al suo nome per inviargli il link.')}
+    catch(x){console.error(x);mAcc('Riattivazione non riuscita. Riprova.')}});
+  document.querySelectorAll('[data-lk]').forEach(b=>b.onclick=async()=>{const r=accReg[b.dataset.lk];if(r)mAcc((await inviaResetA(r.email)).t)});
+  document.querySelectorAll('[data-df]').forEach(b=>b.onclick=async()=>{const r=accReg[b.dataset.df];if(!r)return;
+    if(!confirm('Togliere '+(r.name||r.email)+' dall’elenco dei rimossi? Non potrai più riattivarlo con un clic (potrai comunque ricrearlo con la sua password).'))return;
+    try{await deleteDoc(doc(db,'sections','account','items',b.dataset.df))}catch(x){mAcc('Operazione non riuscita. Riprova.')}});
+  $('#cr').onclick=async()=>{const n=$('#nn2').value.trim(),e=$('#ne').value.trim().toLowerCase(),p=$('#np').value,er=$('#er');mNew('');
+    const rim=rimossi().find(([,r])=>String(r.email||'').toLowerCase()===e.toLowerCase());
+    if(!n||!e||(!rim&&p.length<6)){er.textContent='Inserisci nome, email e una password di almeno 6 caratteri.';return}
+    const registra=async(uid,msg)=>{
+      await setDoc(doc(db,'users',uid),{name:n,email:e,admin:$('#na').checked,perms:$('#na').checked?{}:{...newPerms}});
+      logEvento('account','',uid,n,msg+($('#na').checked?' (admin)':''));
+      $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;newPerms={};paintNew()};
+    if(rim){try{await registra(rim[0],'account riattivato');mNew('Esisteva già un account rimosso con questa email: è stato <b>riattivato</b> con nome e permessi che hai scelto. Entra con la sua vecchia password; se non la ricorda, <button class="btn ghost sm" id="rst" type="button">invia il link per sceglierne una nuova</button>.',e)}catch(x){console.error(x);er.textContent='Riattivazione non riuscita. Riprova.'}return}
     try{const sec=initializeApp(firebaseConfig,'sec'+Date.now()),sa=getAuth(sec);
       const c=await createUserWithEmailAndPassword(sa,e,p);const nid=c.user.uid;await signOut(sa);
-      await setDoc(doc(db,'users',nid),{name:n,email:e,admin:$('#na').checked,perms:$('#na').checked?{}:{...newPerms}});
-      logEvento('account','',nid,n,'account creato'+($('#na').checked?' (admin)':''));
-      $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;newPerms={};paintNew();er.textContent='';
-    }catch(x){er.textContent=x.code==='auth/email-already-in-use'?'Esiste già un account con questa email.':'Creazione non riuscita. Controlla i dati e riprova.'}};
+      await registra(nid,'account creato');mNew('');
+    }catch(x){
+      if(x.code!=='auth/email-already-in-use'){er.textContent='Creazione non riuscita. Controlla i dati e riprova.';return}
+      /* il login esiste già (di solito un account rimosso in precedenza: «Rimuovi» toglie i permessi ma non il login): se la password è quella giusta lo si riattiva */
+      try{
+        const sa=getAuth(initializeApp(firebaseConfig,'sec'+Date.now())),c=await signInWithEmailAndPassword(sa,e,p),uid=c.user.uid;await signOut(sa);
+        if(accounts.some(z=>z.id===uid)){er.textContent='Questo account è già attivo: lo trovi nell’elenco qui sopra.';return}
+        await registra(uid,'account riattivato');mNew('Account riattivato: la password è quella che aveva già.')
+      }catch(y){
+        mNew('Esiste già un login con questa email (probabilmente un account rimosso in precedenza) e la password inserita non è quella giusta. Se ricordi la vecchia password, inseriscila e riprova. Altrimenti <button class="btn ghost sm" id="rst" type="button">invia a questa email il link per scegliere una nuova password</button>, poi torna qui e inserisci la nuova password.',e,'Poi inserisci qui la nuova password e premi di nuovo «Crea account».')}}};
 }
+/* Correzione del nome di un account (l'email di accesso non si può cambiare da qui: se è sbagliata si rimuove e si ricrea con quella giusta) */
+function modificaAccount(a){
+  const o=document.createElement('div');o.className='ov2';
+  o.innerHTML=`<div class="card dlg2" role="dialog" aria-modal="true" aria-label="Modifica account"><h2 style="margin:0 0 8px">Modifica account</h2><label for="mn" style="margin-top:0">Nome</label><input id="mn" type="text" value="${esc(a.name||'')}" autocomplete="off"><p class="mu" style="margin:8px 0 0">Email di accesso: <b>${esc(a.email||'')}</b>. Non si cambia da qui: se è sbagliata, usa «Rimuovi» e crea un nuovo account con l’email giusta.</p><p class="err" id="mer" role="alert"></p><div class="dact2"><button class="btn ghost" id="mx">Annulla</button><button class="btn" id="ms">Salva</button></div></div>`;
+  document.body.append(o);const i=o.querySelector('#mn');i.focus();i.select();
+  const close=()=>o.remove();
+  o.querySelector('#mx').onclick=close;o.onclick=e=>{if(e.target===o)close()};
+  o.onkeydown=e=>{if(e.key==='Escape')close();else if(e.key==='Enter')o.querySelector('#ms').click()};
+  o.querySelector('#ms').onclick=async()=>{const n=i.value.trim(),er=o.querySelector('#mer');
+    if(!n){er.textContent='Il nome non può essere vuoto.';return}
+    if(n===(a.name||'')){close();return}
+    try{await updateDoc(doc(db,'users',a.id),{name:n});logEvento('account','',a.id,n,'nome modificato (era «'+(a.name||'')+'»)');close()}
+    catch(x){console.error(x);er.textContent='Salvataggio non riuscito. Riprova.'}}}
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 </script>

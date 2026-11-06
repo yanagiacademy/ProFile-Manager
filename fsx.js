@@ -247,7 +247,7 @@ export function logEvento(azione,sec,id,titolo,dett){
     const u=await utente();
     await tgSend('storico',newId(),'set',{t:Date.now(),u:u.uid,n:u.nome,a:azione,s:sec||'',i:id||'',T:String(titolo||'').slice(0,160),c:String(dett||'').slice(0,300)})
   }).catch(e=>console.warn('Storico non scritto:',e&&e.message))}
-const loggabile=ref=>ref.coll==='items'&&ref.S!=='storico'&&ref.S!=='cestino'&&ref.S!=='notifiche';
+const loggabile=ref=>ref.coll==='items'&&ref.S!=='storico'&&ref.S!=='cestino'&&ref.S!=='notifiche'&&ref.S!=='account';
 
 /* ---------- Cestino: ogni elemento eliminato viene prima copiato in "cestino" (e il file resta su Telegram) ---------- */
 let lotto={id:'',t:0,u:''};
