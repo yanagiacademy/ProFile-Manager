@@ -146,6 +146,7 @@ async function save(){
   const data={...v,fb:true,kind:'evento',title:v.nome,note:[CAT1[v.cat],fmtD(v.data),money(v.quota),v.nota].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
+    const nuovo=!editing;
     let id=editing,old=null;
     if(editing){old=docOf(items.find(i=>i.id===editing)||{});await updateDoc(doc(db,'sections',SEC,'items',editing),data)}
     else id=(await addDoc(col,{...data,by:uid,at:serverTimestamp()})).id;
@@ -158,6 +159,8 @@ async function save(){
       }catch(e){console.error(e);er.textContent='Evento salvato, ma il documento non è stato caricato ('+arch.errText(e)+'). Riprova da Modifica.';$('#sv').disabled=false;editing=id;return}}
     else if(old&&$('#rmd').checked){await arch.remove(old).catch(()=>{});await updateDoc(doc(db,'sections',SEC,'items',id),{docId:''})}
     resetForm(false);
+    /* nuovo evento creato dall'admin: notifica Telegram agli atleti (se un operatore crea l'evento, parte alla prossima apertura della Home da admin) */
+    if(nuovo&&isAdmin())import('./notifiche-motore.js').then(m=>m.sincronizza(db,{solo:['evento']})).catch(e=>console.warn('Notifica evento:',e&&e.message));
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}
 

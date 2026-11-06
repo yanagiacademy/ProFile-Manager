@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Notifiche – ProFile Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="stile.css">
+<style>
+.hd{display:flex;gap:14px;align-items:center;margin-bottom:14px}
+.lgbox{background:#1B2A4A;border-radius:12px;padding:8px 12px;display:inline-flex;flex:none}
+.lgbox img{height:64px;width:auto;display:block}
+.flt{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 4px;align-items:center}
+.flt select{width:auto;min-height:42px}
+.flt input[type=search]{flex:1;min-width:150px;min-height:42px}
+.rw{display:flex;gap:10px;align-items:center;padding:12px 2px;border-bottom:1px solid var(--ln)}
+.rw:last-child{border:0}
+.rw .inf{flex:1;min-width:0;line-height:1.35}
+.rw .inf b{overflow-wrap:anywhere}
+.rw .ac{display:flex;gap:6px;flex:none;flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:560px){.rw{flex-wrap:wrap}.rw .ac{width:100%;justify-content:flex-start}}
+.chip{font-size:.72rem;padding:2px 8px;border-radius:99px;border:1px solid var(--ln);white-space:nowrap;color:var(--mu);margin-left:4px}
+.chip.bad{border-color:var(--er);color:var(--er);font-weight:700}
+.emp{text-align:center;padding:28px 12px;color:var(--mu)}
+.lg{background:var(--bg);border:1px solid var(--ln);border-radius:8px;padding:10px 12px;font-size:.85rem;line-height:1.5;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px}
+.st{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.92rem;margin:10px 0}.st b{font-weight:600;color:var(--mu)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.ck{display:flex;gap:10px;align-items:flex-start;margin:10px 0}.ck input{width:auto;min-height:0;margin-top:4px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}@media (max-width:560px){.two{grid-template-columns:1fr}}
+.tg{width:11em;min-height:42px}@media (max-width:560px){.tg{width:100%}}
+.chip.ok{border-color:var(--ac);color:var(--ac);font-weight:700}
+.ov{position:fixed;inset:0;background:rgba(10,16,30,.55);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlg{max-width:440px;width:100%}
+.dact{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="clock" id="clock"></div>
+<script type="module" src="notifiche.js"></script>
+</body>
+</html>
