@@ -243,12 +243,10 @@ function archModal(it){
     catch(e){console.error(e);return merr(o,'Archiviazione non riuscita'+(e&&e.code?' ('+e.code+')':'')+'.')}}}])}
 function delModal(it){
   const n=it.kind==='folder'?descendants(it.id).length:0;
-  modal('Eliminare definitivamente?',`<div class="mu">Eliminare definitivamente “${esc(it.title)}”${n?` e i suoi ${n} elementi`:''}? Il file viene cancellato per sempre e l’operazione non si può annullare. Per conservarlo usa “Archivia”.</div>`,[cancel,{label:'Elimina definitivamente',fn:async o=>{
+  modal('Spostare nel Cestino?',`<div class="mu">Spostare “${esc(it.title)}”${n?` e i suoi ${n} elementi`:''} nel Cestino? Resta recuperabile per 30 giorni, poi viene eliminato per sempre. Per conservarlo a lungo usa “Archivia”.</div>`,[cancel,{label:'Sposta nel Cestino',fn:async o=>{
     const all=[it,...(it.kind==='folder'?descendants(it.id):[])];
-    try{await Promise.all(all.map(async x=>{
-      if(x.kind==='file'&&x.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[x.tg],{revoke:true})}catch(e){}}
-      if(x.kind==='file'&&x.chunks)await Promise.all(Array.from({length:x.chunks},(_,k)=>deleteDoc(doc(db,'sections',SEC,'items',x.id,'chunks','c'+k)).catch(()=>{})));
-      await deleteDoc(doc(db,'sections',SEC,'items',x.id))}))}catch(e){return merr(o,'Eliminazione non riuscita.')}}}])}
+    try{await Promise.all(all.map(x=>deleteDoc(doc(db,'sections',SEC,'items',x.id))))}
+    catch(e){console.error(e);return merr(o,e&&e.message==='NOPUB'?'Il Cestino non è ancora attivo: l’admin deve aprire la Home una volta.':'Eliminazione non riuscita.')}}}])}
 
 async function putChunks(id,file){
   const n=Math.max(1,Math.ceil(file.size/CH)),cc=collection(db,'sections',SEC,'items',id,'chunks');

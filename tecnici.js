@@ -1,6 +1,6 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 
@@ -48,6 +48,7 @@ function shell(){
     <fieldset><legend>Informazioni</legend>
       <label for="inf">Info</label><textarea id="inf"></textarea>
       <label for="nt">Note</label><textarea id="nt"></textarea>
+      <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="fbk" style="width:auto;min-height:0"> Salva anche su Firebase</label>
     </fieldset>
     <p class="err" id="er" role="alert"></p>
     <div class="acts"><button class="btn" id="sv">Salva tecnico</button><button class="btn ghost" id="cx" hidden>Annulla modifica</button></div></div></div>`:''}
@@ -65,10 +66,10 @@ function setForm(o){
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo del tecnico':'Apri il modulo del tecnico')}
 const F=[['nm','nome'],['cg','cognome'],['nas','nascita'],['cf','cf'],['gr','grado'],['ql','qualifiche'],['idt','idTec'],['tn','tessera'],['ts','tessScad'],['cm','certScad'],['inf','info'],['nt','annotazioni']];
 function resetForm(){
-  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');
+  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');$('#fbk').checked=false;
   $('#ft').textContent='Nuovo tecnico';$('#sv').textContent='Salva tecnico';$('#cx').hidden=true;$('#er').textContent=''}
 function edit(it){
-  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]||'');
+  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]||'');$('#fbk').checked=!!it.fb;
   $('#ft').textContent='Modifica tecnico';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 
@@ -79,7 +80,7 @@ async function save(){
   if(!v.nome||!v.cognome){er.textContent='Inserisci nome e cognome.';return}
   if(v.cf&&!/^[A-Z0-9]{16}$/.test(v.cf)){er.textContent='Il codice fiscale deve avere 16 caratteri (lettere e cifre).';return}
   if(v.cf&&items.some(i=>i.id!==editing&&(i.cf||'')===v.cf)){er.textContent='Esiste già un tecnico con questo codice fiscale.';return}
-  const data={...v,title:v.cognome+' '+v.nome,
+  const data={...v,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
     note:[v.grado,quals(v.qualifiche).join(', '),v.tessera&&'tessera '+v.tessera,v.idTec&&'ID '+v.idTec,v.cf,v.info,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
@@ -100,7 +101,7 @@ function openDetail(id){
     <h3>Anagrafica</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Data di nascita',isD(it.nascita)?fmtD(it.nascita)+(a!==''?' ('+a+' anni)':''):'')}${dd('Codice fiscale',it.cf)}</dl>
     <h3>Qualifica tecnica</h3><dl>${dd('Grado',it.grado)}${dd('Qualifiche',quals(it.qualifiche).join(', '))}</dl>
     <h3>Tesseramento e idoneità</h3><dl>${dd('ID',it.idTec)}${dd('Numero tessera',it.tessera)}${sc('Tesseramento fino al',it.tessScad)}${sc('Certificato medico fino al',it.certScad)}</dl>
-    <h3>Informazioni</h3><dl>${dd('Info',it.info)}${dd('Note',it.annotazioni)}</dl>
+    <h3>Informazioni</h3><dl>${dd('Info',it.info)}${dd('Note',it.annotazioni)}${dd('Firebase',it.fb?'Salvato anche su Firebase':'Solo su Telegram')}</dl>
     <div class="dact">${w?'<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>':''}<button class="btn" data-a="x">Chiudi</button></div></div>`;
   const close=()=>{o.remove();document.removeEventListener('keydown',esc_)};
   const esc_=e=>{if(e.key==='Escape')close()};
@@ -111,7 +112,7 @@ function openDetail(id){
     if(a==='x')close();
     else if(a==='edit'){close();edit(it)}
     else if(a==='del'){
-      if(!confirm('Eliminare '+nameOf(it)+'? L’operazione non si può annullare.'))return;
+      if(!confirm('Eliminare '+nameOf(it)+'? Va nel Cestino e resta recuperabile per 30 giorni.'))return;
       try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(editing===it.id)resetForm();close()}
       catch(x){console.error(x);alert('Eliminazione non riuscita.')}}});
   document.body.append(o);o.querySelector('[data-a="x"]').focus()}

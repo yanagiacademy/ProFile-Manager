@@ -90,7 +90,8 @@ details.adm summary svg{width:18px;height:18px;color:var(--mu)}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp,logEvento} from "./fsx.js";
+import {assicuraCoppia} from "./cifra.js";
 
 import {firebaseConfig} from "./firebase-config.js";
 import {inScadenza} from "./scadenze.js";
@@ -98,7 +99,7 @@ import {testDaFare,eventoInScadenza,tesseraAlert} from "./atleti-scadenze.js";
 import {archiviato,zona,archiviaScaduti} from "./conservazione.js";
 
 /* Home organizzata per gruppi. SEC (elenco piatto) resta la base di permessi, ricerca e tabella account */
-const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio']],['Persone',['Tecnici','Atleti','Tessere']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
+const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio','Cestino']],['Persone',['Tecnici','Atleti','Tessere']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
 const SEC=GROUPS.flatMap(g=>g[1]);
 const key=s=>s.toLowerCase().replace(/\s+/g,'-');
 const $=s=>document.querySelector(s),app=$('#app');
@@ -125,6 +126,9 @@ const P={
  go:'<polyline points="9 18 15 12 9 6"/>',
  alert:'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
  lock:'<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+ cestino:'<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+ storico:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+ backup:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
  tool:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'
 };
 const ic=(n,c='')=>`<svg${c?` class="${c}"`:''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${P[n]||''}</svg>`;
@@ -133,7 +137,7 @@ const page=s=>key(s)+'.html';
 /* 'u' = "Solo dati utente" (solo Atleti): nessun accesso ai dati degli altri, vede soltanto la propria scheda. Per i dati vale come 'n'. */
 const perm=s=>{if(!me)return 'n';if(me.admin)return 'w';const v=(me.perms||{})[key(s)]||'n';return v==='u'?'n':v};
 const solo=s=>!!me&&!me.admin&&(me.perms||{})[key(s)]==='u';
-const allItems=()=>SEC.flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s}))).filter(i=>!i.lesson&&!i.evento&&(!i.tesAtl||i.archiviatoIl)&&(!i.archiviatoIl||perm('Archivio')!=='n')).map(i=>i.archiviatoIl?{...i,sec:'Archivio'}:i);
+const allItems=()=>SEC.filter(s=>s!=='Cestino').flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s}))).filter(i=>!i.lesson&&!i.evento&&(!i.tesAtl||i.archiviatoIl)&&(!i.archiviatoIl||perm('Archivio')!=='n')).map(i=>i.archiviatoIl?{...i,sec:'Archivio'}:i);
 /* File importanti = documenti con la stella (da Documenti) + eventuali voci inserite a mano; Lezioni = solo le lezioni, senza i file allegati */
 const count=s=>{const k=key(s),its=items[k]||[];
   if(k==='file-importanti')return (items.documenti||[]).filter(i=>i.star).length+its.length;
@@ -143,6 +147,7 @@ const count=s=>{const k=key(s),its=items[k]||[];
   if(k==='lezioni')return its.filter(i=>i.kind!=='file').length;
   if(k==='eventi')return its.filter(i=>i.kind==='evento').length;
   if(k==='tessere')return its.filter(i=>i.kind==='tessera').length;
+  if(k==='cestino')return its.filter(i=>me.admin||['r','w'].includes((me.perms||{})[i.sec])).length;
   return its.length};
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Apri index.html e incolla i dati del progetto Firebase in firebaseConfig. Poi ricarica la pagina.')}
@@ -151,8 +156,10 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){mio=false;modN=0;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
-let mio=false,modN=0;
+function cleanup(){mio=false;modN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[]}
+let mio=false,modN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
+let setupFatto=false;
+const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
 function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{if(s.exists()!==mio){mio=s.exists();render()}}).catch(()=>{})}
 function onMe(){
@@ -163,6 +170,11 @@ function onMe(){
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
   if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));render()});
   cercaMio();render();
+  if(!setupFatto){setupFatto=true;
+    try{if(!sessionStorage.getItem('pfm_acc')){sessionStorage.setItem('pfm_acc','1');logEvento('accesso','','',me.name||me.email||'','Accesso all’app')}}catch(e){}
+    if(me.admin){          /* una tantum: coppie di chiavi di Cestino e Storico (tutti scrivono, leggono solo gli autorizzati) e data dell'ultimo backup */
+      assicuraCoppia('cestino').catch(e=>console.warn('Chiavi Cestino:',e&&e.message));assicuraCoppia('storico').catch(e=>console.warn('Chiavi Storico:',e&&e.message));
+      getDoc(doc(db,'app','backup')).then(s=>{bk=s.exists()&&s.data().at&&s.data().at.toMillis?s.data().at.toMillis():null;render()}).catch(()=>{})}}
 }
 function loginView(){
   app.innerHTML=box('Accedi','Inserisci le credenziali fornite dall’admin.',`<label for="em">Email</label><input id="em" type="text" autocomplete="username"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password"><p class="err" id="er" role="alert"></p><button class="btn" id="go">Accedi</button>`);
@@ -201,7 +213,13 @@ const nessunaHtml=()=>'<div class="card emp"><b>Nessuna scheda abilitata</b><div
 const mioHtml=()=>mio&&!solo('Atleti')?`<h3 class="gt">La mia area</h3><div class="grid"><a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">La mia tessera</span><span class="ts">Tessera e certificato medico</span></a></div>`:'';
 /* Strumenti riservati all'admin (visibili solo a lui), raccolti in un riquadro chiuso: si usano di rado */
 let admOpen=false;
-const adminHtml=()=>me.admin?`<details class="adm"><summary>${ic('tool')}Strumenti admin</summary><div style="padding-bottom:6px"><a class="res" href="migra.html"><span class="ico">${ic('tool')}</span><span class="rt"><b>Migrazione su Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a><a class="res" href="cifra-esistenti.html"><span class="ico">${ic('lock')}</span><span class="rt"><b>Cifratura contenuti Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a></div></details>`:'';
+const giorniDa=ms=>Math.floor((Date.now()-ms)/864e5);
+const bkTesto=()=>bk===undefined?'':bk===null?'Mai eseguito':'Ultimo: '+(giorniDa(bk)<=0?'oggi':giorniDa(bk)===1?'ieri':giorniDa(bk)+' giorni fa');
+const bkDaFare=()=>bk!==undefined&&(bk===null||giorniDa(bk)>30);
+const adminHtml=()=>me.admin?`<h3 class="gt">Strumenti admin</h3><div class="grid">
+  <a class="tile" href="storico.html"><span class="ico">${ic('storico')}</span><span class="tn">Storico</span><span class="ts">Tutti i movimenti</span></a>
+  <a class="tile${bkDaFare()?' hot':''}" href="backup.html"><span class="ico">${ic('backup')}</span><span class="tn">Backup</span>${bkTesto()?`<span class="ts">${esc(bkTesto())}</span>`:''}${bkDaFare()?'<span class="pill">Da fare</span>':''}</a></div>
+  <details class="adm"><summary>${ic('tool')}Operazioni una tantum</summary><div style="padding-bottom:6px"><a class="res" href="migra.html"><span class="ico">${ic('tool')}</span><span class="rt"><b>Migrazione su Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a><a class="res" href="cifra-esistenti.html"><span class="ico">${ic('lock')}</span><span class="rt"><b>Cifratura contenuti Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a></div></details>`:'';
 /* Schede usate di recente (solo su questo dispositivo) */
 const REC='pfm_recenti';
 const recGet=()=>{try{return JSON.parse(localStorage.getItem(REC)||'[]')}catch(e){return []}};
@@ -220,8 +238,9 @@ function alertsHtml(){
   if(perm('Tessere')!=='n'){const n=(items.tessere||[]).filter(tesseraAlert).length;if(n)a.push(['Tessere',n+(n===1?' atleta con tessera o certificato in scadenza':' atleti con tessera o certificato in scadenza')])}
   if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(perm('Archivio')!=='n'){const k=[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
+  if(me.admin&&bkDaFare())a.push(['Backup',bk===null?'Nessun backup eseguito finora':'Ultimo backup '+giorniDa(bk)+' giorni fa']);
   return a.length?`<div class="card alert" role="status"><h2>${ic('alert')}Da controllare (${a.length})</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><span class="ico">${ic(key(s))}</span><span class="rt"><b>${esc(t)}</b><span class="mu">Apri ${esc(s)}</span></span>${ic('go','go')}</button>`).join('')}</div>`:''}
-const NOUN={documenti:['documento','documenti'],'file-importanti':['file','file'],'documenti-in-scadenza':['documento','documenti'],archivio:['documento','documenti'],tecnici:['tecnico','tecnici'],atleti:['atleta','atleti'],tessere:['tessera','tessere'],lezioni:['lezione','lezioni'],eventi:['evento','eventi'],video:['video','video'],foto:['foto','foto'],commercialista:['voce','voci']};
+const NOUN={documenti:['documento','documenti'],'file-importanti':['file','file'],'documenti-in-scadenza':['documento','documenti'],archivio:['documento','documenti'],tecnici:['tecnico','tecnici'],atleti:['atleta','atleti'],tessere:['tessera','tessere'],lezioni:['lezione','lezioni'],eventi:['evento','eventi'],video:['video','video'],foto:['foto','foto'],commercialista:['voce','voci'],cestino:['elemento','elementi']};
 const loaded=k=>k==='file-importanti'||k==='documenti-in-scadenza'?items.documenti!==undefined:k==='archivio'?(items.documenti!==undefined||items.tessere!==undefined):items[k]!==undefined;
 /* Riquadro di una sezione: icona, nome, quanti elementi; badge rosso = da fare/in scadenza, giallo = da rivedere/verificare */
 function tile(s){
@@ -242,7 +261,7 @@ function tile(s){
   if(ver)pills.push(['am',ver+' da verificare']);
   const hot=pills.some(x=>x[0]===''),mod=pills.some(x=>x[0]==='am');
   const nn=NOUN[k];let sub='';
-  if(nn&&loaded(k)&&!nsc)sub=k==='documenti-in-scadenza'?'Nessuno in scadenza':(n?n+' '+nn[n===1?0:1]:'Ancora vuoto');
+  if(nn&&loaded(k)&&!nsc)sub=k==='documenti-in-scadenza'?'Nessuno in scadenza':(n?n+' '+nn[n===1?0:1]:(k==='cestino'?'Vuoto':'Ancora vuoto'));
   if(p==='r')sub=(sub?sub+' · ':'')+'sola lettura';
   return`<button class="tile${hot?' hot':''}${mod&&!hot?' mod':''}" data-s="${esc(s)}">${ico}<span class="tn">${esc(s)}</span>${sub?`<span class="ts">${p==='r'?ic('lock'):''}${esc(sub)}</span>`:''}${pills.map(([c,t])=>`<span class="pill${c?' '+c:''}">${esc(t)}</span>`).join('')}</button>`}
 /* Gestione account: per ogni account due menu a tendina.
@@ -264,7 +283,7 @@ function bindEd(root){
   root.querySelectorAll('select[data-pl]').forEach(x=>x.onchange=()=>setPerm(x.dataset.sc,x.dataset.pl,x.value))}
 function setPerm(sc,k,v){
   if(sc==='new'){if(v==='n')delete newPerms[k];else newPerms[k]=v;paintNew();return}
-  updateDoc(doc(db,'users',sc),{['perms.'+k]:v}).catch(()=>{const e=$('#er2');if(e)e.textContent='Modifica non riuscita. Riprova.'})}
+  updateDoc(doc(db,'users',sc),{['perms.'+k]:v}).then(()=>logEvento('account','',sc,nomeAcc(sc),'permesso '+k+': '+(v==='w'?'lettura e scrittura':v==='r'?'sola lettura':'nessun accesso'))).catch(()=>{const e=$('#er2');if(e)e.textContent='Modifica non riuscita. Riprova.'})}
 function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked);bindEd(n)}
 function adminView(){
   const adminsLeft=accounts.filter(a=>a.admin).length;
@@ -277,13 +296,14 @@ function adminView(){
   $('#nn2').value=keep[0];$('#ne').value=keep[1];$('#np').value=keep[2];$('#na').checked=keepA;
   paintNew();bindEd(app);$('#na').onchange=paintNew;
   bindTop();$('#bk').onclick=()=>{view='home';render()};
-  document.querySelectorAll('[data-a]').forEach(c=>c.onchange=()=>{if(!c.checked&&adminsLeft<2){c.checked=true;$('#er2').textContent='Deve restare almeno un admin.';return}updateDoc(doc(db,'users',c.dataset.a),{admin:c.checked}).catch(()=>{})});
-  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.x);if(a.admin&&adminsLeft<2){$('#er2').textContent='Non puoi rimuovere l’ultimo admin.';return}if(confirm('Revocare l’accesso a '+(a.name||a.email)+'?'))deleteDoc(doc(db,'users',a.id)).catch(()=>{})});
+  document.querySelectorAll('[data-a]').forEach(c=>c.onchange=()=>{if(!c.checked&&adminsLeft<2){c.checked=true;$('#er2').textContent='Deve restare almeno un admin.';return}updateDoc(doc(db,'users',c.dataset.a),{admin:c.checked}).then(()=>logEvento('account','',c.dataset.a,nomeAcc(c.dataset.a),c.checked?'reso admin':'tolto il ruolo admin')).catch(()=>{})});
+  document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.x);if(a.admin&&adminsLeft<2){$('#er2').textContent='Non puoi rimuovere l’ultimo admin.';return}if(confirm('Revocare l’accesso a '+(a.name||a.email)+'?'))deleteDoc(doc(db,'users',a.id)).then(()=>logEvento('account','',a.id,a.name||a.email||a.id,'accesso revocato')).catch(()=>{})});
   $('#cr').onclick=async()=>{const n=$('#nn2').value.trim(),e=$('#ne').value.trim(),p=$('#np').value,er=$('#er');
     if(!n||!e||p.length<6){er.textContent='Inserisci nome, email e una password di almeno 6 caratteri.';return}
     try{const sec=initializeApp(firebaseConfig,'sec'+Date.now()),sa=getAuth(sec);
       const c=await createUserWithEmailAndPassword(sa,e,p);const nid=c.user.uid;await signOut(sa);
       await setDoc(doc(db,'users',nid),{name:n,email:e,admin:$('#na').checked,perms:$('#na').checked?{}:{...newPerms}});
+      logEvento('account','',nid,n,'account creato'+($('#na').checked?' (admin)':''));
       $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;newPerms={};paintNew();er.textContent='';
     }catch(x){er.textContent=x.code==='auth/email-already-in-use'?'Esiste già un account con questa email.':'Creazione non riuscita. Controlla i dati e riprova.'}};
 }

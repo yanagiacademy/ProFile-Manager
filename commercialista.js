@@ -1,10 +1,14 @@
-/* Scheda Commercialista: Bilancio (entrate/uscite), Calcolatrice, Calendario con note e alert.
+/* Scheda Commercialista: Bilancio (entrate/uscite, conti, ricevute allegate, ripetizioni), Riepilogo (grafico, IVA, rendiconto stampabile), Calcolatrice, Calendario con note, alert e scadenze ricorrenti.
    Dati in sections/commercialista/items (come le altre sezioni: Telegram + copia facoltativa su Firebase):
    - kind:'voce'  = movimento di bilancio (tipo entrata|uscita, data, cent, iva, ...)
-   - kind:'nota'  = nota del calendario (data, ora, testo, alertMin, fatto) */
+   - kind:'nota'  = nota del calendario (data, ora, testo, alertMin, fatto)
+   - kind:'file'  = ricevuta o fattura allegata a un movimento (id nel campo allegati del movimento)
+   Le eliminazioni vanno nel Cestino (30 giorni). */
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
+import {archivio} from "./archivio.js";
+import {showPreview} from "./file-tools.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 
@@ -17,6 +21,7 @@ tick();setInterval(tick,15000);
 const SEC='commercialista';
 const CATE=['Quote associative','Iscrizioni e corsi','Eventi e gare','Sponsor e contributi','Affitto','Utenze','Attrezzature','Assicurazioni','Compensi e collaboratori','Imposte e tasse','Banca e commissioni','Altro'];
 const PAGA=['Bonifico','Contanti','Carta','Assegno','Altro'];
+const CONTI=['Cassa','Banca','Carta','PayPal','Altro'];
 const ALERTS=[['','Nessun alert'],['0','All’ora dell’evento'],['15','15 minuti prima'],['60','1 ora prima'],['1440','1 giorno prima'],['2880','2 giorni prima'],['10080','1 settimana prima']];
 const MESI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
 
@@ -26,7 +31,7 @@ const canW=()=>perm()==='w';
 const tabGet=()=>{try{return localStorage.getItem('comm_tab')||'b'}catch(e){return 'b'}};
 let tab=tabGet();
 let editV=null,editN=null;
-let bq='',bTipo='all',bAnno='all',bMese='all';
+let bq='',bTipo='all',bAnno='all',bMese='all',bRic='',rAnno='',rimossi=new Set(),arch=null;
 const now0=new Date();
 let cy=now0.getFullYear(),cm=now0.getMonth(),sel='';
 
@@ -59,7 +64,7 @@ function shell(){
   <div class="wrap">
   <div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Commercialista</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div></div>
   <div id="al"></div>
-  <div class="tabs"><span class="seg" role="group" aria-label="Strumenti"><button data-t="b">Bilancio</button><button data-t="c">Calcolatrice</button><button data-t="k">Calendario</button></span></div>
+  <div class="tabs"><span class="seg" role="group" aria-label="Strumenti"><button data-t="b">Bilancio</button><button data-t="r">Riepilogo</button><button data-t="c">Calcolatrice</button><button data-t="k">Calendario</button></span></div>
 
   <section id="pb" hidden>
     ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 id="bft" style="margin:0">Nuovo movimento</h3><button class="btn sm" id="bftg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="bfb" aria-label="Apri il modulo del movimento">+</button></div>
@@ -76,7 +81,11 @@ function shell(){
           <div class="three"><div><label for="vn">N. documento</label><input id="vn" type="text" autocomplete="off" placeholder="fattura, ricevuta…"></div>
           <div><label for="vv">IVA inclusa</label><select id="vv"><option value="0">Nessuna / esente</option><option value="4">4%</option><option value="5">5%</option><option value="10">10%</option><option value="22">22%</option></select></div>
           <div><label for="vm">Pagamento</label><select id="vm">${PAGA.map(p=>`<option>${p}</option>`).join('')}</select></div></div>
+          <div class="three"><div><label for="vk">Conto</label><select id="vk">${CONTI.map(c=>`<option>${c}</option>`).join('')}</select></div>
+          <div id="vrw"><label for="vr">Ripeti</label><select id="vr"><option value="0">Non ripetere</option><option value="1">Ogni mese</option><option value="3">Ogni 3 mesi</option><option value="12">Ogni anno</option></select></div>
+          <div id="vqw" hidden><label for="vq">Quante volte in tutto</label><input id="vq" type="text" inputmode="numeric" value="12"></div></div>
           <label for="vo">Note</label><textarea id="vo"></textarea>
+          <div id="vaw"><label for="vf">Ricevuta o fattura (facoltativa)</label><input id="vf" type="file" multiple><div id="val" style="margin-top:6px"></div></div>
           <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="vfb" style="width:auto;min-height:0"> Salva anche su Firebase</label>
         </fieldset>
         <p class="err" id="ver" role="alert"></p>
@@ -87,10 +96,24 @@ function shell(){
       <div class="flt"><input id="bq" type="search" placeholder="Cerca nei movimenti" aria-label="Cerca nei movimenti">
         <select id="bt" aria-label="Tipo"><option value="all">Entrate e uscite</option><option value="entrata">Solo entrate</option><option value="uscita">Solo uscite</option></select>
         <select id="ba" aria-label="Anno"></select>
+        <select id="br" aria-label="Ricevute"><option value="">Con o senza ricevuta</option><option value="senza">Senza ricevuta</option></select>
         <select id="bm" aria-label="Mese"><option value="all">Tutti i mesi</option>${MESI.map((m,i)=>`<option value="${i+1}">${m[0].toUpperCase()+m.slice(1)}</option>`).join('')}</select>
         <button class="btn ghost sm" id="bcsv">Scarica CSV</button></div>
       <div id="bls"></div>
       <details class="cat"><summary>Riepilogo per categoria</summary><div class="scroll" id="bcat"></div></details>
+    </div>
+  </section>
+
+  <section id="pr" hidden>
+    <div class="card">
+      <div class="flt"><select id="ra" aria-label="Anno del riepilogo"></select><span style="flex:1"></span><button class="btn ghost sm" id="rpr">Stampa / PDF rendiconto</button></div>
+      <div class="sums" id="rsum"></div>
+      <h3 class="rh">Entrate e uscite per mese</h3><div id="rbar"></div>
+      <details class="cat"><summary>Dati mese per mese</summary><div class="scroll" id="rmes"></div></details>
+      <h3 class="rh">IVA per trimestre</h3><div class="scroll" id="riva"></div>
+      <p class="mu" style="margin:6px 0 0">Differenza positiva = IVA da versare, negativa = a credito. È calcolata sulle aliquote indicate nei movimenti: serve da riferimento, la liquidazione la fa il commercialista.</p>
+      <h3 class="rh">Per conto</h3><div class="scroll" id="rcon"></div>
+      <h3 class="rh">Per categoria</h3><div class="scroll" id="rcat"></div>
     </div>
   </section>
 
@@ -108,6 +131,8 @@ function shell(){
       </div>
       <div class="ivar"><span class="mu">IVA</span><select id="cr" aria-label="Aliquota IVA"><option>22</option><option>10</option><option>5</option><option>4</option></select>
         <button class="btn ghost sm" id="civp">+ IVA</button><button class="btn ghost sm" id="civm">Scorpora IVA</button><button class="btn ghost sm" id="civ0">Solo IVA</button></div>
+      <div class="ivar"><span class="mu">%</span><input id="cpv" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 20" aria-label="Percentuale" style="width:5.5em;min-height:40px">
+        <button class="btn ghost sm" id="cpp">+ %</button><button class="btn ghost sm" id="cpm">− %</button><button class="btn ghost sm" id="cpo">% di</button></div>
       <div class="acts" style="margin-top:10px"><button class="btn ghost sm" id="ccp">Copia risultato</button>${w?'<button class="btn ghost sm" id="cbl">Usa nel bilancio</button>':''}</div>
       <div class="hist" id="ch"></div>
     </div>
@@ -123,6 +148,8 @@ function shell(){
       ${w?`<div id="kf" hidden>
         <label for="kt">Titolo</label><input id="kt" type="text" autocomplete="off">
         <div class="three"><div><label for="kdt">Data</label><input id="kdt" type="date"></div><div><label for="kh">Ora (facoltativa)</label><input id="kh" type="time"></div><div><label for="ka">Alert</label><select id="ka">${ALERTS.map(a=>`<option value="${a[0]}">${a[1]}</option>`).join('')}</select></div></div>
+        <div class="two" id="krw"><div><label for="krp">Ripeti</label><select id="krp"><option value="0">Non ripetere</option><option value="1">Ogni mese</option><option value="3">Ogni 3 mesi</option><option value="12">Ogni anno</option></select></div>
+        <div id="kqw" hidden><label for="kqt">Quante volte in tutto</label><input id="kqt" type="text" inputmode="numeric" value="12"></div></div>
         <label for="kx">Nota</label><textarea id="kx"></textarea>
         <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="kfb" style="width:auto;min-height:0"> Salva anche su Firebase</label>
         <p class="err" id="ker" role="alert"></p>
@@ -136,50 +163,70 @@ function shell(){
 
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
-  bindBil();bindCalc();bindCal();setTab(tab);
+  bindBil();bindRiep();bindCalc();bindCal();setTab(tab);
 }
 function setTab(t){
   tab=t;store('comm_tab',t);
-  ['b','c','k'].forEach(k=>{const p=$('#p'+k);if(p)p.hidden=k!==t});
+  ['b','r','c','k'].forEach(k=>{const p=$('#p'+k);if(p)p.hidden=k!==t});
   document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===t)))}
 
 /* =====================================================
    BILANCIO
    ===================================================== */
+function getArch(){return arch||(arch=archivio(db,SEC,uid))}
 function bindBil(){
   const w=canW();
   $('#bq').oninput=e=>{bq=e.target.value;renderBil()};
   $('#bt').onchange=e=>{bTipo=e.target.value;renderBil()};
   $('#ba').onchange=e=>{bAnno=e.target.value;renderBil()};
   $('#bm').onchange=e=>{bMese=e.target.value;renderBil()};
+  $('#br').onchange=e=>{bRic=e.target.value;renderBil()};
   $('#bcsv').onclick=csvBil;
-  $('#bls').onclick=e=>{
+  $('#bls').onclick=async e=>{
     const b=e.target.closest('[data-a]');if(!b)return;
     const it=items.find(x=>x.id===b.dataset.id);if(!it)return;
+    if(b.dataset.a==='att')return apriAllegato(it);   /* it = allegato (file) */
     if(b.dataset.a==='edit')editVoce(it);
     else if(b.dataset.a==='del'){
-      if(!confirm('Eliminare il movimento «'+(it.descr||'senza descrizione')+'»? L’operazione non si può annullare.'))return;
-      deleteDoc(doc(db,'sections',SEC,'items',it.id)).then(()=>{if(editV===it.id)resetVoce()}).catch(x=>{console.error(x);alert('Eliminazione non riuscita.')})}};
+      const att=(it.allegati||[]).map(id=>items.find(x=>x.id===id)).filter(Boolean);
+      if(!confirm('Eliminare il movimento «'+(it.descr||'senza descrizione')+'»'+(att.length?' e le sue '+att.length+(att.length===1?' ricevuta':' ricevute'):'')+'? Va nel Cestino e resta recuperabile per 30 giorni.'))return;
+      try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));for(const a of att)await getArch().remove(a);if(editV===it.id)resetVoce()}
+      catch(x){console.error(x);alert(x&&x.message==='NOPUB'?'Il Cestino non è ancora attivo: l’admin deve aprire la Home una volta.':'Eliminazione non riuscita.')}}};
   if(w){
     $('#bftg').onclick=()=>setBForm($('#bfb').hidden);
     $('#vsv').onclick=saveVoce;$('#vcx').onclick=resetVoce;
+    $('#vr').onchange=()=>{const r=$('#vr').value!=='0';$('#vqw').hidden=!r;$('#vaw').hidden=r};
+    $('#val').onclick=e=>{const b=e.target.closest('[data-rm]');if(!b)return;rimossi.add(b.dataset.rm);const it=items.find(x=>x.id===editV);paintAll(it)};
     $('#vd').value=todayIso()}
 }
+function apriAllegato(a){
+  showPreview({title:a.title,mime:a.mime,load:()=>getArch().getBlob(a),errText:e=>getArch().errText(e),fileName:a.title})}
+function paintAll(it){
+  const box=$('#val');if(!box)return;
+  const l=((it&&it.allegati)||[]).filter(id=>!rimossi.has(id)).map(id=>items.find(x=>x.id===id)).filter(Boolean);
+  box.innerHTML=l.map(a=>`<span class="chip">📎 ${esc(a.title)} <button class="chip" data-rm="${esc(a.id)}" aria-label="Togli l’allegato ${esc(a.title)}" style="min-height:0;padding:0 6px;margin:0">✕</button></span>`).join(' ')}
 function setBForm(o){
   const b=$('#bfb'),t=$('#bftg');if(!b)return;
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo del movimento':'Apri il modulo del movimento')}
-const VF=[['vt','tipo'],['vd','data'],['vs','descr'],['vc','categoria'],['vp','controparte'],['vn','doc'],['vv','iva'],['vm','pagamento'],['vo','annotazioni']];
+const VF=[['vt','tipo'],['vd','data'],['vs','descr'],['vc','categoria'],['vp','controparte'],['vn','doc'],['vv','iva'],['vm','pagamento'],['vk','conto'],['vo','annotazioni']];
 function resetVoce(){
-  setBForm(false);editV=null;
+  setBForm(false);editV=null;rimossi=new Set();
   VF.forEach(([e])=>{const el=$('#'+e);el.value=el.tagName==='SELECT'?el.options[0].value:''});
   $('#vd').value=todayIso();$('#vi').value='';$('#vfb').checked=false;
+  $('#vr').value='0';$('#vq').value='12';$('#vqw').hidden=true;$('#vrw').hidden=false;$('#vaw').hidden=false;$('#vf').value='';$('#val').innerHTML='';
   $('#bft').textContent='Nuovo movimento';$('#vsv').textContent='Salva movimento';$('#vcx').hidden=true;$('#ver').textContent=''}
 function editVoce(it){
-  setBForm(true);editV=it.id;
-  VF.forEach(([e,k])=>{$('#'+e).value=it[k]!=null?String(it[k]):''});
+  setBForm(true);editV=it.id;rimossi=new Set();
+  VF.forEach(([e,k])=>{$('#'+e).value=it[k]!=null?String(it[k]):(e==='vk'?'Cassa':'')});
   $('#vi').value=(it.cent/100).toFixed(2).replace('.',',');$('#vfb').checked=!!it.fb;
+  $('#vr').value='0';$('#vqw').hidden=true;$('#vrw').hidden=true;$('#vaw').hidden=false;$('#vf').value='';paintAll(it);   /* la ripetizione si imposta solo su un movimento nuovo */
   $('#bft').textContent='Modifica movimento';$('#vsv').textContent='Salva modifiche';$('#vcx').hidden=false;$('#ver').textContent='';
   setTab('b');$('#bft').scrollIntoView({behavior:'smooth',block:'start'})}
+/* data + n mesi, mantenendo il giorno (o l'ultimo del mese se non esiste: 31 gennaio + 1 mese = 28/29 febbraio) */
+function addMesiIso(d,n){
+  const [y,m,g]=d.split('-').map(Number),t=m-1+n,yy=y+Math.floor(t/12),mm=((t%12)+12)%12,ult=new Date(yy,mm+1,0).getDate();
+  return yy+'-'+pad(mm+1)+'-'+pad(Math.min(g,ult))}
+const newSerie=()=>Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
 async function saveVoce(){
   const er=$('#ver'),v={};
   VF.forEach(([e,k])=>v[k]=$('#'+e).value.trim());
@@ -188,24 +235,39 @@ async function saveVoce(){
   if(!v.descr){er.textContent='Inserisci una descrizione.';return}
   if(!(cent>0)){er.textContent='Inserisci un importo valido, maggiore di zero (es. 120,50).';return}
   v.iva=Number(v.iva)||0;
-  const eur=euro(cent);
-  const data={...v,kind:'voce',cent,fb:$('#vfb').checked,title:v.descr,
-    note:[v.tipo,eur,fmtD(v.data),v.categoria,v.controparte,v.doc,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
+  const rp=editV?0:Number($('#vr').value)||0,tot=rp?parseInt($('#vq').value,10)||0:1;
+  if(rp&&(tot<2||tot>60)){er.textContent='Indica quante volte ripetere il movimento in tutto (da 2 a 60).';return}
+  const files=rp?[]:[...($('#vf').files||[])],fb=$('#vfb').checked,eur=euro(cent);
+  const mk=d=>({...v,data:d,kind:'voce',cent,fb,title:v.descr,
+    note:[v.tipo,eur,fmtD(d),v.categoria,v.controparte,v.doc,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)});
+  const carica=async(voceId)=>{const ids=[];
+    for(const f of files)ids.push(await getArch().save(f,{voce:voceId,...(fb?{fb:true}:{})},p=>{er.textContent='Caricamento di '+f.name+': '+p+'%'}));return ids};
   $('#vsv').disabled=true;er.textContent='Salvataggio…';
   try{
-    if(editV)await updateDoc(doc(db,'sections',SEC,'items',editV),data);
-    else await addDoc(col,{...data,by:uid,at:serverTimestamp()});
+    if(editV){
+      const prev=items.find(x=>x.id===editV)||{};
+      const nuovi=await carica(editV),all=[...(prev.allegati||[]).filter(id=>!rimossi.has(id)),...nuovi];
+      await updateDoc(doc(db,'sections',SEC,'items',editV),{...mk(v.data),allegati:all});
+      for(const id of rimossi){const a=items.find(x=>x.id===id);if(a)await getArch().remove(a)}     /* le ricevute tolte vanno nel Cestino */
+    }else{
+      const serie=rp?newSerie():'';
+      for(let i=0;i<tot;i++){
+        if(rp)er.textContent='Salvataggio '+(i+1)+' di '+tot+'…';
+        const ref=doc(col),d=rp?addMesiIso(v.data,rp*i):v.data,ids=await carica(ref.id);
+        await setDoc(ref,{...mk(d),...(ids.length?{allegati:ids}:{}),...(rp?{serie,nrip:i+1,totrip:tot}:{}),by:uid,at:serverTimestamp()})}}
     resetVoce();
-  }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
+  }catch(e){console.error(e);er.textContent=(e&&e.message)?('Salvataggio non riuscito: '+getArch().errText(e)+'.'):'Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#vsv').disabled=false}
 
+const senzaRic=v=>!(v.allegati||[]).some(id=>items.some(x=>x.id===id));
 function bilFiltrate(){
   const t=bq.trim().toLowerCase();
   return voci().filter(v=>{
     if(bTipo!=='all'&&v.tipo!==bTipo)return false;
     if(bAnno!=='all'&&String(v.data||'').slice(0,4)!==bAnno)return false;
     if(bMese!=='all'&&Number(String(v.data||'').slice(5,7))!==Number(bMese))return false;
-    if(t&&![v.descr,v.categoria,v.controparte,v.doc,v.annotazioni,v.pagamento,fmtD(v.data),(v.cent/100).toFixed(2).replace('.',',')].filter(Boolean).join(' ').toLowerCase().includes(t))return false;
+    if(bRic==='senza'&&!senzaRic(v))return false;
+    if(t&&![v.descr,v.categoria,v.controparte,v.doc,v.annotazioni,v.pagamento,v.conto,fmtD(v.data),(v.cent/100).toFixed(2).replace('.',',')].filter(Boolean).join(' ').toLowerCase().includes(t))return false;
     return true}).sort((a,b)=>String(b.data).localeCompare(String(a.data)));
 }
 function renderBil(){
@@ -226,8 +288,9 @@ function renderBil(){
   const w=canW();
   $('#bls').innerHTML=list.length?list.map(v=>{
     const iv=ivaDi(v.cent,v.iva);
-    const sub=[v.categoria,v.controparte,v.doc&&'doc. '+v.doc,v.pagamento].filter(Boolean).map(esc).join(' · ');
-    return `<div class="mv"><div class="dt">${esc(fmtD(v.data))}</div><div class="inf"><div><b>${esc(v.descr||'—')}</b>${v.fb?' <span class="mu" title="Copia su Firebase">☁</span>':''}</div>${sub?`<div class="mu">${sub}</div>`:''}${v.annotazioni?`<div class="mu">${esc(v.annotazioni)}</div>`:''}</div>
+    const sub=[v.categoria,v.controparte,v.doc&&'doc. '+v.doc,v.pagamento,v.conto,v.totrip&&('rata '+v.nrip+'/'+v.totrip)].filter(Boolean).map(esc).join(' · ');
+    const atts=(v.allegati||[]).map(id=>items.find(x=>x.id===id)).filter(Boolean).map(a=>`<button class="chip" data-a="att" data-id="${esc(a.id)}" aria-label="Apri la ricevuta ${esc(a.title)}">📎 ${esc(a.title)}</button>`).join('');
+    return `<div class="mv"><div class="dt">${esc(fmtD(v.data))}</div><div class="inf"><div><b>${esc(v.descr||'—')}</b>${v.fb?' <span class="mu" title="Copia su Firebase">☁</span>':''}</div>${sub?`<div class="mu">${sub}</div>`:''}${v.annotazioni?`<div class="mu">${esc(v.annotazioni)}</div>`:''}${atts?`<div>${atts}</div>`:''}</div>
       <div class="am ${v.tipo==='uscita'?'neg':''}">${v.tipo==='uscita'?'−':'+'}${euro(v.cent)}${v.iva?`<small>IVA ${v.iva}%: ${euro(iv)}</small>`:''}</div>
       ${w?`<div class="ac"><button class="btn ghost sm" data-a="edit" data-id="${esc(v.id)}">Modifica</button><button class="btn ghost sm" data-a="del" data-id="${esc(v.id)}">Elimina</button></div>`:''}</div>`}).join('')
     :`<div class="mu" style="padding:8px 0">${all.length?'Nessun movimento con questi filtri.':'Nessun movimento registrato.'+(w?' Apri il modulo qui sopra con «+».':'')}</div>`;
@@ -248,11 +311,73 @@ function csvBil(){
   if(!list.length){alert('Non ci sono movimenti da scaricare con questi filtri.');return}
   const c=s=>'"'+String(s??'').replace(/"/g,'""')+'"';
   const n=x=>(x/100).toFixed(2).replace('.',',');
-  const rows=[['Data','Tipo','Descrizione','Categoria','Cliente/fornitore','N. documento','Pagamento','Importo (€)','Aliquota IVA %','IVA inclusa (€)','Note'].map(c).join(';')];
-  list.forEach(v=>rows.push([fmtD(v.data),v.tipo,v.descr,v.categoria,v.controparte,v.doc,v.pagamento,n(v.cent*sgn(v)),v.iva||0,n(ivaDi(v.cent,v.iva)*sgn(v)),v.annotazioni].map(c).join(';')));
+  const rows=[['Data','Tipo','Descrizione','Categoria','Cliente/fornitore','N. documento','Pagamento','Conto','Ricevuta','Importo (€)','Aliquota IVA %','IVA inclusa (€)','Note'].map(c).join(';')];
+  list.forEach(v=>rows.push([fmtD(v.data),v.tipo,v.descr,v.categoria,v.controparte,v.doc,v.pagamento,v.conto,senzaRic(v)?'no':'sì',n(v.cent*sgn(v)),v.iva||0,n(ivaDi(v.cent,v.iva)*sgn(v)),v.annotazioni].map(c).join(';')));
   const tot=list.reduce((s,v)=>s+v.cent*sgn(v),0);
-  rows.push(['','','TOTALE (entrate − uscite)','','','','',n(tot),'','',''].map(c).join(';'));
+  rows.push(['','','TOTALE (entrate − uscite)','','','','','','',n(tot),'','',''].map(c).join(';'));
   dl('bilancio.csv','\ufeff'+rows.join('\r\n'),'text/csv;charset=utf-8')}
+
+/* =====================================================
+   RIEPILOGO
+   ===================================================== */
+const anniDisp=()=>[...new Set(voci().map(v=>String(v.data||'').slice(0,4)).filter(a=>/^\d{4}$/.test(a)))].sort().reverse();
+const annoVoci=()=>voci().filter(v=>String(v.data||'').slice(0,4)===rAnno);
+function bindRiep(){
+  $('#ra').onchange=e=>{rAnno=e.target.value;renderRiep()};
+  $('#rpr').onclick=stampaRendiconto}
+function totali(L){
+  const t={e:0,u:0,ivaE:0,ivaU:0,mese:Array.from({length:12},()=>({e:0,u:0})),tri:Array.from({length:4},()=>({ivaE:0,ivaU:0})),conto:{},cat:{}};
+  for(const v of L){
+    const u=v.tipo==='uscita',m=Math.min(11,Math.max(0,Number(String(v.data).slice(5,7))-1)),iv=ivaDi(v.cent,v.iva);
+    if(u){t.e+=0;t.u+=v.cent;t.ivaU+=iv;t.mese[m].u+=v.cent;t.tri[Math.floor(m/3)].ivaU+=iv}
+    else{t.e+=v.cent;t.ivaE+=iv;t.mese[m].e+=v.cent;t.tri[Math.floor(m/3)].ivaE+=iv}
+    const co=v.conto||'Non indicato',ca=v.categoria||'Senza categoria';
+    for(const [o,k] of [[t.conto,co],[t.cat,ca]]){o[k]=o[k]||{e:0,u:0};if(u)o[k].u+=v.cent;else o[k].e+=v.cent}}
+  return t}
+const tabEUS=(o,vuoto)=>{const ks=Object.keys(o).sort((a,b)=>a.localeCompare(b,'it'));
+  return ks.length?`<table><thead><tr><th></th><th class="n">Entrate</th><th class="n">Uscite</th><th class="n">Saldo</th></tr></thead><tbody>${ks.map(k=>`<tr><td>${esc(k)}</td><td class="n">${euro(o[k].e)}</td><td class="n">${euro(o[k].u)}</td><td class="n ${o[k].e-o[k].u<0?'neg':''}">${euro(o[k].e-o[k].u)}</td></tr>`).join('')}</tbody></table>`:`<div class="mu">${vuoto}</div>`};
+function barre(m){
+  const max=Math.max(1,...m.map(x=>x.e),...m.map(x=>x.u)),W=600,H=230,pl=6,pb=32,pt=8,gw=(W-pl*2)/12,bw=Math.min(18,gw/2-3),h=H-pb-pt;
+  let g='';
+  m.forEach((x,i)=>{const cx=pl+i*gw+gw/2,he=h*x.e/max,hu=h*x.u/max;
+    g+=`<rect x="${(cx-bw-1).toFixed(1)}" y="${(H-pb-he).toFixed(1)}" width="${bw}" height="${he.toFixed(1)}" rx="2" style="fill:var(--ac)"><title>${MESI[i]}: entrate ${euro(x.e)}</title></rect>`
+      +`<rect x="${(cx+1).toFixed(1)}" y="${(H-pb-hu).toFixed(1)}" width="${bw}" height="${hu.toFixed(1)}" rx="2" style="fill:var(--er)"><title>${MESI[i]}: uscite ${euro(x.u)}</title></rect>`
+      +`<text x="${cx.toFixed(1)}" y="${H-9}" text-anchor="middle" font-size="18" style="fill:var(--mu)">${MESI[i].slice(0,3)}</text>`});
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Entrate e uscite mese per mese. Il dettaglio è nella tabella qui sotto." style="width:100%;height:auto;display:block">${g}<line x1="${pl}" x2="${W-pl}" y1="${H-pb}" y2="${H-pb}" style="stroke:var(--ln)"/></svg>
+    <div class="mu" style="display:flex;gap:14px;justify-content:center"><span><span style="color:var(--ac)">■</span> Entrate</span><span><span style="color:var(--er)">■</span> Uscite</span></div>`}
+function renderRiep(){
+  if(!$('#rsum'))return;
+  const anni=anniDisp(),oggiA=String(new Date().getFullYear());
+  if(!rAnno||!anni.includes(rAnno))rAnno=anni.includes(oggiA)?oggiA:(anni[0]||'');
+  $('#ra').innerHTML=anni.length?anni.map(a=>`<option ${a===rAnno?'selected':''}>${a}</option>`).join(''):'<option>—</option>';
+  $('#rpr').disabled=!anni.length;
+  if(!anni.length){['rsum','rbar','rmes','riva','rcon','rcat'].forEach(i=>$('#'+i).innerHTML='');$('#rsum').innerHTML='<div class="mu">Nessun movimento: il riepilogo compare appena ne registri qualcuno.</div>';return}
+  const t=totali(annoVoci()),sal=t.e-t.u;
+  $('#rsum').innerHTML=`<div class="sum"><div class="l">Entrate ${rAnno}</div><div class="v">${euro(t.e)}</div><div class="s">di cui IVA ${euro(t.ivaE)}</div></div>
+    <div class="sum"><div class="l">Uscite ${rAnno}</div><div class="v neg">${euro(t.u)}</div><div class="s">di cui IVA ${euro(t.ivaU)}</div></div>
+    <div class="sum"><div class="l">Saldo ${rAnno}</div><div class="v ${sal<0?'neg':''}">${euro(sal)}</div><div class="s">IVA netta ${euro(t.ivaE-t.ivaU)}</div></div>`;
+  $('#rbar').innerHTML=barre(t.mese);
+  $('#rmes').innerHTML=`<table><thead><tr><th>Mese</th><th class="n">Entrate</th><th class="n">Uscite</th><th class="n">Saldo</th></tr></thead><tbody>${t.mese.map((x,i)=>`<tr><td>${MESI[i][0].toUpperCase()+MESI[i].slice(1)}</td><td class="n">${euro(x.e)}</td><td class="n">${euro(x.u)}</td><td class="n ${x.e-x.u<0?'neg':''}">${euro(x.e-x.u)}</td></tr>`).join('')}</tbody></table>`;
+  $('#riva').innerHTML=`<table><thead><tr><th>Trimestre</th><th class="n">IVA sulle entrate</th><th class="n">IVA sulle uscite</th><th class="n">Differenza</th></tr></thead><tbody>${t.tri.map((x,i)=>`<tr><td>${i+1}° (${MESI[i*3].slice(0,3)}–${MESI[i*3+2].slice(0,3)})</td><td class="n">${euro(x.ivaE)}</td><td class="n">${euro(x.ivaU)}</td><td class="n ${x.ivaE-x.ivaU<0?'neg':''}">${euro(x.ivaE-x.ivaU)}</td></tr>`).join('')}<tr><td><b>Anno</b></td><td class="n"><b>${euro(t.ivaE)}</b></td><td class="n"><b>${euro(t.ivaU)}</b></td><td class="n"><b>${euro(t.ivaE-t.ivaU)}</b></td></tr></tbody></table>`;
+  $('#rcon').innerHTML=tabEUS(t.conto,'Nessun dato.');$('#rcat').innerHTML=tabEUS(t.cat,'Nessun dato.')}
+function stampaRendiconto(){
+  const L=annoVoci();if(!L.length){alert('Non ci sono movimenti per questo anno.');return}
+  const t=totali(L),e=x=>esc(x);
+  const righe=(o,k)=>Object.keys(o).filter(c=>o[c][k]>0).sort((a,b)=>a.localeCompare(b,'it')).map(c=>`<tr><td>${e(c)}</td><td class="n">${euro(o[c][k])}</td></tr>`).join('')||'<tr><td colspan="2">—</td></tr>';
+  const html=`<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><title>Rendiconto ${e(rAnno)}</title><style>
+    body{font:14px/1.4 system-ui,Arial,sans-serif;color:#14213D;margin:28px auto;max-width:760px;padding:0 16px}h1{font-size:22px;margin:0 0 2px}h2{font-size:16px;margin:22px 0 6px;border-bottom:1px solid #999;padding-bottom:3px}
+    table{width:100%;border-collapse:collapse}td,th{padding:5px 6px;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right;font-variant-numeric:tabular-nums}tfoot td{font-weight:700;border-top:2px solid #14213D}
+    .p{color:#555;font-size:12px}.sal{font-size:18px;font-weight:700;margin-top:14px}@media print{body{margin:0}}</style></head><body>
+    <h1>Rendiconto economico – anno ${e(rAnno)}</h1><div class="p">Yanagi Academy · generato il ${new Date().toLocaleDateString('it-IT')} dai movimenti registrati</div>
+    <h2>Entrate per categoria</h2><table><tbody>${righe(t.cat,'e')}</tbody><tfoot><tr><td>Totale entrate</td><td class="n">${euro(t.e)}</td></tr></tfoot></table>
+    <h2>Uscite per categoria</h2><table><tbody>${righe(t.cat,'u')}</tbody><tfoot><tr><td>Totale uscite</td><td class="n">${euro(t.u)}</td></tr></tfoot></table>
+    <div class="sal">Saldo dell’anno: ${euro(t.e-t.u)}</div>
+    <h2>Per conto</h2><table><thead><tr><th></th><th class="n">Entrate</th><th class="n">Uscite</th><th class="n">Saldo</th></tr></thead><tbody>${Object.keys(t.conto).sort().map(c=>`<tr><td>${e(c)}</td><td class="n">${euro(t.conto[c].e)}</td><td class="n">${euro(t.conto[c].u)}</td><td class="n">${euro(t.conto[c].e-t.conto[c].u)}</td></tr>`).join('')}</tbody></table>
+    <h2>IVA</h2><table><thead><tr><th>Trimestre</th><th class="n">Sulle entrate</th><th class="n">Sulle uscite</th><th class="n">Differenza</th></tr></thead><tbody>${t.tri.map((x,i)=>`<tr><td>${i+1}°</td><td class="n">${euro(x.ivaE)}</td><td class="n">${euro(x.ivaU)}</td><td class="n">${euro(x.ivaE-x.ivaU)}</td></tr>`).join('')}</tbody></table>
+    <p class="p">Prospetto di riferimento ricavato dai movimenti inseriti: l’IVA è calcolata sulle aliquote indicate; da verificare con il commercialista.</p></body></html>`;
+  const w=window.open('','_blank');
+  if(!w){alert('Il browser ha bloccato la finestra: consenti i popup per questo sito e riprova.');return}
+  w.document.open();w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),300)}
 
 /* =====================================================
    CALCOLATRICE (parser sicuro, niente eval)
@@ -320,6 +445,11 @@ function bindCalc(){
   const base=()=>{try{const v=calcola(ce.value);if(v===null)throw 0;return v}catch(x){$('#cp').textContent='Inserisci prima un importo.';return null}};
   const setV=(v,lab)=>{hist.unshift({e:lab,r:fmtNum(v)});hist=hist.slice(0,8);ce.value=fmtNum(v);$('#cp').textContent='';drawHist()};
   const aliq=()=>Number($('#cr').value)/100;
+  const perc=()=>{const x=parseFloat(String($('#cpv').value||'').replace(',','.'));return isFinite(x)&&x>=0?x:null};
+  const pc=(f,lab)=>()=>{const v=base();if(v===null)return;const x=perc();if(x===null){$('#cp').textContent='Inserisci la percentuale (es. 20).';return}setV(f(v,x),lab(x,fmtNum(v)))};
+  $('#cpp').onclick=pc((v,x)=>v*(1+x/100),(x,vs)=>vs+' + '+x+'%');
+  $('#cpm').onclick=pc((v,x)=>v*(1-x/100),(x,vs)=>vs+' − '+x+'%');
+  $('#cpo').onclick=pc((v,x)=>v*x/100,(x,vs)=>x+'% di '+vs);
   $('#civp').onclick=()=>{const v=base();if(v!==null)setV(v*(1+aliq()),fmtNum(v)+' + IVA '+$('#cr').value+'%')};
   $('#civm').onclick=()=>{const v=base();if(v!==null)setV(v/(1+aliq()),fmtNum(v)+' scorporo IVA '+$('#cr').value+'%')};
   $('#civ0').onclick=()=>{const v=base();if(v!==null)setV(v-v/(1+aliq()),'IVA '+$('#cr').value+'% contenuta in '+fmtNum(v))};
@@ -352,12 +482,13 @@ function bindCal(){
     const it=items.find(x=>x.id===b.dataset.id);if(!it)return;
     if(b.dataset.a==='edit')editNota(it);
     else if(b.dataset.a==='del'){
-      if(!confirm('Eliminare la nota «'+it.titolo+'»?'))return;
+      if(!confirm('Eliminare la nota «'+it.titolo+'»? Va nel Cestino e resta recuperabile per 30 giorni.'))return;
       deleteDoc(doc(db,'sections',SEC,'items',it.id)).then(()=>{if(editN===it.id)closeNota()}).catch(x=>{console.error(x);alert('Eliminazione non riuscita.')})}};
   const chk=e=>{const c=e.target.closest('[data-f]');if(!c)return;
     updateDoc(doc(db,'sections',SEC,'items',c.dataset.f),{fatto:c.checked}).catch(x=>{console.error(x);c.checked=!c.checked;alert('Salvataggio non riuscito.')})};
   $('#kl').onclick=lst;$('#kl').onchange=chk;$('#kn').onclick=lst;$('#kn').onchange=chk;
   if(w){
+    $('#krp').onchange=()=>{$('#kqw').hidden=$('#krp').value==='0'};
     $('#knew').onclick=()=>{closeNota();$('#kf').hidden=false;$('#kdt').value=sel||todayIso();$('#kt').focus()};
     $('#ksv').onclick=saveNota;$('#kcx').onclick=closeNota}
   if('Notification' in window&&Notification.permission==='default'){
@@ -367,9 +498,10 @@ function bindCal(){
 }
 function closeNota(){
   editN=null;if(!canW())return;
+  $('#krp').value='0';$('#kqt').value='12';$('#kqw').hidden=true;$('#krw').hidden=false;
   $('#kf').hidden=true;['kt','kdt','kh','kx'].forEach(i=>$('#'+i).value='');$('#ka').value='';$('#kfb').checked=false;$('#ker').textContent=''}
 function editNota(it){
-  setTab('k');editN=it.id;$('#kf').hidden=false;
+  setTab('k');editN=it.id;$('#kf').hidden=false;$('#krp').value='0';$('#kqw').hidden=true;$('#krw').hidden=true;   /* la ripetizione si imposta solo su una nota nuova */
   $('#kt').value=it.titolo||'';$('#kdt').value=it.data||'';$('#kh').value=it.ora||'';$('#kx').value=it.testo||'';
   $('#ka').value=(it.alertMin===null||it.alertMin===undefined||it.alertMin==='')?'':String(it.alertMin);$('#kfb').checked=!!it.fb;$('#ker').textContent='';
   $('#kf').scrollIntoView({behavior:'smooth',block:'center'})}
@@ -378,13 +510,17 @@ async function saveNota(){
   if(!titolo){er.textContent='Inserisci un titolo.';return}
   if(!isD(data)){er.textContent='Inserisci la data.';return}
   const alertMin=al===''?null:Number(al);
+  const rp=editN?0:Number($('#krp').value)||0,tot=rp?parseInt($('#kqt').value,10)||0:1;
+  if(rp&&(tot<2||tot>60)){er.textContent='Indica quante volte ripetere la scadenza in tutto (da 2 a 60).';return}
   const prev=editN?items.find(x=>x.id===editN):null;
-  const d={kind:'nota',titolo,data,ora:ora||'',testo,alertMin,fatto:prev?!!prev.fatto:false,fb:$('#kfb').checked,title:titolo,
-    note:[fmtD(data),ora,testo].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
+  const mk=d=>({kind:'nota',titolo,data:d,ora:ora||'',testo,alertMin,fatto:prev?!!prev.fatto:false,fb:$('#kfb').checked,title:titolo,
+    note:[fmtD(d),ora,testo].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)});
   $('#ksv').disabled=true;er.textContent='Salvataggio…';
   try{
-    if(editN)await updateDoc(doc(db,'sections',SEC,'items',editN),d);
-    else await addDoc(col,{...d,by:uid,at:serverTimestamp()});
+    if(editN)await updateDoc(doc(db,'sections',SEC,'items',editN),mk(data));
+    else{const serie=rp?newSerie():'';
+      for(let i=0;i<tot;i++){if(rp)er.textContent='Salvataggio '+(i+1)+' di '+tot+'…';
+        await addDoc(col,{...mk(rp?addMesiIso(data,rp*i):data),...(rp?{serie,nrip:i+1,totrip:tot}:{}),by:uid,at:serverTimestamp()})}}
     sel=data;const dd=new Date(data+'T12:00:00');cy=dd.getFullYear();cm=dd.getMonth();
     closeNota();renderCal();checkAlerts();
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
@@ -450,8 +586,8 @@ else{
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm()){alSig='';shell()}
-      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderBil();renderCal();checkAlerts()},()=>{}));
-      renderBil();renderCal();checkAlerts();
+      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderBil();renderRiep();renderCal();checkAlerts()},()=>{}));
+      renderBil();renderRiep();renderCal();checkAlerts();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
 }

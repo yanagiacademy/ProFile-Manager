@@ -1,6 +1,6 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {archivio,limiteMB} from "./archivio.js";
 import {memoBar} from "./promemoria.js";
@@ -39,6 +39,7 @@ function shell(){
     <label for="rp">Rapporto della lezione</label><textarea id="rp" placeholder="Argomenti trattati, presenze, osservazioni…"></textarea>
     <label for="fl">Allega file (foto, video, PDF…)</label><input id="fl" type="file" multiple><div id="fls"></div>
     <p class="mu" style="margin:6px 0 0">Limite ${limiteMB()} MB per file. Puoi aggiungerne altri anche dopo, dalla riga della lezione.</p>
+    <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="fbk" style="width:auto;min-height:0"> Salva anche su Firebase</label>
     <p class="err" id="er" role="alert"></p>
     <div class="acts"><button class="btn" id="sv">Salva lezione</button><button class="btn ghost" id="cx" hidden>Annulla modifica</button></div></div></div>
   <input type="file" id="addf" multiple hidden>`:''}
@@ -66,7 +67,7 @@ function setForm(o){
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo della lezione':'Apri il modulo della lezione')}
 function resetForm(){
   setForm(false);editing=null;pend=[];renderPend();$('#ft').textContent='Nuova lezione';$('#sv').textContent='Salva lezione';$('#cx').hidden=true;
-  $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);$('#ms').value='';$('#tp').value='';$('#rp').value='';$('#er').textContent=''}
+  $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);$('#ms').value='';$('#tp').value='';$('#rp').value='';$('#fbk').checked=false;$('#er').textContent=''}
 
 /* Controlla che si possa usare l'archivio file (Telegram collegato, se è quello in uso) */
 function canUpload(){
@@ -74,14 +75,15 @@ function canUpload(){
     if(confirm('I file vengono salvati su Telegram: prima devi accedere dalla pagina Chat. Aprire la Chat adesso?'))location.href='chat.html';
     return false}
   return true}
-async function uploadTo(lessonId,files){
+async function uploadTo(lessonId,files,fbOv){
+  const fb=fbOv!==undefined?fbOv:!!(items.find(i=>i.id===lessonId)||{}).fb;
   if(!files.length||!canUpload())return false;
   const big=files.find(f=>f.size>arch.maxBytes());
   if(big){note('“'+big.name+'” supera il limite di '+limiteMB()+' MB: non caricato.');return false}
   const p=$('#prog');p.style.display='block';let ok=0,fail=0,last='';
   for(let k=0;k<files.length;k++){
     const f=files[k];p.textContent=`Caricamento ${k+1}/${files.length}: ${f.name}`;
-    try{await arch.save(f,{lesson:lessonId},pc=>{p.textContent=`Caricamento ${k+1}/${files.length}: ${f.name} ${pc}%`});ok++}
+    try{await arch.save(f,{lesson:lessonId,...(fb?{fb:true}:{})},pc=>{p.textContent=`Caricamento ${k+1}/${files.length}: ${f.name} ${pc}%`});ok++}
     catch(e){fail++;last=arch.errText(e);console.error(e)}}
   p.textContent=`Caricati ${ok} file`+(fail?` · ${fail} non riusciti (${last})`:'');
   setTimeout(()=>{p.style.display='none'},fail?12000:4000);return !fail}
@@ -92,19 +94,19 @@ async function save(){
   if(!master){er.textContent='Inserisci il maestro.';return}
   if(!type){er.textContent='Inserisci la tipologia della lezione.';return}
   if(pend.length&&!canUpload())return;
-  const data={date,day:dayOf(date),master,type,report,title:'Lezione '+fmtD(date)+' – '+type,note:master+(report?' · '+report.replace(/\s+/g,' ').slice(0,160):'')};
+  const data={date,day:dayOf(date),master,type,report,fb:$('#fbk').checked,title:'Lezione '+fmtD(date)+' – '+type,note:master+(report?' · '+report.replace(/\s+/g,' ').slice(0,160):'')};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
     let id=editing;
     if(editing)await updateDoc(doc(db,'sections',SEC,'items',editing),data);
     else id=(await addDoc(col,{...data,by:uid,at:serverTimestamp()})).id;
     const files=pend.slice();resetForm();
-    if(files.length)await uploadTo(id,files);
+    if(files.length)await uploadTo(id,files,data.fb);
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}
 function edit(it){
   setForm(true);editing=it.id;$('#ft').textContent='Modifica lezione';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;
-  $('#dt').value=it.date||today();$('#dy').value=dayOf($('#dt').value);$('#ms').value=it.master||'';$('#tp').value=it.type||'';$('#rp').value=it.report||'';$('#er').textContent='';
+  $('#dt').value=it.date||today();$('#dy').value=dayOf($('#dt').value);$('#ms').value=it.master||'';$('#tp').value=it.type||'';$('#rp').value=it.report||'';$('#fbk').checked=!!it.fb;$('#er').textContent='';
   $('#dt').scrollIntoView({behavior:'smooth',block:'center'})}
 
 /* ---------- viewer ---------- */
@@ -162,7 +164,7 @@ async function doAct(act,id){
   else if(act==='edit')edit(it);
   else if(act==='del'){
     const as=attsOf(id);
-    if(!confirm('Eliminare questa lezione'+(as.length?' e i suoi '+as.length+' file':'')+'? L’operazione non si può annullare.'))return;
+    if(!confirm('Eliminare questa lezione'+(as.length?' e i suoi '+as.length+' file':'')+'? Vanno nel Cestino e restano recuperabili per 30 giorni.'))return;
     try{await Promise.all(as.map(a=>arch.remove(a)));await deleteDoc(doc(db,'sections',SEC,'items',id));if(editing===id)resetForm()}
     catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
 }

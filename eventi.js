@@ -240,7 +240,7 @@ function openDetail(id){
       else if(a==='apri'&&isAdmin())await patchEv(ev,{chiuso:false,chiusoMotivo:''});
       else if(a==='edit'&&isAdmin()){close();edit(ev)}
       else if(a==='del'&&isAdmin()){
-        if(!confirm('Eliminare “'+ev.nome+'” con tutte le iscrizioni e i bonifici caricati? L’operazione non si può annullare. Se vuoi solo fermare le iscrizioni usa “Chiudi iscrizioni”.'))return;
+        if(!confirm('Eliminare “'+ev.nome+'”? L’evento e i suoi file vanno nel Cestino (30 giorni), ma le iscrizioni e i bonifici caricati vengono cancellati subito e non si recuperano. Se vuoi solo fermare le iscrizioni usa “Chiudi iscrizioni”.'))return;
         for(const r of iscOf(ev.id)){try{for(const f of bonificiOf(r))await delChunks(r.id,f);await fdel(fdoc(db,'iscrizioni',r.id))}catch(x){console.error(x)}}
         for(const it of items.filter(x=>x.evento===ev.id)){try{await arch.remove(it)}catch(x){console.error(x)}}
         await deleteDoc(doc(db,'sections',SEC,'items',ev.id));if(editing===ev.id)resetForm(false);close()}

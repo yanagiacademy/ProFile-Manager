@@ -10,9 +10,11 @@
 import * as SDK from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {tgConfigured,hasSession,tgClient,tgEntity,tgSendFile,tgErrText,tgTopic} from "./telegram.js";
 import * as CFG from "./telegram-config.js";
+import {getAuth} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {setDb,CIFRA_ATTIVA,cifraBlob,cifraTesto,decifraBlob,decifraTesto,keyIdOf,haChiave,b64e} from "./cifra.js";
 
-export const getFirestore=(...a)=>{const d=SDK.getFirestore(...a);setDb(d);return d},Bytes=SDK.Bytes,Timestamp=SDK.Timestamp;
+let DB=null;
+export const getFirestore=(...a)=>{const d=SDK.getFirestore(...a);DB=d;setDb(d);return d},Bytes=SDK.Bytes,Timestamp=SDK.Timestamp;
 const okName=v=>typeof v==='string'&&v.trim()!==''&&v.trim()!=='INSERISCI';
 export const GRUPPO_DATI=okName(CFG.TG_DATI)?CFG.TG_DATI:CFG.TG_FILES;
 const TAG='#pfm',COMPACT=12,FULL_MS=24*3600*1000;
@@ -229,12 +231,43 @@ async function write(ref,o,d,noMirror){
   if(old.length)tgDeleteMsgs(old);
   if(o==='del'){const r=recOf(ref.sec,ref.id);if(r)tgDeleteMsgs(r.mids.filter(x=>x!==mid))}
   if(!noMirror)await mirror(ref,prevFb)}
+/* ---------- storico dei movimenti (solo l'admin lo legge: cifrato con la chiave pubblica "storico") ---------- */
+const titoloDi=(st,id)=>String((st&&(st.title||st.titolo||st.nome||st.descr))||id||'').slice(0,160);
+let uCache=null;
+async function utente(){
+  try{const u=getAuth(DB.app).currentUser;if(!u)return {uid:'?',nome:''};
+    if(uCache&&uCache.uid===u.uid)return uCache.p;
+    const p=(async()=>{let nome='';try{const sn=await SDK.getDoc(SDK.doc(DB,'users',u.uid));if(sn.exists())nome=sn.data().name||sn.data().email||''}catch(e){}return {uid:u.uid,nome:nome||u.email||''}})();
+    uCache={uid:u.uid,p};return p}catch(e){return {uid:'?',nome:''}}}
+let logQ=Promise.resolve();
+/* azione: crea, modifica, elimina, ripristina, accesso, account, backup… Non blocca mai l'operazione: se lo storico non è pronto, la voce si perde. */
+export function logEvento(azione,sec,id,titolo,dett){
+  if(!tgConfigured()||!hasSession()||!CIFRA_ATTIVA||sec==='storico')return;
+  logQ=logQ.then(async()=>{
+    const u=await utente();
+    await tgSend('storico',newId(),'set',{t:Date.now(),u:u.uid,n:u.nome,a:azione,s:sec||'',i:id||'',T:String(titolo||'').slice(0,160),c:String(dett||'').slice(0,300)})
+  }).catch(e=>console.warn('Storico non scritto:',e&&e.message))}
+const loggabile=ref=>ref.coll==='items'&&ref.S!=='storico'&&ref.S!=='cestino';
+
+/* ---------- Cestino: ogni elemento eliminato viene prima copiato in "cestino" (e il file resta su Telegram) ---------- */
+let lotto={id:'',t:0,u:''};
+async function nelCestino(ref,r){
+  const u=await utente(),now=Date.now();
+  if(now-lotto.t>8000||lotto.u!==u.uid)lotto={id:newId(),t:now,u:u.uid};else lotto.t=now;      /* eliminati insieme = stesso lotto */
+  const st=clone(r.st);
+  await write(tgRef(DB,'cestino','items',newId()),'set',{sec:ref.S,id:ref.id,titolo:titoloDi(st,ref.id),kind:st.kind||'',dati:st,
+    tg:st.tg||0,chunks:st.chunks||0,fbc:!!st.fb,da:u.uid,daNome:u.nome,il:{$ts:now},lotto:lotto.id},true);lotto.t=Date.now()}
+
 export async function addDoc(col,data){
   if(!col||!col.__tg)return SDK.addDoc(col,toSdk(data));
-  const ref=tgRef(col.db,col.S,col.coll,newId());await write(ref,'set',ser(data));return {id:ref.id}}
+  const ref=tgRef(col.db,col.S,col.coll,newId());await write(ref,'set',ser(data));
+  if(loggabile(ref))logEvento('crea',ref.S,ref.id,titoloDi(data,ref.id));
+  return {id:ref.id}}
 export async function setDoc(ref,data,opts){
   if(!ref||!ref.__tg)return SDK.setDoc(ref,toSdk(data),opts);
-  return write(ref,opts&&opts.merge?'upd':'set',ser(data))}
+  await startOnce();const r0=recOf(ref.sec,ref.id),esisteva=!!r0&&!r0.x;
+  await write(ref,opts&&opts.merge?'upd':'set',ser(data));
+  if(loggabile(ref)){const r=recOf(ref.sec,ref.id);logEvento(esisteva?'modifica':'crea',ref.S,ref.id,titoloDi(r&&r.st,ref.id))}}
 export async function updateDoc(ref,patch,...rest){
   if(!ref||!ref.__tg)return SDK.updateDoc(ref,toSdk(patch),...rest);
   await startOnce();
@@ -242,12 +275,33 @@ export async function updateDoc(ref,patch,...rest){
   if(r&&r.x){const e=new Error('NOT_FOUND');e.code='not-found';throw e}
   const d=ser(patch);
   if(protetto(r)){const n=d.conservaFinoTs;if('conservaFinoTs' in d&&!(n&&typeof n.$ts==='number'&&n.$ts>=r.st.conservaFinoTs.$ts))throw errProt()}
-  return write(ref,'upd',d)}
-export async function deleteDoc(ref){
+  await write(ref,'upd',d);
+  if(loggabile(ref)){const campi=Object.keys(d).filter(k=>!['at','by','thumb'].includes(k)).slice(0,8).join(', ');
+    const r2=recOf(ref.sec,ref.id);logEvento('modifica',ref.S,ref.id,titoloDi(r2&&r2.st,ref.id),campi?'campi: '+campi:'')}}
+export async function deleteDoc(ref,opts){
   if(!ref||!ref.__tg)return SDK.deleteDoc(ref);
   await startOnce();
   const r=recOf(ref.sec,ref.id);if(protetto(r))throw errProt();
-  return write(ref,'del',{})}
+  const titolo=titoloDi(r&&r.st,ref.id),daCestino=loggabile(ref)&&r&&!r.x&&!(opts&&opts.definitivo);
+  if(daCestino){
+    /* se il Cestino non è pronto (chiave pubblica mancante) si ferma: meglio non eliminare che perdere il dato */
+    try{await nelCestino(ref,r)}catch(e){console.error(e);const x=new Error(e&&e.message==='NOPUB'?'NOPUB':'CESTINO');x.code='failed-precondition';throw x}}
+  await write(ref,'del',{});
+  if(loggabile(ref))logEvento('elimina',ref.S,ref.id,titolo,daCestino?'spostato nel Cestino':'definitivo')}
+/* Rimette al suo posto un elemento del Cestino (stesso id, stessa sezione) e toglie la voce dal Cestino. Se esiste già un elemento con quell'id si ferma. */
+export async function ripristinaVoce(entryId,patch){
+  await startOnce();
+  const r=recOf('cestino',entryId);if(!r||r.x)throw new Error('NON_TROVATO');
+  const e=r.st,orig=recOf(e.sec,e.id);
+  if(orig&&!orig.x)throw new Error('ESISTE');
+  await write(tgRef(DB,e.sec,'items',e.id),'set',{...clone(e.dati),...(patch||{})});
+  await write(tgRef(DB,'cestino','items',entryId),'del',{},true);
+  logEvento('ripristina',e.sec,e.id,e.titolo||e.id,'dal Cestino')}
+/* Per il backup: tutto il registro in forma semplice (le date sono {$ts:millisecondi}) */
+export async function esportaRegistro(){
+  await startOnce();await sync(false);
+  const out={};for(const sec in C.recs){for(const id in C.recs[sec]){const r=C.recs[sec][id];if(r.x)continue;(out[sec]||(out[sec]={}))[id]=clone(r.st)}}
+  return out}
 
 /* ---------- uso diretto (strumento di migrazione) ---------- */
 export const haRecord=(sec,id)=>{const r=recOf(sec,id);return !!r&&!r.x};

@@ -71,7 +71,7 @@ function rearchModal(it){
   const upd=()=>{pd.textContent='Conservazione fino al '+fmtD(addMesi(oggiISO(),Number(sel.value)))+'.'};
   sel.onchange=upd;upd()}
 function delModal(it){
-  modal('Eliminare definitivamente?',`<div class="mu">“${esc(it.title)}” ha concluso il periodo di conservazione (${esc(fmtD(it.conservaFino))}). Eliminandolo spariscono il documento e il file: l’operazione non si può annullare.</div>`,
+  modal('Eliminare?',`<div class="mu">“${esc(it.title)}” ha concluso il periodo di conservazione (${esc(fmtD(it.conservaFino))}). Verrà spostato nel Cestino e resterà recuperabile per 30 giorni, poi viene eliminato per sempre.</div>`,
     [cancel,{label:'Elimina',fn:async o=>{
       const cur=byId(it.id);if(!cur||zona(cur)!=='verifica')return merr(o,'Il documento non è più in Verifica.');
       try{await archFor(cur).removeSafe(cur)}catch(e){console.error(e);return merr(o,'Eliminazione non riuscita: il documento risulta ancora in conservazione o non hai i permessi.')}}}])}

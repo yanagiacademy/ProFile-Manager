@@ -200,6 +200,7 @@ export function tgErrText(e){
   if(/AUTH_USER_CANCEL/.test(m))return 'Accesso annullato.';
   if(m==='NOKEY')return 'Chiave di cifratura non disponibile: servono i permessi su questa sezione e le regole Firestore aggiornate (vedi firestore.rules, sezione \"chiavi\").';
   if(m==='CORROTTO')return 'File cifrato danneggiato o chiave non corrispondente.';
+  if(m==='NOPUB')return 'Cestino o Storico non ancora attivi: l’admin deve aprire la Home una volta.';
   return m;
 }
 /* Invio di un file nel gruppo: prova prima il File del browser, poi CustomFile. */

@@ -65,14 +65,14 @@ export function archivio(db,sec,uid){
       return updateDoc(ref,{fb:true})},
 
     /* Elimina prima il documento (le regole lo rifiutano se è ancora in conservazione) e solo dopo il file: così un rifiuto non fa perdere nulla */
-    async removeSafe(it){
-      await deleteDoc(doc(db,'sections',sec,'items',it.id));
-      if(it.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[it.tg],{revoke:true})}catch(e){}}
-      if(it.chunks)await Promise.all(Array.from({length:it.chunks},(_,k)=>deleteDoc(doc(db,'sections',sec,'items',it.id,'chunks','c'+k)).catch(()=>{})))},
-
-    async remove(it){
-      if(it.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[it.tg],{revoke:true})}catch(e){}}
-      if(it.chunks)await Promise.all(Array.from({length:it.chunks},(_,k)=>deleteDoc(doc(db,'sections',sec,'items',it.id,'chunks','c'+k)).catch(()=>{})));
-      await deleteDoc(doc(db,'sections',sec,'items',it.id))}
+    /* L'elemento va nel Cestino: il file su Telegram (e l'eventuale copia su Firebase) restano finché il Cestino non viene svuotato o scadono i 30 giorni. */
+    async removeSafe(it){await deleteDoc(doc(db,'sections',sec,'items',it.id))},
+    async remove(it){await deleteDoc(doc(db,'sections',sec,'items',it.id))}
   };
 }
+/* Eliminazione definitiva del contenuto di un elemento del Cestino: messaggio su Telegram e blocchi su Firebase. Restituisce {tgOk:false} se il messaggio non si è potuto cancellare. */
+export async function eliminaFileDefinitivo(db,e){
+  let tgOk=true;
+  if(e.tg){try{const {client}=await tgClient();await client.deleteMessages(await tgEntity(TG_FILES),[e.tg],{revoke:true})}catch(x){tgOk=false;console.warn(x)}}
+  if(e.chunks)await Promise.all(Array.from({length:e.chunks},(_,k)=>deleteDoc(doc(db,'sections',e.sec,'items',e.id,'chunks','c'+k)).catch(()=>{})));
+  return {tgOk}}

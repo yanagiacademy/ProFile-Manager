@@ -22,11 +22,17 @@ legend{padding:0 6px;font-weight:700;font-size:.9rem;color:var(--ac)}
 .acts{display:flex;flex-direction:row;gap:8px;flex-wrap:wrap;margin-top:12px}
 .tabs{display:flex;margin:0 0 14px}
 .tabs .seg{width:100%}
-.tabs .seg button{flex:1;padding:10px 12px;font-size:.95rem}
+.tabs .seg{display:flex}
+.tabs .seg button{flex:1;min-width:0;padding:10px 6px;font-size:.9rem}
+@media (max-width:420px){.tabs .seg button{padding:10px 2px;font-size:.8rem}}
 .chip{font-size:.72rem;padding:2px 8px;border-radius:99px;border:1px solid var(--ln);white-space:nowrap;color:var(--mu)}
 .chip.bad{border-color:var(--er);color:var(--er);font-weight:700}
 .chip.warn{border-color:var(--ac2);color:var(--tx);font-weight:700}
 
+button.chip{background:none;cursor:pointer;color:var(--tx);font:inherit;font-size:.78rem;min-height:30px;padding:3px 10px;margin:3px 4px 0 0}
+button.chip:hover{border-color:var(--ac)}
+h3.rh{margin:20px 0 6px;font-size:1rem}
+.ck2{display:flex;gap:8px;align-items:center}
 /* Bilancio */
 .sums{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
 @media (max-width:560px){.sums{grid-template-columns:1fr}}

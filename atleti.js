@@ -365,7 +365,7 @@ function openDetail(id){
     else if(a==='nomod'){if(isAdm()&&confirm('Scartare le modifiche proposte dall’atleta?'))try{await deleteDoc(doc(db,'atletiModifiche',it.id))}catch(x){console.error(x);alert('Operazione non riuscita.')}}
     else if(a==='edit'){close();edit(it)}
     else if(a==='del'){
-      if(!confirm('Eliminare '+nameOf(it)+'? L’operazione non si può annullare.'))return;
+      if(!confirm('Eliminare '+nameOf(it)+'? La scheda va nel Cestino (recuperabile per 30 giorni); l’email dell’atleta e il collegamento al suo account vengono invece rimossi subito.'))return;
       try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()&&mails[it.id]){await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(mailOf(it.id))await deleteDoc(doc(db,'atletiEmail',mailOf(it.id))).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
       catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
     else if(perm()!=='w')return;
