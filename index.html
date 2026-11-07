@@ -161,12 +161,12 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){mio=false;modN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
-let mio=false,modN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
+function cleanup(){mio=false;mioN=0;modN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+let mio=false,mioN=0,modN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
-function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{if(s.exists()!==mio){mio=s.exists();render()}}).catch(()=>{})}
+function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{const n=s.exists()?((s.data().atleti||[]).length||1):0;if(s.exists()!==mio||n!==mioN){mio=s.exists();mioN=n;render()}}).catch(()=>{})}
 function onMe(){
   unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
   if(!me){app.innerHTML=box('Account non abilitato','Hai effettuato l’accesso ma un admin deve ancora abilitarti.','<p><button class="btn ghost" id="out">Esci</button></p>');$('#out').onclick=()=>signOut(auth);return}
@@ -217,7 +217,7 @@ function results(){
     +`<div class="card" style="margin-top:16px"><h2>Risultati${hits.length?' ('+hits.length+')':''}</h2>${hits.length?hits.map(resHtml).join(''):`<div class="mu">Nessun elemento trovato per «${esc(q.trim())}» nelle sezioni a cui hai accesso. Prova con una parola più breve.</div>`}</div>`;
   bindNav(b)}
 const nessunaHtml=()=>'<div class="card emp"><b>Nessuna scheda abilitata</b><div class="mu">Non hai ancora accesso a nessuna sezione. Chiedi all’admin di abilitarti.</div></div>';
-const mioHtml=()=>mio&&!solo('Atleti')?`<h3 class="gt">La mia area</h3><div class="grid"><a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">La mia tessera</span><span class="ts">Tessera e certificato medico</span></a></div>`:'';
+const mioHtml=()=>mio&&!solo('Atleti')?`<h3 class="gt">La mia area</h3><div class="grid"><a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">${mioN>1?'Le schede dei miei figli':'La mia tessera'}</span><span class="ts">${mioN>1?'Tessera e certificato di ognuno':'Tessera e certificato medico'}</span></a></div>`:'';
 /* Strumenti riservati all'admin (visibili solo a lui), raccolti in un riquadro chiuso: si usano di rado */
 let admOpen=false;
 const giorniDa=ms=>Math.floor((Date.now()-ms)/864e5);

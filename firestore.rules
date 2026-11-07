@@ -7,6 +7,16 @@ service cloud.firestore {
     function isAdmin() { return hasAccount() && me().get('admin', false) == true; }
     function level(sec) { return isAdmin() ? 'w' : me().get('perms', {}).get(sec, 'n'); }
 
+    /* Chiavi di cifratura dei contenuti su Telegram: una per sezione (id = nome della sezione).
+       Le legge solo chi ha almeno la lettura su quella sezione; si creano una volta sola (chi scrive la sezione), non si modificano mai;
+       solo l'admin può eliminarle (per sostituirle serve ricifrare tutto: vedi RESOCONTO). */
+    match /chiavi/{id} {
+      allow read: if hasAccount() && level(id) in ['r', 'w'];
+      allow create: if hasAccount() && level(id) == 'w';
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();
@@ -53,6 +63,43 @@ service cloud.firestore {
        così non finisce nelle schede degli atleti che vedono anche gli altri account. */
     match /atletiMail/{id} {
       allow read, write: if isAdmin();
+    }
+
+    /* Atleta loggato: legge SOLO la propria tessera e il proprio certificato medico (file compresi).
+       atletiEmail/<email in minuscolo> = {atleta: idAtleta, atleti: [id, …]} lo scrive l'admin dalla scheda Atleti (più atleti possono avere la stessa email: un genitore con più figli);
+       l'account può leggere solo la chiave uguale alla propria email. I file archiviati restano esclusi. */
+    match /atletiEmail/{k} {
+      allow get: if isAdmin() || (signedIn() && request.auth.token.email.lower() == k);
+      allow list, write: if isAdmin();
+    }
+    function mioAtleta(aid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower()))
+        && (get(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())).data.atleta == aid
+            || get(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())).data.get('atleti', []).hasAny([aid]));
+    }
+    /* Dati personali dell'atleta: atletiDati = copia dei soli campi che l'atleta può vedere e modificare (la scrive l'admin);
+       atletiModifiche = modifiche proposte dall'atleta (solo i campi della lista), che l'admin conferma o scarta. */
+    match /atletiDati/{id} {
+      allow read: if isAdmin() || mioAtleta(id);
+      allow write: if isAdmin() || (hasAccount() && level('atleti') == 'w');
+    }
+    match /atletiModifiche/{id} {
+      allow read: if isAdmin() || mioAtleta(id);
+      allow create, update: if isAdmin() || (mioAtleta(id)
+        && request.resource.data.keys().hasOnly(['campi', 'at', 'by'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.campi.keys().hasOnly(['nome', 'cognome', 'sesso', 'anno', 'peso', 'altezza', 'richieste', 'obiettivi', 'infortuni']));
+      allow delete: if isAdmin() || mioAtleta(id);
+    }
+
+    match /sections/tessere/items/{id} {
+      allow get: if mioAtleta(id)
+        || (mioAtleta(resource.data.get('tesAtl', '')) && resource.data.get('archiviatoIl', null) == null);
+    }
+    match /sections/tessere/items/{id}/chunks/{n} {
+      allow read: if mioAtleta(get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('tesAtl', ''))
+        && get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('archiviatoIl', null) == null;
     }
 
     match /sections/{sec}/items/{id} {

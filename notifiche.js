@@ -16,6 +16,7 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 let auth,db,me=null,shell=false,unsubs=[],atleti=[],tessere={},rubrica={},q='',busy=false;
+const H=v=>typeof v==='string'?v:(v&&v.h)||'';const G=v=>!!(v&&typeof v==='object'&&v.g);     /* rubrica: nomeutente oppure {h,g:1} (genitore) */
 const nomeAt=a=>((a.cognome||'')+' '+(a.nome||'')).trim()||a.title||'(senza nome)';
 const quando=ms=>new Date(ms).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+new Date(ms).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
 const log=t=>{const l=$('#log');if(!l)return;l.hidden=false;l.textContent+=(l.textContent?'\n':'')+t;l.scrollTop=l.scrollHeight};
@@ -37,14 +38,14 @@ function costruisci(){
     <div class="two"><div><label for="cg">Giorni di preavviso</label><input id="cg" type="text" inputmode="numeric" placeholder="30, 7, 1"></div><div><label for="co">Ora del promemoria</label><select id="co">${Array.from({length:16},(_,i)=>`<option value="${i+6}">${String(i+6).padStart(2,'0')}:00</option>`).join('')}</select></div></div>
     <p class="err" id="er" role="alert"></p><div class="btns"><button class="btn" id="sv">Salva e applica</button></div></div>
   <div class="card" style="margin-top:12px"><h2>Atleti su Telegram</h2>
-    <p class="mu">Scrivi il nome utente Telegram di ogni atleta (per esempio <b>@mario_rossi</b>): solo chi ce l’ha riceve i messaggi. I numeri di telefono non sono supportati. Chiedi agli atleti di salvare il tuo contatto o di scriverti una volta, così i messaggi non finiscono tra gli sconosciuti.</p>
+    <p class="mu">Scrivi il nome utente Telegram di ogni atleta (per esempio <b>@mario_rossi</b>): solo chi ce l’ha riceve i messaggi. I numeri di telefono non sono supportati. Chiedi agli atleti di salvare il tuo contatto o di scriverti una volta, così i messaggi non finiscono tra gli sconosciuti. Per un genitore con più figli scrivi lo stesso nome utente su ciascuno (o spunta «Genitore»): i messaggi parleranno dell’atleta, per esempio «la tessera di Mario Rossi scade…».</p>
     <div class="flt"><input id="q" type="search" placeholder="Cerca un atleta" aria-label="Cerca un atleta"><span class="mu" id="cnt"></span></div>
     <p class="err" id="er2" role="alert"></p><div id="ls"></div></div></div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   $('#q').oninput=e=>{q=e.target.value;lista()};
   $('#sv').onclick=salva;$('#sync').onclick=()=>esegui('sync');$('#ant').onclick=()=>esegui('ant');
   $('#pm').onclick=()=>esegui('pm');$('#pp').onclick=()=>esegui('pp');
-  $('#ls').onchange=e=>{const i=e.target.closest('input[data-a]');if(i)salvaHandle(i)};
+  $('#ls').onchange=e=>{const i=e.target.closest('input[data-a]');if(i){salvaHandle(i);return}const g=e.target.closest('input[data-g]');if(g)salvaGenitore(g)};
   leggiConfig(db).then(c=>{$('#ce').checked=c.eventi;$('#ca').checked=c.atleti;$('#cm').checked=c.admin;$('#cg').value=c.giorni.join(', ');$('#co').value=String(c.ora)});
   stato()}
 
@@ -92,17 +93,22 @@ function scadInfo(id){
 function lista(){
   const el=$('#ls');if(!el)return;
   const t=q.trim().toLowerCase(),l=atleti.filter(a=>!t||nomeAt(a).toLowerCase().includes(t)).sort((a,b)=>nomeAt(a).localeCompare(nomeAt(b),'it'));
-  $('#cnt').textContent=atleti.length?Object.values(rubrica).filter(Boolean).length+' su '+atleti.length+' con Telegram':'';
+  $('#cnt').textContent=atleti.length?Object.values(rubrica).filter(H).length+' su '+atleti.length+' con Telegram':'';
   el.innerHTML=l.length?l.map(a=>`<div class="rw"><div class="inf"><b>${esc(nomeAt(a))}</b>${scadInfo(a.id)?`<div class="mu">${esc(scadInfo(a.id))}</div>`:''}</div>
-    <div class="ac"><input class="tg" type="text" data-a="${esc(a.id)}" value="${esc(rubrica[a.id]?'@'+rubrica[a.id]:'')}" placeholder="@nomeutente" aria-label="Telegram di ${esc(nomeAt(a))}" autocomplete="off" autocapitalize="off"></div></div>`).join('')
+    <div class="ac"><input class="tg" type="text" data-a="${esc(a.id)}" value="${esc(H(rubrica[a.id])?'@'+H(rubrica[a.id]):'')}" placeholder="@nomeutente" aria-label="Telegram di ${esc(nomeAt(a))}" autocomplete="off" autocapitalize="off"><label class="mu" style="display:flex;gap:6px;align-items:center;margin-top:4px;font-size:.8rem"><input type="checkbox" data-g="${esc(a.id)}" ${G(rubrica[a.id])?'checked':''} ${H(rubrica[a.id])?'':'disabled'} style="width:auto;min-height:0"> Genitore</label></div></div>`).join('')
     :`<div class="emp">${atleti.length?'Nessun atleta con questo nome.':'Nessun atleta nell’elenco.'}</div>`}
+async function salvaGenitore(c){
+  const id=c.dataset.g,h=H(rubrica[id]);if(!h)return;
+  const nuova={...rubrica,[id]:c.checked?{h,g:1}:h};
+  try{await salvaRubrica(db,nuova);rubrica=nuova;$('#er2').textContent=''}
+  catch(e){console.error(e);c.checked=!c.checked;$('#er2').textContent='Salvataggio non riuscito. Controlla che Telegram sia collegato e riprova.'}}
 async function salvaHandle(i){
   const er=$('#er2'),id=i.dataset.a,v=i.value.trim();er.textContent='';
   const h=parseHandle(v);
   if(v&&!h){er.textContent='Nome utente non valido: usa per esempio @mario_rossi (5-32 caratteri: lettere, numeri e _). I numeri di telefono non sono supportati.';i.setAttribute('aria-invalid','true');i.style.borderColor='var(--er)';return}
   i.removeAttribute('aria-invalid');i.style.borderColor='';
-  const nuova={...rubrica};if(h)nuova[id]=h;else delete nuova[id];
-  try{await salvaRubrica(db,nuova);rubrica=nuova;i.value=h?'@'+h:'';$('#cnt').textContent=Object.values(rubrica).filter(Boolean).length+' su '+atleti.length+' con Telegram';
+  const nuova={...rubrica};if(h)nuova[id]=G(rubrica[id])?{h,g:1}:h;else delete nuova[id];
+  try{await salvaRubrica(db,nuova);rubrica=nuova;i.value=h?'@'+h:'';$('#cnt').textContent=Object.values(rubrica).filter(H).length+' su '+atleti.length+' con Telegram';lista();
     er.textContent='';i.style.borderColor='var(--ac)';setTimeout(()=>{i.style.borderColor=''},1200)}
   catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla che Telegram sia collegato e riprova.'}}
 

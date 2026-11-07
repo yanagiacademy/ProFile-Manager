@@ -37,6 +37,9 @@ const quandoAdm=k=>k<0?'scaduto da '+(-k)+' g':k===0?'oggi':k===1?'domani':'tra 
 const euro=n=>Number(n).toLocaleString('it-IT',{style:'currency',currency:'EUR'});
 const nomeAt=a=>((a.cognome||'')+' '+(a.nome||'')).trim()||a.title||'atleta';
 const FIRMA='\n— Yanagi Academy';
+/* rubrica: {idAtleta: 'nomeutente'} oppure {idAtleta:{h:'nomeutente',g:1}} (g = genitore: messaggi riferiti all'atleta) */
+const hOf=v=>typeof v==='string'?v:(v&&v.h)||'';
+const gOf=v=>!!(v&&typeof v==='object'&&v.g);
 
 export function testoEvento(ev,url){
   const r=['🏆 Nuovo evento: '+(ev.nome||ev.title||'senza nome'),'📅 '+fmtD(ev.data)+(ev.cat&&ev.cat!=='altro'?'':'')];
@@ -53,13 +56,14 @@ export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],rubrica=
   cfg=cfgOk(cfg);now=new Date(+now);const t0=+now,out=[],nomi={};
   atleti.forEach(a=>{nomi[a.id]=nomeAt(a)});
   tessere.forEach(t=>{const id=t.atleta||t.id;if(id&&!nomi[id])nomi[id]=nomeAt(t)});
+  const conta={};Object.values(rubrica).map(hOf).filter(Boolean).forEach(h=>{conta[h]=(conta[h]||0)+1});      /* stesso Telegram su più atleti = famiglia */
   const CAMPI=[['scadenza','tessera','la tessera','la tua tessera','🪪 Tessera'],['certScad','certificato medico','il certificato medico','il tuo certificato medico','🩺 Certificato medico']];
   /* --- atleti --- */
   const adm=[];                                  /* [{label,date}] per i riepiloghi dell'admin */
   for(const t of tessere){
     if(t.kind!=='tessera')continue;
-    const aid=t.atleta||t.id,h=rubrica[aid],nome=(t.nome||'').trim();
-    for(const [campo,,,tuo,lab] of CAMPI){
+    const aid=t.atleta||t.id,rv=rubrica[aid],h=hOf(rv),nome=(t.nome||'').trim(),fam=!!h&&(gOf(rv)||conta[h]>1);
+    for(const [campo,,la,tuo,lab] of CAMPI){
       const date=t[campo];if(!isD(date))continue;
       adm.push({label:lab+' di '+(nomi[aid]||nomeAt(t)),date});
       if(!cfg.atleti||!h)continue;
@@ -68,12 +72,12 @@ export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],rubrica=
         const quando_=alle(date,k,cfg.ora);
         if(+quando_-t0>MIN_ANTICIPO&&+quando_-t0<360*864e5)
           out.push({key:`a:${aid}:${campo}:${date}:${k}`,tipo:'atleta',peer:h,when:+quando_,
-            text:`Ciao${nome?' '+nome:''}, ${tuo} scade il ${fmtD(date)} (${k===1?'domani':'tra '+k+' giorni'}). Ricordati di rinnovarlo/a e di aggiornarlo nell’app.${FIRMA}`});
+            text:`Ciao${fam?'':nome?' '+nome:''}, ${fam?la+' di '+(nomi[aid]||nome):tuo} scade il ${fmtD(date)} (${k===1?'domani':'tra '+k+' giorni'}). Ricordati di rinnovarlo/a e di aggiornarlo nell’app.${FIRMA}`});
         else passato=true}
       /* già dentro la finestra di preavviso quando si attiva: un solo messaggio subito (poi il registro evita ripetizioni) */
       if(passato&&g>=-CATCHUP_MAX_RITARDO)
         out.push({key:`a:${aid}:${campo}:${date}:c`,tipo:'atleta',peer:h,when:null,
-          text:`Ciao${nome?' '+nome:''}, ${tuo} ${g<0?'è scaduto/a il '+fmtD(date)+' (da '+(-g)+(g===-1?' giorno':' giorni')+')':g===0?'scade oggi ('+fmtD(date)+')':'scade il '+fmtD(date)+' ('+(g===1?'domani':'tra '+g+' giorni')+')'}. Ricordati di rinnovarlo/a e di aggiornarlo nell’app.${FIRMA}`})}}
+          text:`Ciao${fam?'':nome?' '+nome:''}, ${fam?la+' di '+(nomi[aid]||nome):tuo} ${g<0?'è scaduto/a il '+fmtD(date)+' (da '+(-g)+(g===-1?' giorno':' giorni')+')':g===0?'scade oggi ('+fmtD(date)+')':'scade il '+fmtD(date)+' ('+(g===1?'domani':'tra '+g+' giorni')+')'}. Ricordati di rinnovarlo/a e di aggiornarlo nell’app.${FIRMA}`})}}
   /* --- elementi per l'admin --- */
   for(const d of documenti){if(d.kind==='file'&&!d.archiviatoIl&&isD(d.scadenza))adm.push({label:'📄 '+(d.title||'Documento'),date:d.scadenza})}
   for(const e of eventi){
@@ -94,7 +98,7 @@ export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],rubrica=
       out.push({key:`ad:${dIso}:${hash(text)}`,tipo:'admin',peer:'me',when:g.when,text})}}
   /* --- eventi nuovi: subito a tutti gli atleti con Telegram --- */
   if(cfg.eventi){
-    const peers=[...new Set(Object.values(rubrica).filter(Boolean))];
+    const peers=[...new Set(Object.values(rubrica).map(hOf).filter(Boolean))];
     for(const e of eventi){
       if(e.kind!=='evento'||e.chiuso||(isD(e.data)&&giorniA(e.data,now)<0))continue;
       out.push({key:'ev:'+e.id,tipo:'evento',peers,when:null,text:testoEvento(e,url)})}}

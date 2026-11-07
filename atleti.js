@@ -19,39 +19,56 @@ let auth,db,col,uid=null,me=null,items=[],tess=[],mails={},dati={},mods={},q='',
 const isAdm=()=>!!(me&&me.admin);
 const mailOf=id=>(mails[id]&&mails[id].email)||'';
 const MAIL_RE=/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]{2,}$/;
-/* atletiEmail/<email> = {atleta:id}: serve all'atleta loggato per trovare la propria scheda (può leggere solo la chiave uguale alla sua email) */
+/* atletiEmail/<email> = {atleta:id, atleti:[id,…]}: serve all'account loggato per trovare le proprie schede (può leggere solo la chiave uguale alla sua email).
+   Più atleti possono avere la stessa email (un genitore con più figli): l'elenco atleti raccoglie tutti. */
+const idsOf=email=>Object.keys(mails).filter(k=>mailOf(k)&&mailOf(k).toLowerCase()===String(email).toLowerCase());
+async function scriviChiave(email,ids){
+  if(!ids.length)await deleteDoc(doc(db,'atletiEmail',email)).catch(()=>{});
+  else await setDoc(doc(db,'atletiEmail',email),{atleta:ids[0],atleti:ids})}
 async function saveMail(id,email){
   if(!isAdm())return;
   const old=mailOf(id);
   if(email){
     await setDoc(doc(db,'atletiMail',id),{email,by:uid,at:serverTimestamp()});
-    await setDoc(doc(db,'atletiEmail',email),{atleta:id});
-    if(old&&old!==email)await deleteDoc(doc(db,'atletiEmail',old)).catch(()=>{})}
+    await scriviChiave(email,[...new Set([...idsOf(email).filter(k=>k!==id),id])]);
+    if(old&&old.toLowerCase()!==email.toLowerCase())await scriviChiave(old,idsOf(old).filter(k=>k!==id)).catch(()=>{})}
   else if(mails[id]){
     await deleteDoc(doc(db,'atletiMail',id));
-    if(old)await deleteDoc(doc(db,'atletiEmail',old)).catch(()=>{});
+    if(old)await scriviChiave(old,idsOf(old).filter(k=>k!==id)).catch(()=>{});
     await deleteDoc(doc(db,'atletiDati',id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',id)).catch(()=>{})}}
 /* allinea le chiavi per le email già inserite prima di questa funzione (una volta per sessione, solo admin) */
 const synced=new Set();
 function syncKeys(){
   if(!isAdm())return;
-  Object.entries(mails).forEach(([id,m])=>{const e=m&&m.email;if(!e||synced.has(id+'|'+e))return;synced.add(id+'|'+e);
-    setDoc(doc(db,'atletiEmail',e),{atleta:id}).catch(()=>synced.delete(id+'|'+e))})}
+  const g={};Object.entries(mails).forEach(([id,m])=>{const e=m&&m.email;if(e)(g[e]=g[e]||[]).push(id)});
+  Object.entries(g).forEach(([e,ids])=>{ids.sort();const sig=e+'|'+ids.join(',');if(synced.has(sig))return;synced.add(sig);
+    setDoc(doc(db,'atletiEmail',e),{atleta:ids[0],atleti:ids}).catch(()=>synced.delete(sig))})}
 /* ---------- la mia tessera: l'atleta loggato (email uguale a quella inserita dall'admin) scarica la propria tessera e il proprio certificato ----------
    Legge solo la copia su Firebase (senza Telegram) dal percorso sections/tessere/items; permessi applicati dalle regole Firestore. */
-let mioP=null,mioId='',mioT=null,mioF={t:null,c:null},mioErr=false;
+let mioP=null,mioId='',mioIds=[],mioNomi={},mioT=null,mioF={t:null,c:null},mioErr=false;
+/* dettaglio di UNA scheda collegata (dati, modifiche proposte, tessera e certificato) */
+async function caricaMioAt(id){
+  mioId=id;mioT=null;mioF={t:null,c:null};mioDati=null;mioMod={};
+  try{const d=await rgetDoc(rdoc(db,'atletiDati',id));mioDati=d.exists()?d.data():null}catch(x){mioDati=null}
+  try{const m=await rgetDoc(rdoc(db,'atletiModifiche',id));mioMod=m.exists()?(m.data().campi||{}):{}}catch(x){mioMod={}}
+  const tr=await rgetDoc(rdoc(db,'sections','tessere','items',id));if(!tr.exists()){mioT=null;return}
+  mioT=tr.data();
+  const fl=async fid=>{if(!fid)return null;try{const sn=await rgetDoc(rdoc(db,'sections','tessere','items',fid));return sn.exists()&&sn.data().kind==='file'?{id:sn.id,...sn.data()}:null}catch(x){return null}};
+  mioF={t:await fl(mioT.tesFile),c:await fl(mioT.certFile)}}
 async function loadMio(){
   const e=auth.currentUser&&auth.currentUser.email;if(!e||isAdm())return;
   try{
     const k=await rgetDoc(rdoc(db,'atletiEmail',e.toLowerCase()));if(!k.exists())return;
-    mioId=k.data().atleta;
-    try{const d=await rgetDoc(rdoc(db,'atletiDati',mioId));mioDati=d.exists()?d.data():null}catch(x){mioDati=null}
-    try{const m=await rgetDoc(rdoc(db,'atletiModifiche',mioId));mioMod=m.exists()?(m.data().campi||{}):{}}catch(x){mioMod={}}
-    const tr=await rgetDoc(rdoc(db,'sections','tessere','items',mioId));if(!tr.exists()){mioT=null;return}
-    mioT=tr.data();
-    const fl=async id=>{if(!id)return null;try{const sn=await rgetDoc(rdoc(db,'sections','tessere','items',id));return sn.exists()&&sn.data().kind==='file'?{id:sn.id,...sn.data()}:null}catch(x){return null}};
-    mioF={t:await fl(mioT.tesFile),c:await fl(mioT.certFile)};mioErr=false
+    const d=k.data();mioIds=Array.isArray(d.atleti)&&d.atleti.length?d.atleti:[d.atleta];
+    if(!mioIds.includes(mioId))mioId=mioIds[0];
+    if(mioIds.length>1)for(const id of mioIds){if(mioNomi[id])continue;
+      try{const x=await rgetDoc(rdoc(db,'atletiDati',id));if(x.exists()){const v=x.data();mioNomi[id]=((v.cognome||'')+' '+(v.nome||'')).trim()}}catch(z){}}
+    await caricaMioAt(mioId);mioErr=false
   }catch(x){console.error(x);mioErr=true}}
+async function ensureMio(id){if(id&&id!==mioId)await caricaMioAt(id)}
+async function selMio(id,rep){if(!mioIds.includes(id)||id===mioId)return;try{await ensureMio(id);mioErr=false}catch(x){console.error(x);mioErr=true}rep()}
+/* più figli con la stessa email: pulsanti con i nomi per scegliere di quale scheda parlare */
+const mioSel=()=>mioIds.length>1?`<div class="dact" style="justify-content:flex-start;margin:0 0 10px;flex-wrap:wrap">${mioIds.map(id=>`<button class="btn sm${id===mioId?'':' ghost'}" data-a="mioSel" data-id="${esc(id)}">${esc(mioNomi[id]||'Atleta')}</button>`).join('')}</div>`:'';
 async function mioBlob(f){
   const sn=await rgetDocs(rcollection(db,'sections','tessere','items',f.id,'chunks'));
   const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);
@@ -72,7 +89,7 @@ function mioCardsHtml(){
   const d=(l,v)=>v?`<dt>${l}</dt><dd>${esc(v)}</dd>`:'';
   const err=mioErr?box2('Impossibile leggere i tuoi dati','Non riesco a collegarmi ai tuoi dati. Riprova tra poco; se il problema continua avvisa l’admin (le regole di sicurezza potrebbero non essere aggiornate).'):'';
   if(!mioId)return err;
-  return err+`<div class="card dl"><h2 style="margin:0">${esc(nome||[mioCur('nome'),mioCur('cognome')].filter(Boolean).join(' '))}</h2>${mioDatiHtml()}</div>
+  return mioSel()+err+`<div class="card dl"><h2 style="margin:0">${esc(nome||[mioCur('nome'),mioCur('cognome')].filter(Boolean).join(' '))}</h2>${mioDatiHtml()}</div>
   ${mioT?`<div class="card dl" style="margin-top:12px"><h2 style="margin:0">Tessera e certificato</h2><div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${mioChip('Tessera',t.scadenza)}${mioChip('Certificato',t.certScad)}</div>
     <h3>Tessera</h3><dl>${d('Ente / federazione',t.ente)}${d('Numero tessera (ID atleta)',t.numero)}${d('Tipo di tessera',t.tipoTessera)}${d('Stagione',t.stagione)}${d('Data emissione',isD(t.emissione)?fmtD(t.emissione):'')}${d('Scadenza',isD(t.scadenza)?fmtD(t.scadenza):'')}${d('Associazione',t.associazione)}</dl>
     <h3>Certificato medico</h3><dl>${d('Tipo',t.certTipo)}${d('Scadenza',isD(t.certScad)?fmtD(t.certScad):'')}</dl>
@@ -82,7 +99,7 @@ function paintMio(){
   const c=$('#mioc');if(!c)return;
   if(!mioId&&!mioErr||isAdm()){c.innerHTML='';return}
   c.innerHTML=`<h3 style="margin:0 0 8px">La mia scheda</h3>`+mioCardsHtml();
-  c.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioEdit')openMioDati(paintMio);else mioAct(b.dataset.a)}}
+  c.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioSel')selMio(b.dataset.id,paintMio);else if(b.dataset.a==='mioEdit')openMioDati(paintMio);else mioAct(b.dataset.a)}}
 function mioView(){
   const t=mioT||{},nome=((t.cognome||'')+' '+(t.nome||'')).trim()||t.title||'';
   const d=(l,v)=>v?`<dt>${l}</dt><dd>${esc(v)}</dd>`:'';
@@ -90,7 +107,7 @@ function mioView(){
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Atleti</h2><span class="badge">La mia scheda</span></div></div>
   ${mioCardsHtml()}</div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
-  app.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioEdit')openMioDati(mioView);else mioAct(b.dataset.a)}}
+  app.onclick=e=>{const b=e.target.closest('[data-a]');if(!b)return;if(b.dataset.a==='mioSel')selMio(b.dataset.id,mioView);else if(b.dataset.a==='mioEdit')openMioDati(mioView);else mioAct(b.dataset.a)}}
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden||!mioP||isAdm()||document.querySelector('.ov'))return;
   loadMio().then(()=>{if(noAcc()){if(mioId)mioView()}else renderList()})});
@@ -208,7 +225,7 @@ function shell(){
       <div class="two"><div><label for="sx">Sesso</label><select id="sx"><option value=""></option><option value="M">M</option><option value="F">F</option></select></div><div><label for="an">Anno di nascita</label><input id="an" type="number" inputmode="numeric" min="1900" max="2100" autocomplete="off"></div></div>
       <div class="two"><div><label for="gr">Grado</label><input id="gr" type="text" list="lg" autocomplete="off"><datalist id="lg"></datalist></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
-      <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"></div>':''}</div>
+      <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="mu" style="font-size:.8rem;margin-top:4px">Più atleti possono avere la stessa email (es. un genitore con più figli): da quell’account si vedono tutte le schede.</div></div>':''}</div>
       <label for="tp">Agonista o Dilettante</label><select id="tp"><option value=""></option><option value="agonista">Agonista</option><option value="dilettante">Dilettante</option></select>
     </fieldset>
     <fieldset><legend>Scheda tecnica</legend>
@@ -262,7 +279,9 @@ async function save(){
   if(v.cadN&&!v.cadU)v.cadU='m';
   const em=$('#em')?$('#em').value.trim().toLowerCase():null;
   if(em&&!MAIL_RE.test(em)){er.textContent='L’indirizzo email non è valido (es. nome@dominio.it).';return}
-  if(em&&Object.entries(mails).some(([k,m])=>k!==editing&&m&&m.email===em)){er.textContent='Questa email è già assegnata a un altro atleta.';return}
+  if(em){
+    const altri=Object.keys(mails).filter(k=>k!==editing&&mailOf(k).toLowerCase()===em);
+    if(altri.length&&!confirm('Questa email è già collegata a: '+altri.map(k=>nameOf(items.find(i=>i.id===k)||{})||'un altro atleta').join(', ')+'.\n\nVuoi collegare anche questo atleta alla stessa email? (per esempio un genitore con più figli: dal suo account vedrà tutte le schede)'))return}
   const data={...v,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
     note:noteOf(v)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
@@ -359,14 +378,14 @@ function openDetail(id){
     const it=items.find(x=>x.id===detail.id);if(!it)return;
     const a=b.dataset.a,i=b.dataset.i;
     if(a==='x')close();
-    else if(['dt','dc','ot','oc'].includes(a)){if(it.id===mioId)mioAct(a)}
-    else if(a==='mioEdit'){if(it.id===mioId&&!isAdm())openMioDati(paintDetail)}
+    else if(['dt','dc','ot','oc'].includes(a)){if(mioIds.includes(it.id)){await ensureMio(it.id);mioAct(a)}}
+    else if(a==='mioEdit'){if(mioIds.includes(it.id)&&!isAdm()){await ensureMio(it.id);openMioDati(paintDetail)}}
     else if(a==='okmod'){if(isAdm())try{await okMod(it)}catch(x){console.error(x);alert('Impossibile applicare le modifiche. Controlla che Telegram sia collegato e riprova.')}}
     else if(a==='nomod'){if(isAdm()&&confirm('Scartare le modifiche proposte dall’atleta?'))try{await deleteDoc(doc(db,'atletiModifiche',it.id))}catch(x){console.error(x);alert('Operazione non riuscita.')}}
     else if(a==='edit'){close();edit(it)}
     else if(a==='del'){
       if(!confirm('Eliminare '+nameOf(it)+'? La scheda va nel Cestino (recuperabile per 30 giorni); l’email dell’atleta e il collegamento al suo account vengono invece rimossi subito.'))return;
-      try{const em=mailOf(it.id);await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()){if(mails[it.id])await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(em)await deleteDoc(doc(db,'atletiEmail',em)).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
+      try{const em=mailOf(it.id);await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()){if(mails[it.id])await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(em)await scriviChiave(em,idsOf(em).filter(k=>k!==it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
       catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
     else if(perm()!=='w')return;
     else if(a==='addT')openTest(it);
@@ -392,7 +411,7 @@ function paintDetail(){
   const bm=k=>mk.includes(k)&&adm?`<div class="mmod">${bl(nv(k))}${pri(k)}</div>`:bl(nv(k));
   const at=adm&&mods[it.id]&&mods[it.id].at&&mods[it.id].at.toDate?mods[it.id].at.toDate().toLocaleString('it-IT',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}):'';
   const modBar=adm&&mk.length?`<div class="modbar"><b>L’atleta ha modificato i suoi dati</b>${at?` <span class="mu">(${esc(at)})</span>`:''}<div class="mu">Controlla i campi evidenziati: conferma per applicarli alla scheda oppure scarta.</div><div class="dact" style="margin-top:8px"><button class="btn ghost sm" data-a="nomod">Scarta</button><button class="btn sm" data-a="okmod">Conferma e applica</button></div></div>`
-    :(!adm&&it.id===mioId?`<div class="dact" style="justify-content:flex-start;margin:8px 0 0"><button class="btn ghost sm" data-a="mioEdit">Modifica i miei dati</button></div>${mk.length?'<div class="mu" style="font-size:.8rem;margin-top:4px">Modifiche inviate: in attesa di conferma dell’admin.</div>':''}`:'');
+    :(!adm&&mioIds.includes(it.id)?`<div class="dact" style="justify-content:flex-start;margin:8px 0 0"><button class="btn ghost sm" data-a="mioEdit">Modifica i miei dati</button></div>${mk.length?'<div class="mu" style="font-size:.8rem;margin-top:4px">Modifiche inviate: in attesa di conferma dell’admin.</div>':''}`:'');
   /* test fisici: una colonna per rilevazione (le più recenti), una riga per test */
   const sess=[...(it.test||[])].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,6);
   const tn=[...new Set([...(it.testTipi||DEF_TEST),...sess.flatMap(s=>(s.r||[]).map(r=>r.n))])];
