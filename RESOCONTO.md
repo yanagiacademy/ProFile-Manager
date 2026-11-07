@@ -19,6 +19,12 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (07/11) – SALVATAGGIO CHE NON SI BLOCCA + LED DI STATO (fsx.js, telegram.js)
+- PROBLEMA: a volte il salvataggio restava fermo su \"Sincronizzazione con Telegram…\". Causa: le chiamate a Telegram (lettura messaggi, invio, creazione argomento) non avevano un tempo massimo; se la rete si piantava una chiamata restava appesa e, essendo la sincronizzazione unica e condivisa, bloccava anche tutti i salvataggi successivi fino al ricaricamento della pagina.
+- RIMEDIO: tempo massimo su sincronizzazione (75 s, 5 min la completa), invio (60 s, con un secondo tentativo dopo aver riaperto la connessione) e argomenti (25 s); la sincronizzazione scaduta viene scartata e la connessione riaperta (tgReset in telegram.js). Se il messaggio è già partito su Telegram ma la rilettura fallisce, la modifica si applica subito in locale e si riallinea dopo pochi secondi (niente più \"non salvato\" con dato in realtà salvato e doppioni al secondo tentativo).
+- LED nella barra in alto (al posto della scritta): VERDE sincronizzato, GIALLO lampeggiante in corso, ROSSO problema (tocca il LED per leggere il motivo e riprovare), GRIGIO Telegram non collegato. Si aggancia da solo alla barra di ogni pagina; senza barra sta in alto a destra.
+- File modificati: fsx.js, telegram.js, RESOCONTO.md. Numeri di versione NON aggiornati (preferenza).
+
 ## NOVITÀ (06/11) – GESTIONE ACCOUNT: NOMI, RIATTIVAZIONE, ELENCO SU TELEGRAM (index.html, argomento Telegram \"Account\")
 - PROBLEMA 1: «Rimuovi» tolgono i permessi (documento users/…) ma il login su Firebase resta: ricreando lo stesso account compariva \"Esiste già un account con questa email\". PROBLEMA 2: in Gestione account non si poteva correggere un nome sbagliato.
 - ELENCO ACCOUNT CIFRATO (sezione \"account\", argomento Telegram \"Account\", solo admin): un record per account con identificativo, nome, email, admin, permessi e stato (attivo/rimosso). Si allinea da solo a ogni cambiamento degli account (nuovi, nome, permessi, rimossi) e conserva i permessi di prima di chi viene rimosso. È compreso nel backup. Non registra le password (non esistono lato app).

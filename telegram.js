@@ -160,6 +160,10 @@ export function tgClient(){
   cache.catch(()=>{cache=null});
   return cache;
 }
+/* Chiude la connessione (anche se è rimasta appesa) e ne apre una nuova alla prossima richiesta. */
+export function tgReset(){
+  const c=cache;cache=null;
+  if(c)c.then(r=>{try{const p=r.client.disconnect();if(p&&p.catch)p.catch(()=>{})}catch(e){}},()=>{})}
 const norm=s=>String(s||'').trim().toLowerCase();
 export async function findDialog(client,name){
   const g=norm(name).replace(/^@/,'');
@@ -229,16 +233,16 @@ export function tgTopic(group,secKey){
   if(!topics[id])topics[id]=(async()=>{
     try{
       const {client,tg}=await tgClient(),ent=await tgEntity(group),A=tg.Api;
-      const r=await client.invoke(new A.channels.GetForumTopics({channel:ent,q:title,offsetDate:0,offsetId:0,offsetTopic:0,limit:100}));
+      const r=await withTimeout(client.invoke(new A.channels.GetForumTopics({channel:ent,q:title,offsetDate:0,offsetId:0,offsetTopic:0,limit:100})),25000,'TIMEOUT_TOPIC');
       const t=(r.topics||[]).find(x=>norm(x.title)===norm(title));if(t)return t.id;
       const h=tg.helpers||{},rnd=h.generateRandomBigInt||h.generateRandomLong;
-      const u=await client.invoke(new A.channels.CreateForumTopic({channel:ent,title,randomId:rnd?rnd():undefined}));
+      const u=await withTimeout(client.invoke(new A.channels.CreateForumTopic({channel:ent,title,randomId:rnd?rnd():undefined})),25000,'TIMEOUT_TOPIC');
       for(const x of (u.updates||[])){const m=x.message;if(m&&m.action&&m.action.className==='MessageActionTopicCreate')return m.id}
       return null;
     }catch(e){
       console.warn('Argomenti non disponibili per "'+title+'":',e&&e.message);
       if(/FORUM_MISSING|CHANNEL_INVALID|CHAT_ADMIN_REQUIRED|TOPIC/.test((e&&e.message)||''))return null;   /* definitivo: si scrive nel gruppo */
-      delete topics[id];return null}
+      delete topics[id];if(/^TIMEOUT/.test((e&&e.message)||''))throw e;return null}
   })();
   return topics[id]}
 

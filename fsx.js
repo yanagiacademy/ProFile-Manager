@@ -8,7 +8,7 @@
    Un contenuto con campo fb:true viene copiato anche su Firestore (stesso percorso) e, se Telegram non è raggiungibile, si legge da lì.
    Se Telegram non è configurato tutto resta su Firestore come prima. */
 import * as SDK from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {tgConfigured,hasSession,tgClient,tgEntity,tgSendFile,tgErrText,tgTopic} from "./telegram.js";
+import {tgConfigured,hasSession,tgClient,tgEntity,tgSendFile,tgErrText,tgTopic,tgReset,withTimeout} from "./telegram.js";
 import * as CFG from "./telegram-config.js";
 import {getAuth} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {setDb,CIFRA_ATTIVA,cifraBlob,cifraTesto,decifraBlob,decifraTesto,keyIdOf,haChiave,b64e} from "./cifra.js";
@@ -55,11 +55,38 @@ function applyUpd(st,d){for(const k in d){const v=d[k];
 const cleanSet=d=>{const o={};for(const k in d){const v=d[k];if(v&&(v.$del||v.$union))continue;o[k]=v}return o};
 
 /* ---------- messaggi e avvisi ---------- */
-let barEl=null,warnEl=null;
-function status(t){
-  if(!barEl){barEl=document.createElement('div');barEl.setAttribute('role','status');
-    barEl.style.cssText='position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 6px);z-index:70;max-width:92vw;padding:5px 14px;border-radius:99px;font-size:.8rem;background:var(--ac,#1B2A4A);color:var(--bg,#fff);display:none;text-align:center;pointer-events:none';document.body.append(barEl)}
-  barEl.textContent=t||'';barEl.style.display=t?'block':'none'}
+let warnEl=null;
+/* ---------- LED di stato nella barra in alto: verde = sincronizzato, giallo = in corso, rosso = problema, grigio = Telegram non collegato ---------- */
+const LED={ok:['#2E9E5B','Sincronizzato con Telegram'],busy:['#E0A800','Sincronizzazione in corso…'],err:['#D93025','Problema di sincronizzazione'],off:['#8A94A6','Telegram non collegato']};
+let ledEl=null,ledSt='ok',ledMsg='',busyN=0,lastErr='',ledObs=null;
+function ledPlace(){
+  if(!ledEl)return;const t=document.querySelector('.top');
+  if(t){if(ledEl.parentElement!==t){ledEl.style.position='';ledEl.style.top=ledEl.style.right='';t.append(ledEl)}}
+  else if(ledEl.parentElement!==document.body){ledEl.style.cssText+=';position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);right:8px;z-index:70';document.body.append(ledEl)}}
+function ledInit(){
+  if(ledEl||typeof document==='undefined'||!document.body)return;
+  if(!document.getElementById('pfm-led-css')){const st=document.createElement('style');st.id='pfm-led-css';
+    st.textContent='.pfm-led{flex:none;width:26px;height:26px;padding:0;border:0;background:none;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-left:auto}.pfm-led i{display:block;width:12px;height:12px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px var(--sf,#fff),0 0 7px 1px var(--c)}.pfm-led[data-s=busy] i{animation:pfmled 1s ease-in-out infinite}@keyframes pfmled{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.pfm-led[data-s=busy] i{animation:none}}';
+    document.head.append(st)}
+  ledEl=document.createElement('button');ledEl.type='button';ledEl.className='pfm-led';ledEl.innerHTML='<i></i>';
+  ledEl.onclick=()=>{
+    const t=ledMsg||LED[ledSt][1];
+    if(ledSt==='err'){avviso(t+' Riprovo ora…');sync(false).then(()=>avviso('Sincronizzato.')).catch(()=>{})}
+    else avviso(t)};
+  ledPlace();ledShow();
+  let raf=0;ledObs=new MutationObserver(()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;ledPlace()})});
+  ledObs.observe(document.body,{childList:true,subtree:true})}
+function ledShow(){
+  if(!ledEl)return;const c=LED[ledSt];
+  ledEl.dataset.s=ledSt;ledEl.style.setProperty('--c',c[0]);
+  const t=(ledMsg||c[1]);ledEl.title=t;ledEl.setAttribute('aria-label','Stato sincronizzazione: '+t)}
+function ledSet(st,msg){ledSt=st;ledMsg=msg||'';ledInit();ledShow()}
+/* stato calcolato: errore > lavoro in corso > ok */
+function ledCalc(){
+  if(!hasSession()){ledSet('off','Telegram non collegato: accedi dalla Chat.');return}
+  if(lastErr)ledSet('err',lastErr+' Tocca per riprovare.');
+  else if(busyN>0)ledSet('busy','');else ledSet('ok','')}
+const busyIn=()=>{busyN++;ledCalc()},busyOut=()=>{busyN=Math.max(0,busyN-1);ledCalc()};
 function avviso(html,link){
   if(!warnEl){warnEl=document.createElement('div');warnEl.setAttribute('role','alert');
     warnEl.style.cssText='position:fixed;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 52px);z-index:60;max-width:560px;margin:0 auto;padding:10px 14px;border-radius:10px;font-size:.85rem;background:var(--sf,#fff);color:var(--tx,#14213D);border:2px solid var(--ac2,#B8A24A);display:flex;gap:10px;align-items:center';document.body.append(warnEl)}
@@ -110,9 +137,9 @@ async function decode(client,m){
   try{const j=JSON.parse(raw);if(!j||!j.s||!j.r||!j.o)return null;return {s:j.s,r:j.r,o:j.o,d:j.d,mid:m.id,enc}}catch(e){return null}}
 async function pool(list,n,fn){const out=new Array(list.length);let i=0;await Promise.all(Array.from({length:Math.min(n,list.length)},async()=>{while(i<list.length){const k=i++;out[k]=await fn(list[k])}}));return out}
 
-async function doSync(full){
-  status('Sincronizzazione con Telegram…');
-  try{
+let gen=0;
+async function doSync(full,g){
+  {
     /* se ora si ha la chiave di una sezione che prima non si poteva leggere, si rilegge tutto */
     if(!full&&C.miss&&C.miss.length&&Date.now()-(C.missChk||0)>5*60*1000){
       C.missChk=Date.now();
@@ -121,9 +148,10 @@ async function doSync(full){
     const base=full?{v:1,lastId:0,full:Date.now(),recs:{}}:C;
     const msgs=[];let maxSeen=base.lastId||0;
     const opt={limit:undefined};if(base.lastId)opt.minId=base.lastId;
-    for await(const m of client.iterMessages(ent,opt)){if(m.id>maxSeen)maxSeen=m.id;if(m.message&&m.message.startsWith(TAG))msgs.push(m)}
+    for await(const m of client.iterMessages(ent,opt)){if(g!==gen)return;if(m.id>maxSeen)maxSeen=m.id;if(m.message&&m.message.startsWith(TAG))msgs.push(m)}
     msgs.sort((a,b)=>a.id-b.id);
     const dec=await pool(msgs,5,m=>decode(client,m));      /* un errore di rete interrompe: niente va perso */
+    if(g!==gen)return;      /* sincronizzazione scaduta nel frattempo: il suo risultato si scarta */
     if(full)C=base;
     const miss=new Set(full?[]:(C.miss||[]));
     for(const x of dec){if(!x)continue;if(x.noKey){miss.add(x.noKey);continue}apply(x.s,x.r,x.mid,x.o,x.d,x.enc)}
@@ -131,8 +159,16 @@ async function doSync(full){
     C.lastId=Math.max(C.lastId||0,maxSeen);if(!C.full)C.full=Date.now();
     kvSet('cache:'+GRUPPO_DATI,C);
     firstDone=true;fireAll();
-  }finally{status('')}}
-function sync(full=false){if(syncP)return syncP;syncP=doSync(full).finally(()=>{syncP=null});return syncP}
+  }}
+/* Una chiamata di rete rimasta appesa non deve bloccare per sempre: dopo il tempo massimo si abbandona, si riapre la connessione e si ritenta. */
+function sync(full=false){
+  if(syncP)return syncP;
+  const g=++gen;busyIn();
+  syncP=withTimeout(doSync(full,g),full?300000:75000,'TIMEOUT_SYNC')
+    .then(r=>{lastErr='';return r})
+    .catch(e=>{if(g===gen)gen++;lastErr=tgErrText(e);if(/^TIMEOUT|CONNECTION|disconnect/i.test((e&&e.message)||''))tgReset();throw e})
+    .finally(()=>{syncP=null;busyOut()});
+  return syncP}
 async function syncUntil(mid){for(let i=0;i<4;i++){await sync(false);if((C.lastId||0)>=mid)return}}
 
 function startOnce(){
@@ -177,7 +213,7 @@ export function onSnapshot(ref,cb,err){
     if(msg)avviso(msg[0],msg[1]);
     un=SDK.onSnapshot(sdkRef(ref),cb,err)};
   const sub={fire(){if(un||dead||!ready())return;const s=snapOf(ref);if(!ref.id)s.size=s.docs.length;cb(s)}};
-  if(!hasSession()){toSdk_(null,['Telegram non collegato: vedi solo i contenuti salvati anche su Firebase. Per vedere e modificare tutto accedi a Telegram.',['Accedi','chat.html']])}
+  if(!hasSession()){ledCalc();toSdk_(null,['Telegram non collegato: vedi solo i contenuti salvati anche su Firebase. Per vedere e modificare tutto accedi a Telegram.',['Accedi','chat.html']])}
   else{
     subs.add(sub);
     startOnce().then(()=>sub.fire(),e=>{subs.delete(sub);toSdk_(e,['Telegram non raggiungibile ('+tgErrText(e)+'): vedi solo i contenuti salvati anche su Firebase.',['Chat','chat.html']])});
@@ -205,6 +241,13 @@ async function tgSend(sec,rid,o,d){
   if(head.length+1+b64.length<=3800){const m=await client.sendMessage(ent,{message:head+'\n'+b64,silent:true,...(topic?{replyTo:topic}:{})});return m.id}
   const f=new File([body],rid+'.json',{type:'application/json'});
   const m=await tgSendFile(tg,client,ent,f,()=>{},'auto',head,topic);return m.id}
+/* invio con tempo massimo e un secondo tentativo dopo aver riaperto la connessione (i messaggi del registro sono idempotenti: un doppione non cambia il risultato) */
+async function tgSendSicuro(sec,rid,o,d){
+  for(let i=0;;i++){
+    try{return await withTimeout(tgSend(sec,rid,o,d),60000,'TIMEOUT_SEND')}
+    catch(e){const m=(e&&e.message)||'';
+      if(i>=1||!/^TIMEOUT|CONNECTION|disconnect|Not connected|network/i.test(m))throw e;
+      await tgReset()}}}
 async function tgDeleteMsgs(ids){
   if(!ids.length)return;
   try{const {client}=await tgClient(),ent=await tgEntity(GRUPPO_DATI);await client.deleteMessages(ent,ids,{revoke:true})}catch(e){}}
@@ -220,17 +263,27 @@ async function mirror(ref,prevFb){
   }catch(e){console.error(e);avviso('Salvato su Telegram, ma la copia su Firebase non è riuscita'+(e&&e.code?' ('+e.code+')':'')+'.')}}
 
 async function write(ref,o,d,noMirror){
-  await startOnce();
-  const r0=recOf(ref.sec,ref.id),prevFb=!!(r0&&!r0.x&&r0.st.fb);
-  let mid,old=[];
-  if(o==='upd'&&r0&&r0.mids.length>=COMPACT){
-    const st=clone(r0.st);applyUpd(st,d);old=r0.mids.slice();
-    mid=await tgSend(ref.sec,ref.id,'set',st)}
-  else mid=await tgSend(ref.sec,ref.id,o,d);
-  await syncUntil(mid);
-  if(old.length)tgDeleteMsgs(old);
-  if(o==='del'){const r=recOf(ref.sec,ref.id);if(r)tgDeleteMsgs(r.mids.filter(x=>x!==mid))}
-  if(!noMirror)await mirror(ref,prevFb)}
+  busyIn();
+  try{
+    await startOnce();
+    const r0=recOf(ref.sec,ref.id),prevFb=!!(r0&&!r0.x&&r0.st.fb);
+    let mid,old=[],so=o,sd=d;
+    try{
+      if(o==='upd'&&r0&&r0.mids.length>=COMPACT){
+        const st=clone(r0.st);applyUpd(st,d);old=r0.mids.slice();so='set';sd=st;
+        mid=await tgSendSicuro(ref.sec,ref.id,'set',st)}
+      else mid=await tgSendSicuro(ref.sec,ref.id,o,d)}
+    catch(e){lastErr='Modifica non salvata: '+tgErrText(e);ledCalc();throw e}
+    lastErr='';
+    /* il messaggio è su Telegram: la modifica è al sicuro. Se la rilettura non riesce la si applica qui in locale e si riallinea dopo. */
+    try{await syncUntil(mid)}
+    catch(e){console.warn('Rilettura dopo il salvataggio non riuscita:',e&&e.message);
+      try{apply(ref.sec,ref.id,mid,so,sd,CIFRA_ATTIVA);fireAll()}catch(e2){console.error(e2)}
+      setTimeout(()=>sync(false).catch(()=>{}),4000)}
+    if(old.length)tgDeleteMsgs(old);
+    if(o==='del'){const r=recOf(ref.sec,ref.id);if(r)tgDeleteMsgs(r.mids.filter(x=>x!==mid))}
+    if(!noMirror)await mirror(ref,prevFb)
+  }finally{busyOut()}}
 /* ---------- storico dei movimenti (solo l'admin lo legge: cifrato con la chiave pubblica "storico") ---------- */
 const titoloDi=(st,id)=>String((st&&(st.title||st.titolo||st.nome||st.descr))||id||'').slice(0,160);
 let uCache=null;
@@ -245,7 +298,7 @@ export function logEvento(azione,sec,id,titolo,dett){
   if(!tgConfigured()||!hasSession()||!CIFRA_ATTIVA||sec==='storico')return;
   logQ=logQ.then(async()=>{
     const u=await utente();
-    await tgSend('storico',newId(),'set',{t:Date.now(),u:u.uid,n:u.nome,a:azione,s:sec||'',i:id||'',T:String(titolo||'').slice(0,160),c:String(dett||'').slice(0,300)})
+    await tgSendSicuro('storico',newId(),'set',{t:Date.now(),u:u.uid,n:u.nome,a:azione,s:sec||'',i:id||'',T:String(titolo||'').slice(0,160),c:String(dett||'').slice(0,300)})
   }).catch(e=>console.warn('Storico non scritto:',e&&e.message))}
 const loggabile=ref=>ref.coll==='items'&&ref.S!=='storico'&&ref.S!=='cestino'&&ref.S!=='notifiche'&&ref.S!=='account';
 
