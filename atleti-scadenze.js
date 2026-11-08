@@ -48,6 +48,7 @@ export function scadStato(d,gg=GG_TESSERA){
   const g=giorni(d);
   return {data:d,g,late:g<0,soon:g>=0&&g<=gg,alert:g<=gg}}
 export const tesseraAlert=t=>{
+  if(t&&t.kind==='tesserino'){const a=scadStato(t.scadenza);return !!(a&&a.alert)}      /* tesserino di un tecnico: solo se ha una scadenza */
   if(!t||t.kind!=='tessera')return false;
   const a=scadStato(t.scadenza),b=scadStato(t.certScad);
   return !!((a&&a.alert)||(b&&b.alert))};

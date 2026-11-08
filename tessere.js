@@ -8,6 +8,7 @@ import {showPreview,saveBlob} from "./file-tools.js";
 import {isD,fmtD,scadStato,tesseraAlert} from "./atleti-scadenze.js";
 import {parseTessera,parseCert,scadDaEmissione,ENTI,title} from "./tessere-lettura.js";
 import {archiviaFile} from "./conservazione.js";
+import {ALBI,livelloEtichetta,livelloEsempio,tesName,rigaBreve,sumTes,tesserini} from "./tesserini.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -16,7 +17,7 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='tessere';
-let auth,db,col,uid=null,me=null,items=[],atl=[],q='',flt='all',unsubs=[],started=false,shellFor='',memo=null,detail=null,arch=null;
+let auth,db,col,uid=null,me=null,items=[],atl=[],tec=[],who='all',pendOpen=(()=>{try{return decodeURIComponent(location.hash.slice(1))}catch(e){return ''}})(),q='',flt='all',unsubs=[],started=false,shellFor='',memo=null,detail=null,arch=null;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const canNewAtl=()=>!!(me&&(me.admin||(me.perms||{}).atleti==='w'));
 const p2=n=>String(n).padStart(2,'0');
@@ -26,12 +27,15 @@ const tess=()=>items.filter(i=>i.kind==='tessera');
 const fileOf=id=>id?items.find(i=>i.id===id&&i.kind==='file'):null;
 function rows(){
   const m=Object.fromEntries(tess().map(t=>[t.atleta,t]));
-  const r=atl.filter(a=>a.nome||a.cognome||a.title).map(a=>({id:a.id,nome:a.nome||'',cognome:a.cognome||(a.nome?'':a.title)||'',t:m[a.id]||null}));
-  tess().forEach(t=>{if(!atl.some(a=>a.id===t.atleta))r.push({id:t.atleta,nome:t.nome||'',cognome:t.cognome||t.title||'',t})});
+  const r=atl.filter(a=>a.nome||a.cognome||a.title).map(a=>({id:a.id,nome:a.nome||'',cognome:a.cognome||(a.nome?'':a.title)||'',t:m[a.id]||null,tec:false}));
+  tec.filter(a=>a.nome||a.cognome||a.title).forEach(a=>r.push({id:a.id,nome:a.nome||'',cognome:a.cognome||(a.nome?'':a.title)||'',t:m[a.id]||null,tec:true}));
+  tess().forEach(t=>{if(!atl.some(a=>a.id===t.atleta)&&!tec.some(a=>a.id===t.atleta))r.push({id:t.atleta,nome:t.nome||'',cognome:t.cognome||t.title||'',t,tec:t.soggetto==='tecnico'})});
   return r}
+/* tesserini del tecnico (albo cinture nere, albo qualifiche, altre qualifiche) */
+function tesOf(id){return tesserini(items,id)}
 const nameOf=r=>((r.cognome||'')+' '+(r.nome||'')).trim();
-const alertRow=r=>tesseraAlert(r.t);
-const minG=r=>Math.min(...[scadStato(r.t&&r.t.scadenza),scadStato(r.t&&r.t.certScad)].filter(Boolean).map(s=>s.g),1e9);
+const alertRow=r=>tesseraAlert(r.t)||tesOf(r.id).some(tesseraAlert);
+const minG=r=>Math.min(...[r.t&&r.t.scadenza,r.t&&r.t.certScad,...tesOf(r.id).map(z=>z.scadenza)].map(d=>scadStato(d)).filter(Boolean).map(s=>s.g),1e9);
 const stTxt=d=>{const s=scadStato(d);return !s?'—':s.late?'Scaduta':s.soon?'In scadenza ('+s.g+' g)':'Valida'};
 
 function chip(label,d){
@@ -102,7 +106,7 @@ async function ocr(file,say){
 /* ---------- struttura della pagina ---------- */
 function shell(){
   const w=perm()==='w';shellFor=perm();
-  app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca un atleta" aria-label="Cerca un atleta" value="${esc(q)}"><span class="who">${esc((me.name||me.email)||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
+  app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca un atleta o un tecnico" aria-label="Cerca un atleta o un tecnico" value="${esc(q)}"><span class="who">${esc((me.name||me.email)||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div class="grow"><h2 style="margin:0">Tessere</h2><div class="hbtn">${w?'<button class="btn sm" id="nuova">+ Nuova tessera</button>':''}<button class="btn ghost sm" id="csv">Scarica CSV</button><button class="btn ghost sm" id="pdf">Scarica PDF</button></div></div></div>
   <div class="card" id="ls" style="padding:8px 14px"></div></div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
@@ -114,18 +118,20 @@ function shell(){
 function filtered(){
   const t=q.trim().toLowerCase(),all=rows();
   const ok={all:()=>true,alert:alertRow,senza:r=>!r.t||(!r.t.numero&&!r.t.scadenza),ok:r=>r.t&&(r.t.numero||r.t.scadenza)&&!alertRow(r)};
-  const list=all.filter(r=>(!t||[nameOf(r),r.t&&r.t.numero,r.t&&r.t.ente].filter(Boolean).join(' ').toLowerCase().includes(t))&&(ok[flt]||ok.all)(r));
+  const list=all.filter(r=>(!t||[nameOf(r),r.t&&r.t.numero,r.t&&r.t.ente,r.tec&&sumTes(tesOf(r.id))].filter(Boolean).join(' ').toLowerCase().includes(t))&&(who==='all'||(who==='tec')===!!r.tec)&&(ok[flt]||ok.all)(r));
   list.sort((a,b)=>(alertRow(b)-alertRow(a))||(alertRow(a)&&alertRow(b)?minG(a)-minG(b):0)||nameOf(a).localeCompare(nameOf(b),'it'));
   return {all,list,ok}}
 
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const {all,list,ok}=filtered();
-  ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="alert" ${flt==='alert'?'selected':''}>In scadenza o scadute (${all.filter(ok.alert).length})</option><option value="senza" ${flt==='senza'?'selected':''}>Senza tessera (${all.filter(ok.senza).length})</option><option value="ok" ${flt==='ok'?'selected':''}>Regolari (${all.filter(ok.ok).length})</option></select></div>`+
+  ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="alert" ${flt==='alert'?'selected':''}>In scadenza o scadute (${all.filter(ok.alert).length})</option><option value="senza" ${flt==='senza'?'selected':''}>Senza tessera (${all.filter(ok.senza).length})</option><option value="ok" ${flt==='ok'?'selected':''}>Regolari (${all.filter(ok.ok).length})</option></select><select id="fw" aria-label="Atleti o tecnici"><option value="all" ${who==='all'?'selected':''}>Atleti e tecnici</option><option value="atl" ${who==='atl'?'selected':''}>Solo atleti</option><option value="tec" ${who==='tec'?'selected':''}>Solo tecnici</option></select></div>`+
   (list.length?list.map(r=>{
     const t=r.t,has=t&&(t.numero||t.scadenza);
-    return `<button class="tr${alertRow(r)?' alarm':''}" data-id="${esc(r.id)}" aria-label="Apri la scheda di ${esc(nameOf(r))}"><div class="inf"><div><b>${esc(nameOf(r))}</b></div><div class="mu">${has?esc([t.ente,t.numero&&'n. '+t.numero].filter(Boolean).join(' · ')||'Tessera'):'Senza tessera'}</div></div><div class="chips">${has?chip('Tessera',t.scadenza)+chip('Certificato',t.certScad):'<span class="chip">Senza tessera</span>'}</div></button>`}).join(''):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun atleta: aggiungili dalla sezione Atleti.'}</div>`);
+    return `<button class="tr${alertRow(r)?' alarm':''}" data-id="${esc(r.id)}" aria-label="Apri la scheda di ${esc(nameOf(r))}"><div class="inf"><div><b>${esc(nameOf(r))}</b>${r.tec?'<span class="gr">Tecnico</span>':''}</div><div class="mu">${has?esc([t.ente,t.numero&&'n. '+t.numero].filter(Boolean).join(' · ')||'Tessera'):'Senza tessera'}${r.tec&&tesOf(r.id).length?' · '+esc(sumTes(tesOf(r.id))):''}</div></div><div class="chips">${has?chip('Tessera',t.scadenza)+chip('Certificato',t.certScad):'<span class="chip">Senza tessera</span>'}${r.tec?tesOf(r.id).filter(z=>isD(z.scadenza)).map(z=>chip('Tesserino',z.scadenza)).join(''):''}</div></button>`}).join(''):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun atleta o tecnico: aggiungili dalle sezioni Atleti e Tecnici.'}</div>`);
   $('#fs').onchange=e=>{flt=e.target.value;renderList()};
+  $('#fw').onchange=e=>{who=e.target.value;renderList()};
+  if(pendOpen&&rows().some(r=>r.id===pendOpen)){const k=pendOpen;pendOpen='';openDetail(k)}
   paintDetail()}
 
 /* Un file di tessera o di certificato non si cancella mai: va in Archivio (tipologia "Tessere" o "Certificati medici"), da conservare 10 anni.
@@ -135,6 +141,87 @@ async function archFile(f,r,ruolo,motivo){
   const t=r.t||{},nome=nameOf(r),isT=ruolo==='tessera';
   const dati=isT?['Tessera',t.ente,t.tipoTessera,t.numero&&'n. '+t.numero,isD(t.scadenza)&&'scadenza '+fmtD(t.scadenza)]:['Certificato medico',t.certTipo,isD(t.certScad)&&'scadenza '+fmtD(t.certScad)];
   await archiviaFile(db,f,SEC,{tipo:isT?'Tessere':'Certificati medici',origine:'Tessere / '+nome,note:nome+' · '+dati.filter(Boolean).join(' · '),motivo})}
+
+/* ---------- tesserini dei tecnici: albo cinture nere, albo qualifiche, altre qualifiche ---------- */
+async function archTes(f,z,r,motivo){
+  if(!f)return;
+  await archiviaFile(db,f,SEC,{tipo:'Tesserini',origine:'Tessere / '+nameOf(r),note:nameOf(r)+' · '+tesName(z)+(z.righe&&z.righe.length?' · '+z.righe.map(rigaBreve).join(', '):''),motivo})}
+function tesBlock(r,w){
+  const L=tesOf(r.id);
+  const card=z=>{const f=fileOf(z.tesFile),k=esc(z.id);
+    return `<div class="card" style="margin:8px 0;padding:10px 12px"><div class="fh"><b>${esc(tesName(z))}</b>${isD(z.scadenza)?chip('Tesserino',z.scadenza):''}</div>
+    ${(z.righe||[]).length?`<dl>${z.righe.map(x=>`<dt>${esc([x.sport,x.settore&&'settore '+x.settore].filter(Boolean).join(' · ')||'—')}</dt><dd>${x.livello?esc(x.livello):'<span class="mu">—</span>'}</dd>`).join('')}</dl>`:''}
+    ${z.numero||z.ente?`<div class="mu">${esc([z.ente,z.numero&&'n. '+z.numero].filter(Boolean).join(' · '))}</div>`:''}
+    ${f?`<div class="fr"><span class="mu">${esc(f.title)}</span><button class="btn sm" data-a="tg" data-k="${k}">Scarica</button><button class="btn ghost sm" data-a="tf" data-k="${k}">Apri</button></div>`:''}
+    ${z.nota?`<div class="mu" style="white-space:pre-wrap;margin-top:4px">${esc(z.nota)}</div>`:''}
+    ${w?`<div class="dact" style="margin-top:6px"><button class="btn ghost sm" data-a="td" data-k="${k}">Elimina</button><button class="btn ghost sm" data-a="te" data-k="${k}">Modifica</button></div>`:''}</div>`};
+  return `<h3>Tesserini e qualifiche</h3>${L.length?L.map(card).join(''):'<div class="mu" style="margin-top:4px">Nessun tesserino.</div>'}${w?'<div style="margin-top:6px"><button class="btn sm" data-a="tn">+ Aggiungi tesserino o qualifica</button></div>':''}`}
+async function delTesserino(r,z){
+  if(!z)return;
+  const f=fileOf(z.tesFile);
+  if(!confirm('Eliminare «'+tesName(z)+'» di '+nameOf(r)+'? '+(f?'Il file caricato non viene cancellato: va in Archivio, da conservare 10 anni.':'I dati scritti vengono eliminati.')))return;
+  await archTes(f,z,r,'tesserino eliminato');
+  await deleteDoc(doc(db,'sections',SEC,'items',z.id))}
+function openTesserino(r,z){
+  const z0=z||{},fOld=fileOf(z0.tesFile);let savedId=z0.id||'';
+  const tuttiT=items.filter(i=>i.kind==='tesserino');
+  const sports=[...new Set(['Judo','Jiu Jutsu','Lotta','Karate',...tuttiT.flatMap(i=>(i.righe||[]).map(x=>x.sport))].filter(Boolean))];
+  const settori=[...new Set(tuttiT.flatMap(i=>(i.righe||[]).map(x=>x.settore)).filter(Boolean))];
+  const body=`<fieldset><legend>Tecnico</legend><div style="margin-top:8px"><b>${esc(nameOf(r))}</b></div><div class="mu">L’anagrafica è quella della scheda Tecnici.</div></fieldset>
+    <fieldset><legend>Tesserino</legend>
+      <label for="tb">Tipo</label><select id="tb"><option value="cinture">Albo cinture nere</option><option value="qualifiche">Albo qualifiche</option><option value="altra">Altra qualifica (es. Mental Coach)</option></select>
+      <div id="alw" hidden><label for="an">Nome della qualifica</label><input id="an" type="text" autocomplete="off" placeholder="es. Mental Coach, Insegnante ADHD e asperger" value="${esc(z0.altraNome||'')}"></div>
+      <label for="tfl">Copia del tesserino (foto o PDF)${fOld?' — sostituisce quella attuale (che va in Archivio)':''}</label><input id="tfl" type="file" accept="image/*,application/pdf">
+      ${fOld?`<div class="ocr">Caricata: ${esc(fOld.title)}.</div><label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="trm" style="width:auto;min-height:0"> Togli il file caricato (va in Archivio)</label>`:''}
+      <div class="two"><div><label for="ten">Ente / federazione</label><input id="ten" type="text" list="le" autocomplete="off" value="${esc(z0.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="tnu">Numero tesserino</label><input id="tnu" type="text" autocomplete="off" value="${esc(z0.numero||'')}"></div></div>
+      <div class="two"><div><label for="tem">Data emissione (facoltativa)</label><input id="tem" type="date" value="${esc(z0.emissione||'')}"></div><div><label for="tsc">Scadenza (facoltativa)</label><input id="tsc" type="date" value="${esc(z0.scadenza||'')}"></div></div>
+    </fieldset>
+    <fieldset><legend>Sport, settore e livello</legend>
+      <div class="mu" style="margin-top:6px">Un tesserino con più sport: aggiungi una riga per ognuno. Tesserini diversi (es. Judo e Jiu Jutsu): salvane uno per volta.</div>
+      <div id="rg"></div><button type="button" class="btn ghost sm" id="ra" style="margin-top:8px">+ Aggiungi sport</button>
+      <datalist id="sl">${sports.map(v=>`<option value="${esc(v)}">`).join('')}</datalist><datalist id="ss">${settori.map(v=>`<option value="${esc(v)}">`).join('')}</datalist>
+    </fieldset>
+    <label for="tnt">Note</label><textarea id="tnt">${esc(z0.nota||'')}</textarea>`;
+  const o=modal(z?'Modifica tesserino':'Nuovo tesserino',body,{onSave:async(o,er)=>{
+    const g=id=>(o.querySelector('#'+id)||{value:''}).value.trim();
+    const albo=g('tb'),altraNome=g('an');
+    if(albo==='altra'&&!altraNome){er.textContent='Scrivi il nome della qualifica.';return false}
+    const righe=[...o.querySelectorAll('[data-r]')].map(e=>{const f=k=>e.querySelector('[data-f="'+k+'"]').value.trim();return {sport:f('sport'),settore:f('settore'),livello:f('livello')}}).filter(x=>x.sport||x.settore||x.livello);
+    if(albo!=='altra'&&(!righe.length||righe.some(x=>!x.sport||!x.livello))){er.textContent='Per ogni riga indica lo sport e '+(albo==='cinture'?'il grado (es. 4° Dan)':'la qualifica (es. Istruttore)')+'.';return false}
+    const v={ente:g('ten'),numero:g('tnu').toUpperCase(),emissione:g('tem'),scadenza:g('tsc'),nota:g('tnt')};
+    for(const [k,l] of [['emissione','La data di emissione'],['scadenza','La scadenza']])if(v[k]&&!isD(v[k])){er.textContent=l+' non è valida.';return false}
+    if(v.emissione&&v.scadenza&&v.emissione>v.scadenza){er.textContent='La scadenza è prima dell’emissione.';return false}
+    const nf=o.querySelector('#tfl').files[0];
+    if(nf&&nf.size>arch.maxBytes()){er.textContent='“'+nf.name+'” supera il limite di '+limiteMB()+' MB.';return false}
+    if(nf&&!canUpload())return false;
+    const nome0=tesName({albo,altraNome}),data={...v,kind:'tesserino',tecnico:r.id,nome:r.nome,cognome:r.cognome,albo,altraNome:albo==='altra'?altraNome:'',righe,fb:true,
+      title:nome0+' · '+nameOf(r),note:[nome0,righe.map(rigaBreve).join(', '),v.ente,v.numero&&'n. '+v.numero].filter(Boolean).join(' · ').slice(0,300)};
+    if(savedId)await updateDoc(doc(db,'sections',SEC,'items',savedId),data);
+    else savedId=(await addDoc(col,{...data,by:uid,at:serverTimestamp()})).id;
+    const ref=doc(db,'sections',SEC,'items',savedId);
+    try{
+      if(nf){
+        er.textContent='Caricamento del tesserino…';
+        const fid=await arch.save(nf,{tesTec:r.id,ruolo:'tesserino',fb:true},p=>{er.textContent='Caricamento del tesserino '+p+'%'});
+        await updateDoc(ref,{tesFile:fid});if(fOld)await archTes(fOld,z0,r,'sostituito da un file nuovo')}
+      else if(fOld&&(o.querySelector('#trm')||{}).checked){await archTes(fOld,z0,r,'tolto dalla scheda');await updateDoc(ref,{tesFile:''})}
+    }catch(e){console.error(e);er.textContent='Dati salvati, ma il file non è stato caricato ('+arch.errText(e)+'). Riprova da Modifica.';return false}}});
+  const tb=o.querySelector('#tb'),rg=o.querySelector('#rg');
+  tb.value=z0.albo||'cinture';
+  const lv=()=>{
+    o.querySelector('#alw').hidden=tb.value!=='altra';
+    rg.querySelectorAll('[data-lv]').forEach(e=>e.textContent=livelloEtichetta(tb.value));
+    rg.querySelectorAll('[data-f="livello"]').forEach(e=>{e.placeholder=livelloEsempio(tb.value);e.setAttribute('aria-label',livelloEtichetta(tb.value))})};
+  const add=x=>{
+    const d=document.createElement('div');d.setAttribute('data-r','');d.style.cssText='border:1px solid var(--bd,#cfd6e4);border-radius:10px;padding:8px 10px;margin-top:8px';
+    d.innerHTML=`<div class="two"><div><label>Sport</label><input type="text" data-f="sport" list="sl" autocomplete="off" aria-label="Sport" value="${esc(x.sport||'')}"></div><div><label>Settore (facoltativo)</label><input type="text" data-f="settore" list="ss" autocomplete="off" aria-label="Settore" value="${esc(x.settore||'')}"></div></div>
+      <label data-lv></label><input type="text" data-f="livello" autocomplete="off" value="${esc(x.livello||'')}">
+      <button type="button" class="btn ghost sm" data-rm style="margin-top:6px">Togli questo sport</button>`;
+    d.querySelector('[data-rm]').onclick=()=>{if(rg.children.length>1){d.remove()}else{d.querySelectorAll('input').forEach(i=>i.value='')}};
+    rg.append(d);lv()};
+  (z0.righe&&z0.righe.length?z0.righe:[{}]).forEach(add);
+  tb.onchange=lv;lv();
+  o.querySelector('#ra').onclick=()=>add({})}
 
 /* ---------- scheda dell'atleta ---------- */
 function openDetail(id){
@@ -151,12 +238,16 @@ function openDetail(id){
     const a=b.dataset.a;
     try{
       if(a==='x')close();
+      else if(a==='tn'&&perm()==='w'){openTesserino(r,null)}
+      else if(a==='te'&&perm()==='w'){openTesserino(r,items.find(i=>i.id===b.dataset.k&&i.kind==='tesserino'))}
+      else if(a==='td'&&perm()==='w'){await delTesserino(r,items.find(i=>i.id===b.dataset.k&&i.kind==='tesserino'))}
+      else if(a==='tf'||a==='tg'){const z=items.find(i=>i.id===b.dataset.k&&i.kind==='tesserino'),f=z&&fileOf(z.tesFile);if(f){if(a==='tg')await download(f);else showPreview({title:f.title,mime:f.mime,load:say=>arch.getBlob(f,say),errText:x=>'Impossibile aprire il file: '+arch.errText(x)})}}
       else if(a==='edit'&&perm()==='w'){openEdit(r)}
       else if(a==='dt'||a==='dc'){const f=fileOf(a==='dt'?r.t.tesFile:r.t.certFile);if(f)await download(f)}
       else if(a==='ot'||a==='oc'){const f=fileOf(a==='ot'?r.t.tesFile:r.t.certFile);if(f)showPreview({title:f.title,mime:f.mime,load:say=>arch.getBlob(f,say),errText:x=>'Impossibile aprire il file: '+arch.errText(x)})}
       else if(a==='del'&&perm()==='w'){
         const ft=fileOf(r.t&&r.t.tesFile),fc=fileOf(r.t&&r.t.certFile);
-        if(!confirm('Eliminare la tessera e il certificato di '+nameOf(r)+'? '+(ft||fc?'I file caricati non vengono cancellati: vanno in Archivio, da conservare 10 anni.':'Non ci sono file caricati da archiviare: i dati scritti vengono eliminati.')+' L’atleta resta in elenco.'))return;
+        if(!confirm('Eliminare la tessera e il certificato di '+nameOf(r)+'? '+(ft||fc?'I file caricati non vengono cancellati: vanno in Archivio, da conservare 10 anni.':'Non ci sono file caricati da archiviare: i dati scritti vengono eliminati.')+(r.tec?' Il tecnico resta in elenco.':' L’atleta resta in elenco.')))return;
         await archFile(ft,r,'tessera','scheda eliminata');await archFile(fc,r,'certificato','scheda eliminata');
         await deleteDoc(doc(db,'sections',SEC,'items',r.id));close()}
     }catch(x){console.error(x);alert('Operazione non riuscita. Controlla la connessione e i permessi.')}});
@@ -172,10 +263,11 @@ function paintDetail(){
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?v:'<span class="mu">—</span>'}</dd>`;
   const ft=t&&fileOf(t.tesFile),fc=t&&fileOf(t.certFile);
   const fbox=(f,ko,kd)=>f?`<div class="fr"><span class="mu">${esc(f.title)}</span><button class="btn sm" data-a="${kd}">Scarica</button><button class="btn ghost sm" data-a="${ko}">Apri</button></div>`:'<div class="mu" style="margin-top:4px">Nessun file caricato.</div>';
-  c.innerHTML=`<h2 style="margin:0">${esc(nameOf(r))}</h2>
+  c.innerHTML=`<h2 style="margin:0">${esc(nameOf(r))}${r.tec?'<span class="gr">Tecnico</span>':''}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${t?chip('Tessera',t.scadenza)+chip('Certificato',t.certScad):'<span class="chip">Senza tessera</span>'}</div>
-    <h3>Tessera</h3><dl>${dd('Ente / federazione',esc(t&&t.ente||''))}${dd('Numero tessera (ID atleta)',esc(t&&t.numero||''))}${dd('Tipo di tessera',esc(t&&t.tipoTessera||''))}${dd('Stagione',esc(t&&t.stagione||''))}${dd('Data emissione',t&&isD(t.emissione)?esc(fmtD(t.emissione)):'')}${dd('Scadenza',t&&isD(t.scadenza)?esc(fmtD(t.scadenza)):'')}${dd('Associazione',esc(t&&t.associazione||''))}${dd('Qualifica',esc(t&&t.qualifica||''))}${dd('Sport',esc(t&&t.sport||''))}${dd('Comitato',esc(t&&t.comitato||''))}${dd('Codice affiliazione',esc(t&&t.codAff||''))}${dd('Codice fiscale',esc(t&&t.cf||''))}</dl>${fbox(ft,'ot','dt')}
+    <h3>Tessera</h3><dl>${dd('Ente / federazione',esc(t&&t.ente||''))}${dd('Numero tessera (ID '+(r.tec?'tecnico':'atleta')+')',esc(t&&t.numero||''))}${dd('Tipo di tessera',esc(t&&t.tipoTessera||''))}${dd('Stagione',esc(t&&t.stagione||''))}${dd('Data emissione',t&&isD(t.emissione)?esc(fmtD(t.emissione)):'')}${dd('Scadenza',t&&isD(t.scadenza)?esc(fmtD(t.scadenza)):'')}${dd('Associazione',esc(t&&t.associazione||''))}${dd('Qualifica',esc(t&&t.qualifica||''))}${dd('Sport',esc(t&&t.sport||''))}${dd('Comitato',esc(t&&t.comitato||''))}${dd('Codice affiliazione',esc(t&&t.codAff||''))}${dd('Codice fiscale',esc(t&&t.cf||''))}</dl>${fbox(ft,'ot','dt')}
     <h3>Certificato medico</h3><dl>${dd('Tipo',esc(t&&t.certTipo||''))}${dd('Scadenza',t&&isD(t.certScad)?esc(fmtD(t.certScad)):'')}</dl>${fbox(fc,'oc','dc')}
+    ${r.tec?tesBlock(r,w):''}
     ${t&&t.nota?`<h3>Note</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(t.nota)}</div>`:''}
     <div class="dact">${w?`${t?'<button class="btn ghost" data-a="del">Elimina</button>':''}<button class="btn ghost" data-a="edit">${t?'Modifica / sostituisci':'Aggiungi tessera'}</button>`:''}<button class="btn" data-a="x">Chiudi</button></div>`}
 
@@ -187,16 +279,17 @@ function canUpload(){
   return true}
 function openEdit(r){
   const t=r.t||{},ftOld=fileOf(t.tesFile),fcOld=fileOf(t.certFile);
+  const optT=tec.filter(a=>a.nome||a.cognome).sort((a,b)=>((a.cognome||'')+(a.nome||'')).localeCompare((b.cognome||'')+(b.nome||''),'it'));
   const optA=atl.filter(a=>a.nome||a.cognome).sort((a,b)=>((a.cognome||'')+(a.nome||'')).localeCompare((b.cognome||'')+(b.nome||''),'it'));
-  const body=`<fieldset><legend>Atleta</legend>
-      ${r.id?`<div style="margin-top:8px"><b>${esc(nameOf(r))}</b></div>`:`<label for="ta">Atleta</label><select id="ta"><option value=""></option>${optA.map(a=>`<option value="${esc(a.id)}">${esc(((a.cognome||'')+' '+(a.nome||'')).trim())}</option>`).join('')}${canNewAtl()?'<option value="__new">+ Nuovo atleta…</option>':''}</select>
+  const body=`<fieldset><legend>${r.id?(r.tec?'Tecnico':'Atleta'):'Atleta o tecnico'}</legend>
+      ${r.id?`<div style="margin-top:8px"><b>${esc(nameOf(r))}</b></div>`:`<label for="ta">Atleta o tecnico</label><select id="ta"><option value=""></option><optgroup label="Atleti">${optA.map(a=>`<option value="${esc(a.id)}">${esc(((a.cognome||'')+' '+(a.nome||'')).trim())}</option>`).join('')}</optgroup>${optT.length?`<optgroup label="Tecnici">${optT.map(a=>`<option value="${esc(a.id)}">${esc(((a.cognome||'')+' '+(a.nome||'')).trim())}</option>`).join('')}</optgroup>`:''}${canNewAtl()?'<option value="__new">+ Nuovo atleta…</option>':''}</select>
       <div id="nw" hidden class="two"><div><label for="nc">Cognome</label><input id="nc" type="text" autocomplete="off"></div><div><label for="nn">Nome</label><input id="nn" type="text" autocomplete="off"></div></div>`}
     </fieldset>
     <fieldset><legend>Tessera</legend>
       <label for="ft">Copia della tessera (foto o PDF)${ftOld?' — sostituisce quella attuale (che va in Archivio)':''}</label><input id="ft" type="file" accept="image/*,application/pdf">
       <div class="ocr" id="ot">${ftOld?'Caricata: '+esc(ftOld.title)+'.':'Con una foto o un PDF i dati si compilano da soli: poi controllali.'}</div>
       ${ftOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rt" style="width:auto;min-height:0"> Togli la tessera caricata (va in Archivio)</label>':''}
-      <div class="two"><div><label for="en">Ente / federazione</label><input id="en" type="text" list="le" autocomplete="off" value="${esc(t.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="nu">Numero tessera (ID atleta)</label><input id="nu" type="text" autocomplete="off" value="${esc(t.numero||'')}"></div></div>
+      <div class="two"><div><label for="en">Ente / federazione</label><input id="en" type="text" list="le" autocomplete="off" value="${esc(t.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="nu">Numero tessera (ID)</label><input id="nu" type="text" autocomplete="off" value="${esc(t.numero||'')}"></div></div>
       <div class="two"><div><label for="tp">Tipo di tessera</label><input id="tp" type="text" autocomplete="off" value="${esc(t.tipoTessera||'')}"></div><div><label for="sg">Stagione</label><input id="sg" type="text" autocomplete="off" placeholder="es. 25/26" value="${esc(t.stagione||'')}"></div></div>
       <div class="two"><div><label for="em">Data emissione / rilascio</label><input id="em" type="date" value="${esc(t.emissione||'')}"></div><div><label for="sc">Scadenza tessera</label><input id="sc" type="date" value="${esc(t.scadenza||'')}"></div></div>
       <label for="as">Associazione</label><input id="as" type="text" autocomplete="off" value="${esc(t.associazione||'')}">
@@ -213,14 +306,14 @@ function openEdit(r){
     <label for="nt">Note</label><textarea id="nt">${esc(t.nota||'')}</textarea>`;
   const o=modal(t.numero||t.scadenza?'Modifica tessera':'Nuova tessera',body,{onSave:async(o,er)=>{
     const g=id=>(o.querySelector('#'+id)||{value:''}).value.trim();
-    let aid=r.id,nome=r.nome,cognome=r.cognome;
+    let aid=r.id,nome=r.nome,cognome=r.cognome,isTec=!!r.tec;
     if(!aid){
       const sel=g('ta');
       if(!sel){er.textContent='Scegli l’atleta.';return false}
       if(sel==='__new'){
         cognome=title(g('nc'));nome=title(g('nn'));
         if(!cognome||!nome){er.textContent='Inserisci cognome e nome del nuovo atleta.';return false}
-      }else{const a=atl.find(x=>x.id===sel);aid=sel;nome=a.nome||'';cognome=a.cognome||a.title||''}}
+      }else{const a=atl.find(x=>x.id===sel)||tec.find(x=>x.id===sel);isTec=!atl.some(x=>x.id===sel);aid=sel;nome=a.nome||'';cognome=a.cognome||a.title||''}}
     const v={ente:g('en'),numero:g('nu').toUpperCase(),tipoTessera:g('tp'),stagione:g('sg'),emissione:g('em'),scadenza:g('sc'),associazione:g('as'),qualifica:g('ql'),sport:g('sp').toUpperCase(),comitato:g('cm'),codAff:g('ca'),cf:g('cf').toUpperCase().replace(/\s+/g,''),certTipo:g('ct'),certScad:g('cd'),nota:g('nt')};
     for(const [k,l] of [['emissione','La data di emissione'],['scadenza','La scadenza della tessera'],['certScad','La scadenza del certificato']])if(v[k]&&!isD(v[k])){er.textContent=l+' non è valida.';return false}
     if(v.emissione&&v.scadenza&&v.emissione>v.scadenza){er.textContent='La scadenza della tessera è prima dell’emissione.';return false}
@@ -232,7 +325,7 @@ function openEdit(r){
       const a=await addDoc(collection(db,'sections','atleti','items'),{nome,cognome,title:cognome+' '+nome,note:'',fb:false,test:[],medaglie:[],by:uid,at:serverTimestamp()});
       aid=a.id}
     const ref=doc(db,'sections',SEC,'items',aid),ex=items.find(i=>i.id===aid&&i.kind==='tessera');
-    const data={...v,kind:'tessera',atleta:aid,nome,cognome,title:cognome+' '+nome,fb:true,
+    const data={...v,kind:'tessera',atleta:aid,soggetto:isTec?'tecnico':'atleta',nome,cognome,title:cognome+' '+nome,fb:true,
       note:[v.ente,v.tipoTessera,v.numero&&'n. '+v.numero,v.associazione,v.scadenza&&'scade '+fmtD(v.scadenza)].filter(Boolean).join(' · ')};
     if(ex)await updateDoc(ref,data);else await setDoc(ref,{...data,by:uid,at:serverTimestamp()});
     /* file: il nuovo sostituisce il vecchio (che viene tolto solo dopo il caricamento riuscito) */
@@ -258,7 +351,7 @@ function openEdit(r){
     try{
       const text=await ocr(f,say),set=(id,val)=>{if(val)o.querySelector('#'+id).value=val},got=[],avv=[];
       if(kind==='t'){
-        const p=parseTessera(text,atl);
+        const p=parseTessera(text,atl.concat(tec));
         [['en',p.ente,'ente'],['nu',p.numero,'numero'],['tp',p.tipoTessera,'tipo'],['sg',p.stagione,'stagione'],['em',p.emissione,'emissione'],['sc',p.scadenza,'scadenza'],['as',p.associazione,'associazione'],['ql',p.qualifica,'qualifica'],['sp',p.sport,'sport'],['cm',p.comitato,'comitato'],['ca',p.codAff,'codice affiliazione'],['cf',p.cf,'codice fiscale']].forEach(([id,v,l])=>{if(v){set(id,v);got.push(l)}});
         if(ta){
           if(p.atleta){ta.value=p.atleta;ta.onchange();got.push('atleta')}
@@ -277,14 +370,14 @@ function openEdit(r){
 /* ---------- CSV e PDF della lista ---------- */
 function tabella(){
   const {list}=filtered();
-  const head=['Cognome','Nome','ID tessera','Ente','Emissione','Scadenza tessera','Stato tessera','Tipo certificato','Scadenza certificato','Stato certificato'];
-  const body=list.map(r=>{const t=r.t||{};return [r.cognome,r.nome,t.numero||'',t.ente||'',isD(t.emissione)?fmtD(t.emissione):'',isD(t.scadenza)?fmtD(t.scadenza):'',stTxt(t.scadenza),t.certTipo||'',isD(t.certScad)?fmtD(t.certScad):'',stTxt(t.certScad)]});
+  const head=['Cognome','Nome','Ruolo','ID tessera','Ente','Emissione','Scadenza tessera','Stato tessera','Tipo certificato','Scadenza certificato','Stato certificato','Tesserini'];
+  const body=list.map(r=>{const t=r.t||{};return [r.cognome,r.nome,r.tec?'Tecnico':'Atleta',t.numero||'',t.ente||'',isD(t.emissione)?fmtD(t.emissione):'',isD(t.scadenza)?fmtD(t.scadenza):'',stTxt(t.scadenza),t.certTipo||'',isD(t.certScad)?fmtD(t.certScad):'',stTxt(t.certScad),r.tec?sumTes(tesOf(r.id)):'']});
   return {head,body}}
 const stamp=()=>{const n=new Date();return n.getFullYear()+'-'+p2(n.getMonth()+1)+'-'+p2(n.getDate())};
 function exportCsv(){
   const {head,body}=tabella();
   const t='\ufeff'+[head,...body].map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')).join('\r\n');
-  saveBlob(new Blob([t],{type:'text/csv;charset=utf-8'}),'Tessere atleti '+stamp()+'.csv')}
+  saveBlob(new Blob([t],{type:'text/csv;charset=utf-8'}),'Tessere atleti e tecnici '+stamp()+'.csv')}
 async function exportPdf(){
   const {head,body}=tabella(),b=$('#pdf');b.disabled=true;const old=b.textContent;b.textContent='Preparazione…';
   try{
@@ -292,10 +385,10 @@ async function exportPdf(){
     if(!(window.jspdf.jsPDF.API&&window.jspdf.jsPDF.API.autoTable))await loadJs('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
     const d=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
     d.setFontSize(14);d.text('Yanagi Academy – Tessere e certificati medici',40,38);
-    d.setFontSize(9);d.text('Aggiornato al '+fmtD(stamp())+' · '+body.length+' atleti',40,54);
+    d.setFontSize(9);d.text('Aggiornato al '+fmtD(stamp())+' · '+body.length+' persone',40,54);
     d.autoTable({head:[head],body,startY:66,styles:{fontSize:8,cellPadding:3},headStyles:{fillColor:[27,42,74]},
-      didParseCell:h=>{if(h.section==='body'&&(h.column.index===6||h.column.index===9)){const v=String(h.cell.raw);if(v==='Scaduta'||v.startsWith('In scadenza')){h.cell.styles.textColor=[200,30,30];h.cell.styles.fontStyle='bold'}}}});
-    saveBlob(d.output('blob'),'Tessere atleti '+stamp()+'.pdf');
+      didParseCell:h=>{if(h.section==='body'&&(h.column.index===7||h.column.index===10)){const v=String(h.cell.raw);if(v==='Scaduta'||v.startsWith('In scadenza')){h.cell.styles.textColor=[200,30,30];h.cell.styles.fontStyle='bold'}}}});
+    saveBlob(d.output('blob'),'Tessere atleti e tecnici '+stamp()+'.pdf');
   }catch(e){console.error(e);alert('Non riesco a creare il PDF (serve la connessione a internet). Puoi usare “Scarica CSV”.')}
   b.disabled=false;b.textContent=old}
 
@@ -315,7 +408,8 @@ else{
         started=true;
         unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
         /* la lista degli atleti viene dalla sezione Atleti (se non hai accesso a quella, restano gli atleti che hanno già una tessera) */
-        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{atl=[];renderList()}))}
+        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{atl=[];renderList()}));
+        unsubs.push(onSnapshot(collection(db,'sections','tecnici','items'),s=>{tec=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{tec=[];renderList()}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });

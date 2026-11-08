@@ -78,6 +78,8 @@ export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],rubrica=
       if(passato&&g>=-CATCHUP_MAX_RITARDO)
         out.push({key:`a:${aid}:${campo}:${date}:c`,tipo:'atleta',peer:h,when:null,
           text:`Ciao${fam?'':nome?' '+nome:''}, ${fam?la+' di '+(nomi[aid]||nome):tuo} ${g<0?'è scaduto/a il '+fmtD(date)+' (da '+(-g)+(g===-1?' giorno':' giorni')+')':g===0?'scade oggi ('+fmtD(date)+')':'scade il '+fmtD(date)+' ('+(g===1?'domani':'tra '+g+' giorni')+')'}. Ricordati di rinnovarlo/a e di aggiornarlo nell’app.${FIRMA}`})}}
+  /* tesserini dei tecnici con scadenza: solo nel riepilogo dell'admin */
+  for(const t of tessere){if(t.kind==='tesserino'&&isD(t.scadenza))adm.push({label:'🥋 Tesserino '+(t.title||'di un tecnico'),date:t.scadenza})}
   /* --- elementi per l'admin --- */
   for(const d of documenti){if(d.kind==='file'&&!d.archiviatoIl&&isD(d.scadenza))adm.push({label:'📄 '+(d.title||'Documento'),date:d.scadenza})}
   for(const e of eventi){

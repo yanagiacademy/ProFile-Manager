@@ -243,7 +243,7 @@ function alertsHtml(){
   const a=[];
   if(perm('Documenti in scadenza')!=='n'){const n=count('Documenti in scadenza');if(n)a.push(['Documenti in scadenza',n+(n===1?' documento in scadenza':' documenti in scadenza')])}
   if(perm('Atleti')!=='n'){const n=(items.atleti||[]).filter(testDaFare).length;if(n)a.push(['Atleti',n+(n===1?' atleta con test da fare':' atleti con test da fare')])}
-  if(perm('Tessere')!=='n'){const n=(items.tessere||[]).filter(tesseraAlert).length;if(n)a.push(['Tessere',n+(n===1?' atleta con tessera o certificato in scadenza':' atleti con tessera o certificato in scadenza')])}
+  if(perm('Tessere')!=='n'){const n=(items.tessere||[]).filter(tesseraAlert).length;if(n)a.push(['Tessere',n+(n===1?' tessera, certificato o tesserino in scadenza':' tra tessere, certificati e tesserini in scadenza')])}
   if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(perm('Archivio')!=='n'){const k=[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
   if(me.admin&&bkDaFare())a.push(['Backup',bk===null?'Nessun backup eseguito finora':'Ultimo backup '+giorniDa(bk)+' giorni fa']);
