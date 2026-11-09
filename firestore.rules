@@ -78,27 +78,75 @@ service cloud.firestore {
         && (get(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())).data.atleta == aid
             || get(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())).data.get('atleti', []).hasAny([aid]));
     }
+    /* Tecnici: stessa logica degli atleti. tecniciMail/<idTecnico> = email (solo admin);
+       tecniciEmail/<email in minuscolo> = {tecnici: [id, …]} la scrive l'admin dalla scheda Tecnici; l'account legge solo la chiave uguale alla propria email. */
+    match /tecniciMail/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /tecniciEmail/{k} {
+      allow get: if isAdmin() || (signedIn() && request.auth.token.email.lower() == k);
+      allow list, write: if isAdmin();
+    }
+    function mioTecnico(tid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/tecniciEmail/$(request.auth.token.email.lower()))
+        && get(/databases/$(database)/documents/tecniciEmail/$(request.auth.token.email.lower())).data.get('tecnici', []).hasAny([tid]);
+    }
+    /* la persona (atleta o tecnico) collegata all'account */
+    function mio(id) { return mioAtleta(id) || mioTecnico(id); }
+    /* tecniciTes/<idTecnico> = copia dei tesserini del tecnico (la scrive l'admin): serve al tecnico per leggere i propri tesserini */
+    match /tecniciTes/{id} {
+      allow read: if isAdmin() || mioTecnico(id);
+      allow write: if isAdmin() || (hasAccount() && level('tessere') == 'w');
+    }
+
     /* Dati personali dell'atleta: atletiDati = copia dei soli campi che l'atleta può vedere e modificare (la scrive l'admin);
        atletiModifiche = modifiche proposte dall'atleta (solo i campi della lista), che l'admin conferma o scarta. */
     match /atletiDati/{id} {
-      allow read: if isAdmin() || mioAtleta(id);
-      allow write: if isAdmin() || (hasAccount() && level('atleti') == 'w');
+      allow read: if isAdmin() || mio(id);
+      allow write: if isAdmin() || (hasAccount() && (level('atleti') == 'w' || level('tecnici') == 'w'));
     }
     match /atletiModifiche/{id} {
-      allow read: if isAdmin() || mioAtleta(id);
-      allow create, update: if isAdmin() || (mioAtleta(id)
+      allow read: if isAdmin() || mio(id);
+      allow create, update: if isAdmin() || (mio(id)
         && request.resource.data.keys().hasOnly(['campi', 'at', 'by'])
         && request.resource.data.by == request.auth.uid
-        && request.resource.data.campi.keys().hasOnly(['nome', 'cognome', 'sesso', 'anno', 'peso', 'altezza', 'richieste', 'obiettivi', 'infortuni']));
-      allow delete: if isAdmin() || mioAtleta(id);
+        && request.resource.data.campi.keys().hasOnly(['nome', 'cognome', 'sesso', 'anno', 'peso', 'altezza', 'grado', 'categoria', 'allenatore', 'tipo', 'kumi', 'tachi', 'ne', 'richieste', 'obiettivi', 'infortuni', 'nascita', 'cf', 'info']));
+      allow delete: if isAdmin() || mio(id);
+    }
+
+    /* Richieste di atleti e tecnici: file (tessera, certificato medico, tesserino) con i dati che li accompagnano, in attesa dell'admin.
+       richieste/<id> = {soggetto, ruolo, tipo, tes, campi:{…}, file:{nome,size,mime,chunks}, by, at, completa}; i blocchi del file stanno in richieste/<id>/chunks/<n>.
+       La persona le crea e le legge/annulla solo se sue; l'admin le legge, le approva campo per campo e le elimina. Max 10 MB per file. */
+    function richPropria(rid) { return signedIn() && get(/databases/$(database)/documents/richieste/$(rid)).data.by == request.auth.uid; }
+    match /richieste/{id} {
+      allow read: if isAdmin() || (signedIn() && resource.data.by == request.auth.uid);
+      allow create: if signedIn() && mio(request.resource.data.soggetto)
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.completa == false
+        && request.resource.data.tipo in ['tessera', 'certificato', 'tesserino', 'medaglia', 'test']
+        && request.resource.data.ruolo in ['atleta', 'tecnico']
+        && request.resource.data.keys().hasOnly(['soggetto', 'ruolo', 'tipo', 'tes', 'campi', 'file', 'by', 'at', 'completa'])
+        && request.resource.data.campi.keys().hasOnly(['ente', 'numero', 'tipoTessera', 'stagione', 'emissione', 'scadenza', 'associazione', 'qualifica', 'sport', 'comitato', 'codAff', 'cf', 'certTipo', 'certScad', 'albo', 'altraNome', 'righe', 'nota', 'data', 'gara', 'posto'])
+        && (request.resource.data.get('file', null) == null || request.resource.data.file.size <= 10485760);
+      allow update: if isAdmin() || (signedIn() && resource.data.by == request.auth.uid
+        && resource.data.completa == false && request.resource.data.completa == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completa']));
+      allow delete: if isAdmin() || (signedIn() && resource.data.by == request.auth.uid);
+    }
+    match /richieste/{id}/chunks/{n} {
+      allow read, delete: if isAdmin() || richPropria(id);
+      allow create: if richPropria(id)
+        && get(/databases/$(database)/documents/richieste/$(id)).data.completa == false;
     }
 
     match /sections/tessere/items/{id} {
-      allow get: if mioAtleta(id)
-        || (mioAtleta(resource.data.get('tesAtl', '')) && resource.data.get('archiviatoIl', null) == null);
+      allow get: if mio(id)
+        || ((mio(resource.data.get('tesAtl', '')) || mio(resource.data.get('tesTec', ''))) && resource.data.get('archiviatoIl', null) == null);
     }
     match /sections/tessere/items/{id}/chunks/{n} {
-      allow read: if mioAtleta(get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('tesAtl', ''))
+      allow read: if (mio(get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('tesAtl', ''))
+          || mio(get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('tesTec', '')))
         && get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('archiviatoIl', null) == null;
     }
 

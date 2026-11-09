@@ -14,7 +14,7 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const GIORNI=30,DAY=864e5;
-const NOMI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',tecnici:'Tecnici',atleti:'Atleti',tessere:'Tessere',lezioni:'Lezioni',eventi:'Eventi',video:'Video',foto:'Foto',commercialista:'Commercialista',mail:'Mail'};
+const NOMI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',tecnici:'Tecnici',atleti:'Atleti',tessere:'Tessere',richieste:'Richieste',lezioni:'Lezioni',eventi:'Eventi',video:'Video',foto:'Foto',commercialista:'Commercialista',mail:'Mail'};
 const nomeSez=k=>NOMI[k]||(k?k.charAt(0).toUpperCase()+k.slice(1).replace(/-/g,' '):'');
 const KIND={file:'File',folder:'Cartella',text:'Nota di testo',voce:'Movimento',nota:'Nota del calendario',evento:'Evento',tessera:'Tessera',tesserino:'Tesserino',lezione:'Lezione'};
 

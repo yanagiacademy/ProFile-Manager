@@ -225,7 +225,7 @@ export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto',capti
 
 /* Argomenti (topic) del gruppo: ogni sezione della suite scrive nel proprio argomento.
    Se l'argomento non esiste viene creato; se il gruppo non ha gli argomenti attivi (o la creazione non è permessa) si scrive nel gruppo come prima. */
-const TOPIC_TITOLI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',lezioni:'Lezioni',tecnici:'Tecnici',atleti:'Atleti',eventi:'Eventi',video:'Video',foto:'Foto',mail:'Mail'};
+const TOPIC_TITOLI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',lezioni:'Lezioni',tecnici:'Tecnici',atleti:'Atleti',richieste:'Richieste',eventi:'Eventi',video:'Video',foto:'Foto',mail:'Mail'};
 export const topicTitle=k=>{k=String(k).replace(/^meta-/,'');return TOPIC_TITOLI[k]||(k.charAt(0).toUpperCase()+k.slice(1).replace(/-/g,' '))};
 const topics={};
 export function tgTopic(group,secKey){

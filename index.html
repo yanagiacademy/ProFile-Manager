@@ -161,18 +161,21 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){mio=false;mioN=0;modN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
-let mio=false,mioN=0,modN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
+function cleanup(){mio=false;mioTec=false;mioN=0;modN=0;ricN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
-function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{const n=s.exists()?((s.data().atleti||[]).length||1):0;if(s.exists()!==mio||n!==mioN){mio=s.exists();mioN=n;render()}}).catch(()=>{})}
+function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{const n=s.exists()?((s.data().atleti||[]).length||1):0;if(s.exists()!==mio||n!==mioN){mio=s.exists();mioN=n;render()}}).catch(()=>{});
+  getDoc(doc(db,'tecniciEmail',e.toLowerCase())).then(s=>{if(s.exists()!==mioTec){mioTec=s.exists();render()}}).catch(()=>{})}
 function onMe(){
   unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
   if(!me){app.innerHTML=box('Account non abilitato','Hai effettuato l’accesso ma un admin deve ancora abilitarti.','<p><button class="btn ghost" id="out">Esci</button></p>');$('#out').onclick=()=>signOut(auth);return}
   SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=sn.docs.map(d=>({id:d.id,...d.data()}));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
   /* admin: quante schede atleta hanno modifiche proposte dall'atleta (riquadro Atleti con bordo giallo) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
+  /* admin: file e dati caricati da atleti e tecnici in attesa di approvazione (pagina Richieste) */
+  if(me.admin)unsubs.push(onSnapshot(collection(db,'richieste'),sn=>{ricN=sn.docs.filter(d=>d.data().completa).length;render()},()=>{ricN=0}));
   if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));pianificaAllinea();render()});
   if(me.admin)unsubs.push(onSnapshot(collection(db,'sections','account','items'),sn=>{accReg=Object.fromEntries(sn.docs.map(d=>[d.id,d.data()]));accRegOk=true;for(const [id,v] of [...inVolo]){const r=accReg[id];if(r&&firmaReg(r)===v.f)inVolo.delete(id)}pianificaAllinea();if(view==='admin')render()},()=>{}));
   cercaMio();render();
@@ -217,13 +220,19 @@ function results(){
     +`<div class="card" style="margin-top:16px"><h2>Risultati${hits.length?' ('+hits.length+')':''}</h2>${hits.length?hits.map(resHtml).join(''):`<div class="mu">Nessun elemento trovato per «${esc(q.trim())}» nelle sezioni a cui hai accesso. Prova con una parola più breve.</div>`}</div>`;
   bindNav(b)}
 const nessunaHtml=()=>'<div class="card emp"><b>Nessuna scheda abilitata</b><div class="mu">Non hai ancora accesso a nessuna sezione. Chiedi all’admin di abilitarti.</div></div>';
-const mioHtml=()=>mio&&!solo('Atleti')?`<h3 class="gt">La mia area</h3><div class="grid"><a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">${mioN>1?'Le schede dei miei figli':'La mia tessera'}</span><span class="ts">${mioN>1?'Tessera e certificato di ognuno':'Tessera e certificato medico'}</span></a></div>`:'';
+const mioHtml=()=>{
+  const t=[];
+  if(mio&&!solo('Atleti'))t.push(`<a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">${mioN>1?'Le schede dei miei figli':'La mia tessera'}</span><span class="ts">${mioN>1?'Tessera e certificato di ognuno':'Tessera, certificato e miei dati'}</span></a>`);
+  if(mioTec&&!solo('Tecnici'))t.push(`<a class="tile" href="tecnici.html"><span class="ico">${ic('tecnici')}</span><span class="tn">La mia area di tecnico</span><span class="ts">Tessera, tesserini e miei dati</span></a>`);
+  return t.length?`<h3 class="gt">La mia area</h3><div class="grid">${t.join('')}</div>`:''};
+const ricTot=()=>ricN+modN;
 /* Strumenti riservati all'admin (visibili solo a lui), raccolti in un riquadro chiuso: si usano di rado */
 let admOpen=false;
 const giorniDa=ms=>Math.floor((Date.now()-ms)/864e5);
 const bkTesto=()=>bk===undefined?'':bk===null?'Mai eseguito':'Ultimo: '+(giorniDa(bk)<=0?'oggi':giorniDa(bk)===1?'ieri':giorniDa(bk)+' giorni fa');
 const bkDaFare=()=>bk!==undefined&&(bk===null||giorniDa(bk)>30);
 const adminHtml=()=>me.admin?`<h3 class="gt">Strumenti admin</h3><div class="grid">
+  <a class="tile${ricTot()?' hot':''}" href="richieste.html"><span class="ico">${ic('notifiche')}</span><span class="tn">Richieste</span><span class="ts">File e modifiche da approvare</span>${ricTot()?`<span class="pill">${ricTot()}</span>`:''}</a>
   <a class="tile" href="storico.html"><span class="ico">${ic('storico')}</span><span class="tn">Storico</span><span class="ts">Tutti i movimenti</span></a>
   <a class="tile" href="notifiche.html"><span class="ico">${ic('notifiche')}</span><span class="tn">Notifiche</span><span class="ts">Telegram: atleti e admin</span></a>
   <a class="tile${bkDaFare()?' hot':''}" href="backup.html"><span class="ico">${ic('backup')}</span><span class="tn">Backup</span>${bkTesto()?`<span class="ts">${esc(bkTesto())}</span>`:''}${bkDaFare()?'<span class="pill">Da fare</span>':''}</a></div>
@@ -247,7 +256,8 @@ function alertsHtml(){
   if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(perm('Archivio')!=='n'){const k=[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
   if(me.admin&&bkDaFare())a.push(['Backup',bk===null?'Nessun backup eseguito finora':'Ultimo backup '+giorniDa(bk)+' giorni fa']);
-  return a.length?`<div class="card alert" role="status"><h2>${ic('alert')}Da controllare (${a.length})</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><span class="ico">${ic(key(s))}</span><span class="rt"><b>${esc(t)}</b><span class="mu">Apri ${esc(s)}</span></span>${ic('go','go')}</button>`).join('')}</div>`:''}
+  const ric=me.admin?ricTot():0;
+  return a.length||ric?`<div class="card alert" role="status"><h2>${ic('alert')}Da controllare (${a.length+(ric?1:0)})</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><span class="ico">${ic(key(s))}</span><span class="rt"><b>${esc(t)}</b><span class="mu">Apri ${esc(s)}</span></span>${ic('go','go')}</button>`).join('')}${ric?`<a class="res" href="richieste.html" style="text-decoration:none"><span class="ico">${ic('notifiche')}</span><span class="rt"><b>${ric+(ric===1?' richiesta da approvare':' richieste da approvare')}</b><span class="mu">File e modifiche caricati da atleti e tecnici</span></span>${ic('go','go')}</a>`:''}</div>`:''}
 const NOUN={documenti:['documento','documenti'],'file-importanti':['file','file'],'documenti-in-scadenza':['documento','documenti'],archivio:['documento','documenti'],tecnici:['tecnico','tecnici'],atleti:['atleta','atleti'],tessere:['tessera','tessere'],lezioni:['lezione','lezioni'],eventi:['evento','eventi'],video:['video','video'],foto:['foto','foto'],commercialista:['voce','voci'],cestino:['elemento','elementi']};
 const loaded=k=>k==='file-importanti'||k==='documenti-in-scadenza'?items.documenti!==undefined:k==='archivio'?(items.documenti!==undefined||items.tessere!==undefined):items[k]!==undefined;
 /* Riquadro di una sezione: icona, nome, quanti elementi; badge rosso = da fare/in scadenza, giallo = da rivedere/verificare */

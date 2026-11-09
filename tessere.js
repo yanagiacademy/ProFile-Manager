@@ -8,6 +8,7 @@ import {showPreview,saveBlob} from "./file-tools.js";
 import {isD,fmtD,scadStato,tesseraAlert} from "./atleti-scadenze.js";
 import {parseTessera,parseCert,scadDaEmissione,ENTI,title} from "./tessere-lettura.js";
 import {archiviaFile} from "./conservazione.js";
+import {syncTesserini} from "./richieste.js";
 import {ALBI,livelloEtichetta,livelloEsempio,tesName,rigaBreve,sumTes,tesserini} from "./tesserini.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -123,6 +124,7 @@ function filtered(){
   return {all,list,ok}}
 
 function renderList(){
+  if(started&&perm()==='w')syncTesserini(db,items,tec);      /* copia dei tesserini che il tecnico può leggere */
   const ls=$('#ls');if(!ls)return;
   const {all,list,ok}=filtered();
   ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="alert" ${flt==='alert'?'selected':''}>In scadenza o scadute (${all.filter(ok.alert).length})</option><option value="senza" ${flt==='senza'?'selected':''}>Senza tessera (${all.filter(ok.senza).length})</option><option value="ok" ${flt==='ok'?'selected':''}>Regolari (${all.filter(ok.ok).length})</option></select><select id="fw" aria-label="Atleti o tecnici"><option value="all" ${who==='all'?'selected':''}>Atleti e tecnici</option><option value="atl" ${who==='atl'?'selected':''}>Solo atleti</option><option value="tec" ${who==='tec'?'selected':''}>Solo tecnici</option></select></div>`+

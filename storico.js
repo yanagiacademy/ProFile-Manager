@@ -14,7 +14,7 @@ const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager<
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 
-const NOMI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',tecnici:'Tecnici',atleti:'Atleti',tessere:'Tessere',lezioni:'Lezioni',eventi:'Eventi',video:'Video',foto:'Foto',commercialista:'Commercialista',mail:'Mail',cestino:'Cestino'};
+const NOMI={documenti:'Documenti','file-importanti':'File importanti','documenti-in-scadenza':'Documenti in scadenza',archivio:'Archivio',tecnici:'Tecnici',atleti:'Atleti',tessere:'Tessere',richieste:'Richieste',lezioni:'Lezioni',eventi:'Eventi',video:'Video',foto:'Foto',commercialista:'Commercialista',mail:'Mail',cestino:'Cestino'};
 const nomeSez=k=>!k?'':NOMI[k]||(k.charAt(0).toUpperCase()+k.slice(1).replace(/-/g,' '));
 const AZ={crea:['Creato','ok'],modifica:['Modificato',''],elimina:['Eliminato','bad'],'elimina-definitivo':['Eliminato per sempre','bad'],ripristina:['Ripristinato','ok'],accesso:['Accesso',''],account:['Account','am'],backup:['Backup','am']};
 const PAGINA=100;
