@@ -140,6 +140,26 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/richieste/$(id)).data.completa == false;
     }
 
+    /* Ordini. Il catalogo (sections/ordini, kind 'prodotto', con copia su Firebase) lo leggono gli atleti; gli ordini inviati stanno in ordiniInviati/<id>:
+       l'atleta li crea per sé (solo se atleta collegato alla sua email) e li annulla finché sono «inviato»; chi ha Ordini in scrittura li gestisce. */
+    function ordAdmin() { return isAdmin() || (hasAccount() && level('ordini') == 'w'); }
+    function ordVede() { return isAdmin() || (hasAccount() && level('ordini') in ['r', 'w']); }
+    match /sections/ordini/items/{id} {
+      allow read: if signedIn() && resource.data.kind == 'prodotto' && resource.data.attivo == true
+        && exists(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower()));
+    }
+    match /ordiniInviati/{id} {
+      allow read: if ordVede() || (signedIn() && resource.data.by == request.auth.uid);
+      allow create: if signedIn() && mioAtleta(request.resource.data.atleta)
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.stato == 'inviato'
+        && request.resource.data.keys().hasOnly(['atleta', 'nome', 'cognome', 'righe', 'nota', 'stato', 'by', 'at'])
+        && request.resource.data.righe is list && request.resource.data.righe.size() > 0 && request.resource.data.righe.size() <= 30
+        && request.resource.data.nota is string && request.resource.data.nota.size() <= 1000;
+      allow update: if ordAdmin();
+      allow delete: if ordAdmin() || (signedIn() && resource.data.by == request.auth.uid && resource.data.stato == 'inviato');
+    }
+
     match /sections/tessere/items/{id} {
       allow get: if mio(id)
         || ((mio(resource.data.get('tesAtl', '')) || mio(resource.data.get('tesTec', ''))) && resource.data.get('archiviatoIl', null) == null);

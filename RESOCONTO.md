@@ -19,6 +19,16 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (09/11 bis) – ORDINI (ordini.html, ordini.js)
+- Nuova scheda ORDINI (Home → Attività) con l'argomento Telegram «Ordini» (telegram.js, migra.js, cifra-esistenti.js, storico.js, cestino.js). I dati passano da fsx.js: sono CIFRATI come le altre sezioni.
+- GESTIONE (admin, o account con Ordini in lettura/scrittura): crea i prodotti con nome, descrizione, prezzo facoltativi e quattro tendine — Misure, Colori, Marchi e una quarta scelta con nome libero (es. Versione, Taglio): le opzioni si scrivono una per riga o separate da virgola; si può togliere un prodotto dalla vendita (Disponibile sì/no). Riceve gli ordini degli atleti (nome, prodotti con le scelte, note) con l'elenco «Da ordinare in totale» (righe uguali sommate, con chi le ha chieste) e il pulsante Copia. Stati: Nuovo → Ricevuto → Evaso.
+- ORDINA (atleta collegato dall'email in Atleti; chi ha più figli sceglie per chi è l'ordine): vede i prodotti disponibili, sceglie dalle tendine (obbligatorie se il prodotto le prevede) e la quantità, compone l'ordine, aggiunge le note e lo invia. Vede i propri ordini con lo stato e può annullare quelli ancora «Nuovo».
+- DOVE STANNO I DATI: catalogo e archivio ordini su Telegram (sections/ordini, kind 'prodotto' e 'ordine'); la copia su Firebase del catalogo (fb:true) serve agli atleti per leggerlo. L'ordine appena inviato sta in ordiniInviati/<id> su Firebase (l'atleta non ha la sessione Telegram) finché l'admin lo segna «Ricevuto»: allora viene copiato, cifrato, su Telegram. «Togli dalla lista dell'atleta» cancella la copia Firebase di un ordine evaso; l'archivio su Telegram resta.
+- Home: tessera Ordini con il conteggio dei nuovi ordini (per chi può gestirli); «La mia area» ha «Ordina il materiale» per gli atleti collegati.
+- REGOLE FIRESTORE: ripubblicare firestore.rules (nuove: ordiniInviati, lettura del catalogo da parte degli atleti).
+- Ipotesi da confermare: la quarta tendina l'ho resa «altra scelta» con nome libero; nessun pagamento né prezzo totale; l'atleta non modifica un ordine già inviato (lo annulla e lo rifà).
+- Numeri di versione NON aggiornati.
+
 ## NOVITÀ (09/11) – RICHIESTE SU TELEGRAM, PIÙ CAMPI MODIFICABILI DALL'ATLETA
 - RICHIESTE tra i topic Telegram: nuova sezione «richieste» con il suo argomento «Richieste» nel gruppo dati (telegram.js, migra.js, storico.js, cestino.js). Vi finisce il REGISTRO DELLE DECISIONI: ogni campo o file accettato/rifiutato dalla pagina Richieste (chi, cosa, valore prima → dopo, esito, data). Il registro si vede anche in fondo alla pagina Richieste. I file e le richieste in attesa restano su Firebase (atleti e tecnici non hanno la sessione Telegram) finché non vengono decisi.
 - L'ATLETA ora può proporre anche: Kumi kata, Tachi waza, Ne waza (oltre a obiettivi, richieste, infortuni, grado, categoria, allenatore, agonista/dilettante e anagrafica). Ogni campo si accetta o rifiuta da solo.

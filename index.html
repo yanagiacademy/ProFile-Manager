@@ -101,7 +101,7 @@ import {testDaFare,eventoInScadenza,tesseraAlert} from "./atleti-scadenze.js";
 import {archiviato,zona,archiviaScaduti} from "./conservazione.js";
 
 /* Home organizzata per gruppi. SEC (elenco piatto) resta la base di permessi, ricerca e tabella account */
-const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio','Cestino']],['Persone',['Tecnici','Atleti','Tessere']],['Attività',['Lezioni','Eventi']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
+const GROUPS=[['Documenti e archivio',['Documenti','File importanti','Documenti in scadenza','Archivio','Cestino']],['Persone',['Tecnici','Atleti','Tessere']],['Attività',['Lezioni','Eventi','Ordini']],['Media',['Video','Foto']],['Amministrazione',['Commercialista']],['Comunicazione',['Mail']]];
 const SEC=GROUPS.flatMap(g=>g[1]);
 const key=s=>s.toLowerCase().replace(/\s+/g,'-');
 const $=s=>document.querySelector(s),app=$('#app');
@@ -115,6 +115,7 @@ const P={
  tecnici:'<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>',
  atleti:'<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
  tessere:'<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+ ordini:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.5L21 8H6"/>',
  lezioni:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
  eventi:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
  video:'<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>',
@@ -152,6 +153,7 @@ const count=s=>{const k=key(s),its=items[k]||[];
   if(k==='lezioni')return its.filter(i=>i.kind!=='file').length;
   if(k==='eventi')return its.filter(i=>i.kind==='evento').length;
   if(k==='tessere')return its.filter(i=>i.kind==='tessera').length;
+  if(k==='ordini')return its.filter(i=>i.kind==='prodotto').length;
   if(k==='cestino')return its.filter(i=>me.admin||['r','w'].includes((me.perms||{})[i.sec])).length;
   return its.length};
 
@@ -161,8 +163,8 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){mio=false;mioTec=false;mioN=0;modN=0;ricN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
-let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
+function cleanup(){mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,ordN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
@@ -174,6 +176,8 @@ function onMe(){
   SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=sn.docs.map(d=>({id:d.id,...d.data()}));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
   /* admin: quante schede atleta hanno modifiche proposte dall'atleta (riquadro Atleti con bordo giallo) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
+  /* ordini nuovi degli atleti: li vede chi ha Ordini in lettura o scrittura */
+  if(me.admin||['r','w'].includes((me.perms||{}).ordini))unsubs.push(onSnapshot(collection(db,'ordiniInviati'),sn=>{ordN=sn.docs.filter(d=>d.data().stato==='inviato').length;render()},()=>{ordN=0}));
   /* admin: file e dati caricati da atleti e tecnici in attesa di approvazione (pagina Richieste) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'richieste'),sn=>{ricN=sn.docs.filter(d=>d.data().completa).length;render()},()=>{ricN=0}));
   if(me.admin)unsubUsers=onSnapshot(collection(db,'users'),sn=>{accounts=sn.docs.map(d=>({id:d.id,...d.data()}));pianificaAllinea();render()});
@@ -223,6 +227,7 @@ const nessunaHtml=()=>'<div class="card emp"><b>Nessuna scheda abilitata</b><div
 const mioHtml=()=>{
   const t=[];
   if(mio&&!solo('Atleti'))t.push(`<a class="tile" href="atleti.html"><span class="ico">${ic('atleti')}</span><span class="tn">${mioN>1?'Le schede dei miei figli':'La mia tessera'}</span><span class="ts">${mioN>1?'Tessera e certificato di ognuno':'Tessera, certificato e miei dati'}</span></a>`);
+  if(mio&&!solo('Ordini'))t.push(`<a class="tile" href="ordini.html"><span class="ico">${ic('ordini')}</span><span class="tn">Ordina il materiale</span><span class="ts">Scegli i prodotti e invia l’ordine</span></a>`);
   if(mioTec&&!solo('Tecnici'))t.push(`<a class="tile" href="tecnici.html"><span class="ico">${ic('tecnici')}</span><span class="tn">La mia area di tecnico</span><span class="ts">Tessera, tesserini e miei dati</span></a>`);
   return t.length?`<h3 class="gt">La mia area</h3><div class="grid">${t.join('')}</div>`:''};
 const ricTot=()=>ricN+modN;
@@ -258,7 +263,7 @@ function alertsHtml(){
   if(me.admin&&bkDaFare())a.push(['Backup',bk===null?'Nessun backup eseguito finora':'Ultimo backup '+giorniDa(bk)+' giorni fa']);
   const ric=me.admin?ricTot():0;
   return a.length||ric?`<div class="card alert" role="status"><h2>${ic('alert')}Da controllare (${a.length+(ric?1:0)})</h2>${a.map(([s,t])=>`<button class="res" data-s="${esc(s)}"><span class="ico">${ic(key(s))}</span><span class="rt"><b>${esc(t)}</b><span class="mu">Apri ${esc(s)}</span></span>${ic('go','go')}</button>`).join('')}${ric?`<a class="res" href="richieste.html" style="text-decoration:none"><span class="ico">${ic('notifiche')}</span><span class="rt"><b>${ric+(ric===1?' richiesta da approvare':' richieste da approvare')}</b><span class="mu">File e modifiche caricati da atleti e tecnici</span></span>${ic('go','go')}</a>`:''}</div>`:''}
-const NOUN={documenti:['documento','documenti'],'file-importanti':['file','file'],'documenti-in-scadenza':['documento','documenti'],archivio:['documento','documenti'],tecnici:['tecnico','tecnici'],atleti:['atleta','atleti'],tessere:['tessera','tessere'],lezioni:['lezione','lezioni'],eventi:['evento','eventi'],video:['video','video'],foto:['foto','foto'],commercialista:['voce','voci'],cestino:['elemento','elementi']};
+const NOUN={documenti:['documento','documenti'],'file-importanti':['file','file'],'documenti-in-scadenza':['documento','documenti'],archivio:['documento','documenti'],tecnici:['tecnico','tecnici'],atleti:['atleta','atleti'],tessere:['tessera','tessere'],lezioni:['lezione','lezioni'],ordini:['prodotto','prodotti'],eventi:['evento','eventi'],video:['video','video'],foto:['foto','foto'],commercialista:['voce','voci'],cestino:['elemento','elementi']};
 const loaded=k=>k==='file-importanti'||k==='documenti-in-scadenza'?items.documenti!==undefined:k==='archivio'?(items.documenti!==undefined||items.tessere!==undefined):items[k]!==undefined;
 /* Riquadro di una sezione: icona, nome, quanti elementi; badge rosso = da fare/in scadenza, giallo = da rivedere/verificare */
 function tile(s){
@@ -270,12 +275,13 @@ function tile(s){
     nt=k==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,
     ne=k==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,
     ntes=k==='tessere'?(items.tessere||[]).filter(tesseraAlert).length:0,
-    nm=k==='atleti'&&me.admin?modN:0,nsc=k==='documenti-in-scadenza'?n:0;
+    nm=k==='atleti'&&me.admin?modN:0,no=k==='ordini'?ordN:0,nsc=k==='documenti-in-scadenza'?n:0;
   if(nsc)pills.push(['',nsc+' in scadenza']);
   if(ntes)pills.push(['',ntes+' in scadenza']);
   if(ne)pills.push(['',ne+' in scadenza']);
   if(nt)pills.push(['',nt+' test da fare']);
   if(nm)pills.push(['am',nm+' da rivedere']);
+  if(no)pills.push(['am',no+(no===1?' nuovo ordine':' nuovi ordini')]);
   if(ver)pills.push(['am',ver+' da verificare']);
   const hot=pills.some(x=>x[0]===''),mod=pills.some(x=>x[0]==='am');
   const nn=NOUN[k];let sub='';
