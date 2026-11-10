@@ -21,15 +21,15 @@ tick();setInterval(tick,15000);
 
 let auth,db,uid=null,me=null,unsubs=[],tab='',started=false;
 let reg=[],stag=[],regErr=false;                                  /* lato admin */
-let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='',atlList=[],catErr='',extTxt='';
+let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='',atlList=[],catErr='',extTxt='',invErr='',azzera=[],nuovoForm=false,ultimo='',rinviato=false,meSig='',inInvio=false;
 const aperti=new Set();      /* schede aperte con il + (restano aperte quando la pagina si ridisegna) */   /* lato atleta: mio={ids:[],nomi:{}} */
 const perm=()=>me?(me.admin?'w':((me.perms||{}).ordini||'n')):'n';
 const gest=()=>perm()==='r'||perm()==='w',scrive=()=>perm()==='w';
 const ms=t=>t&&t.toMillis?t.toMillis():(typeof t==='number'?t:0);
 const quando=m=>m?new Date(m).toLocaleString('it-IT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
 const STATO={inviato:['Nuovo','warn'],ricevuto:['Ricevuto','ok'],evaso:['Evaso','']};
-/* Per chi si ordina: l'atleta collegato alla sua email; chi gestisce gli Ordini (admin) può ordinare per qualsiasi atleta */
-const chi=()=>gest()?atlList.map(a=>({id:a.id,n:nomeDi(a)})).sort((a,b)=>a.n.localeCompare(b.n,'it')):(mio?mio.ids.map(id=>({id,n:nomeDi(mio.nomi[id]||{})})):[]);
+/* Per chi si ordina: solo gli atleti collegati all'account (stessa email inserita in Atleti), oppure un nome scritto a mano */
+const chi=()=>mio?mio.ids.map(id=>({id,n:nomeDi(mio.nomi[id]||{})})):[];
 const nomeAt=id=>{const c=chi().find(x=>x.id===id);return c?c.n:(mio&&mio.nomi[id]?nomeDi(mio.nomi[id]):'')};
 const catAttivo=()=>gest()?prodotti().filter(p=>p.attivo!==false):catalogo;
 /* scheda a tendina: si legge solo il titolo, il + (o −) apre e chiude tutto il resto */
@@ -161,7 +161,6 @@ function ordinaHtml(){
   const C=catAttivo(),W=chi(),sel=per===ALTRA||W.some(c=>c.id===per)?per:((W[0]||{}).id||ALTRA);
   return `${mioMsg?`<div class="card" role="status" style="margin-bottom:12px"><b>${esc(mioMsg)}</b></div>`:''}
     ${catErr?`<div class="card" role="alert" style="margin-bottom:12px"><b>Catalogo non disponibile</b><div class="mu">${esc(catErr)}</div></div>`:''}
-    ${gest()&&!W.length?'<div class="card" style="margin-bottom:12px"><b>Elenco atleti non disponibile</b><div class="mu">Per ordinare a nome di un atleta serve l’elenco degli atleti, che è su Telegram: accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina. Intanto puoi ordinare per un’altra persona.</div></div>':''}
     <label for="per">Per chi è l’ordine</label><select id="per">${W.map(c=>`<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}<option value="${ALTRA}" ${sel===ALTRA?'selected':''}>Un’altra persona (non atleta)…</option></select>
     ${sel===ALTRA?`<label for="pext">Nome e cognome della persona (obbligatorio)</label><input id="pext" type="text" autocomplete="off" required aria-required="true" value="${esc(extTxt)}" placeholder="es. Mario Rossi">`:''}
     <h2 style="margin:12px 0 6px">Prodotti</h2>
@@ -172,7 +171,7 @@ function ordinaHtml(){
     <h2 style="margin:18px 0 6px">Il mio ordine</h2>
     <div class="card">${carrello.length?carrello.map((r,i)=>`<div class="fh" style="padding:4px 0"><div><b>${esc(r.qta)} × ${esc(r.nome)}</b><div class="mu">${esc([r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&r.altroLabel+' '+r.altro].filter(Boolean).join(' · '))}</div></div><button class="btn ghost sm" data-a="togliR" data-i="${i}" aria-label="Togli ${esc(r.nome)} dall’ordine">Togli</button></div>`).join(''):'<div class="mu">Non hai ancora scelto niente.</div>'}
       <label for="nota">Note per l’ordine (facoltative)</label><textarea id="nota" maxlength="1000" placeholder="Altri dettagli utili per l’ordine">${esc(notaTxt)}</textarea>
-      <p class="err" role="alert" id="oer"></p>
+      <p class="err" role="alert" id="oer">${esc(invErr)}</p>
       <div class="dact"><button class="btn" data-a="invia" ${carrello.length?'':'disabled'}>Invia l’ordine</button></div></div>
     <h2 style="margin:18px 0 6px">I miei ordini</h2>
     ${miei.length?miei.map(o=>{const [lab,cl]=STATO[o.stato]||['',''];return acc('m_'+o.id,esc(nomeDi(o)),`<span class="chip ${cl}">${lab}</span>`,`<div class="mu">${esc(quando(ms(o.at)))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="annulla" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}`)}).join(''):'<div class="card"><div class="mu">Non hai ancora inviato ordini.</div></div>'}`}
@@ -183,27 +182,31 @@ async function azioneAtleta(a,b){
     const r={p:p.id,nome:p.nome,misura:v('m_'+p.id),colore:v('c_'+p.id),marchio:v('k_'+p.id),altroLabel:p.altroLabel||'',altro:v('a_'+p.id),qta:Math.min(99,Math.max(1,parseInt(v('q_'+p.id),10)||1))};
     const manca=[['misura','Misura',p.misure],['colore','Colore',p.colori],['marchio','Marchio',p.marchi],['altro',altroNome(p),p.altro]].find(([k,,arr])=>(arr||[]).length&&!r[k]);
     if(manca){alert('Scegli '+manca[1].toLowerCase()+' per «'+p.nome+'».');return false}
-    carrello.push(r);mioMsg='';return true}
+    carrello.push(r);mioMsg='';invErr='';azzera=['m_','c_','k_','a_','q_'].map(x=>x+p.id);return true}
   if(a==='togliR'){carrello.splice(+b.dataset.i,1);return true}
   if(a==='invia'){
-    const er=$('#oer'),nota=($('#nota').value||'').trim().slice(0,1000);
+    const errInv=m=>{invErr=m;const e=$('#oer');if(e)e.textContent=m};
+    if(inInvio)return false;
+    const nota=(($('#nota')||{}).value||'').trim().slice(0,1000);
     if(!carrello.length)return false;
     const sel=($('#per')||{}).value||per;let atleta,nome,cognome,esterno=false;
     if(sel===ALTRA){
       const t=(($('#pext')||{}).value||'').trim().replace(/\s+/g,' ');
-      if(!t){if(er)er.textContent='Scrivi il nome della persona per cui ordini: non può restare vuoto.';const f=$('#pext');if(f)f.focus();return false}
+      if(!t){errInv('Scrivi il nome della persona per cui ordini: non può restare vuoto.');const f=$('#pext');if(f)f.focus();return false}
       esterno=true;nome=t;cognome='';
-      atleta=gest()?'':((mio&&mio.ids[0])||'');      /* l'ordine resta legato all'account di chi lo invia */
+      atleta=(mio&&mio.ids[0])||'';      /* l'ordine resta legato all'account di chi lo invia */
     }else{
       const pa=chi().find(c=>c.id===sel);
-      if(!pa){if(er)er.textContent='Scegli per chi è l’ordine.';return false}
-      const n=gest()?(atlList.find(a=>a.id===sel)||{}):(mio.nomi[sel]||{});
+      if(!pa){errInv('Scegli per chi è l’ordine.');return false}
+      const n=mio.nomi[sel]||{};
       atleta=sel;nome=n.nome||'';cognome=n.cognome||''}
-    per=sel;
+    per=sel;inInvio=true;invErr='';
+    const bt=document.querySelector('[data-a="invia"]');if(bt){bt.disabled=true;bt.textContent='Invio…'}
     try{
       await raddDoc(rcol(db,'ordiniInviati'),{atleta,esterno,nome,cognome,righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()});
-      carrello=[];notaTxt='';extTxt='';mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
-    }catch(x){console.error(x);if(er)er.textContent=(x&&x.code==='permission-denied')?'Invio non permesso: l’admin deve ripubblicare le regole Firestore (firestore.rules).':'Invio non riuscito. Controlla la connessione e riprova.';return false}}
+      carrello=[];notaTxt='';extTxt='';nuovoForm=true;mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
+    }catch(x){console.error(x);errInv((x&&x.code==='permission-denied')?'Invio non permesso: le regole Firestore (firestore.rules) vanno ripubblicate nella console Firebase.':'Invio non riuscito ('+((x&&(x.code||x.message))||'errore')+'). Controlla la connessione e riprova.');if(bt){bt.disabled=false;bt.textContent='Invia l’ordine'}return false}
+    finally{inInvio=false}}
   if(a==='annulla'){
     if(!confirm('Annullare questo ordine?'))return false;
     await rdelete(rdoc(db,'ordiniInviati',b.dataset.id));await caricaCatalogo();return true}
@@ -211,6 +214,15 @@ async function azioneAtleta(a,b){
 
 /* ---------- pagina ---------- */
 const modi=()=>[...(gest()?[['g','Gestione']]:[]),...((mio||gest())?[['o','Ordina']]:[])];
+/* Quello che l'utente sta scrivendo o scegliendo (tendine, quantità, note, nome) non deve sparire se la pagina si ridisegna */
+const campiForm=()=>[...app.querySelectorAll('input[id],select[id],textarea[id]')];
+const salvaForm=()=>{const st={};campiForm().forEach(e=>{st[e.id]=e.type==='checkbox'?e.checked:e.value});return st};
+function ripristinaForm(st,skip){
+  Object.entries(st).forEach(([id,v])=>{if(skip.includes(id))return;const e=document.getElementById(id);if(!e)return;if(e.type==='checkbox')e.checked=v;else if(e.value!==v)e.value=v})}
+const inForm=()=>{const a=document.activeElement;return !!(a&&app.contains(a)&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName))};
+/* ridisegno causato da aggiornamenti in sottofondo: mentre si scrive o si sceglie in «Ordina» si rimanda a dopo (altrimenti sparirebbe la tastiera) */
+function renderBg(){if(tab==='o'&&ultimo==='o'&&inForm()){rinviato=true;return}render()}
+app.addEventListener('focusout',()=>{if(rinviato)setTimeout(()=>{if(rinviato&&!inForm()){rinviato=false;render()}},350)});
 function render(){
   if(!me)return;
   const M=modi();
@@ -218,16 +230,18 @@ function render(){
     if(mioState==='load'){app.innerHTML=box('Un momento…','Sto cercando i tuoi dati.');return}
     app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');return}
   if(!M.some(x=>x[0]===tab))tab=M[0][0];
+  const sv=(tab==='o'&&ultimo==='o'&&!nuovoForm)?salvaForm():null,az=azzera;azzera=[];nuovoForm=false;rinviato=false;
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div class="grow"><h2 style="margin:0">Ordini</h2><span class="badge">${tab==='g'?(scrive()?'Gestione: lettura e scrittura':'Gestione: sola lettura'):'Ordina il materiale'}</span></div></div>
   ${M.length>1?`<div class="flt" role="tablist">${M.map(([k,l])=>`<button class="btn ${tab===k?'':'ghost'} sm" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}</button>`).join('')}</div>`:''}
   ${tab==='g'?gestioneHtml():ordinaHtml()}</div>`;
+  ultimo=tab;if(sv)ripristinaForm(sv,az);
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   const sp=$('#per');if(sp)sp.onchange=e=>{per=e.target.value;render()};
   const pe=$('#pext');if(pe)pe.oninput=()=>{extTxt=pe.value};
   const nt=$('#nota');if(nt)nt.oninput=()=>{notaTxt=nt.value};
   app.onclick=async e=>{
-    const t=e.target.closest('[data-tab]');if(t){tab=t.dataset.tab;mioMsg='';render();return}
+    const t=e.target.closest('[data-tab]');if(t){tab=t.dataset.tab;mioMsg='';nuovoForm=true;render();return}
     const tg=e.target.closest('[data-a="tog"]');
     if(tg){const id=tg.dataset.id,ap=!aperti.has(id);if(ap)aperti.add(id);else aperti.delete(id);tg.setAttribute('aria-expanded',ap);tg.querySelector('.accp').textContent=ap?'−':'+';tg.nextElementSibling.hidden=!ap;return}
     const b=e.target.closest('[data-a]');if(!b||b.disabled)return;const a=b.dataset.a;
@@ -253,12 +267,13 @@ else{
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me){app.innerHTML=box('Account non abilitato','Chiedi all’admin di abilitare il tuo account.');return}
-      if(started){render();return}
+      const sig=JSON.stringify([me.admin||false,me.perms||null]);
+      if(started){if(sig!==meSig){meSig=sig;renderBg()}return}
+      meSig=sig;
       started=true;
       if(gest()){
-        unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;render()},()=>{reg=[];regErr=true;render()}));
-        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{stag=[]}));
-        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atlList=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>a.nome||a.cognome);if(!per||!atlList.some(a=>a.id===per))per=(atlList[0]||{}).id||'';render()},()=>{atlList=[]}));
+        unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;renderBg()},()=>{reg=[];regErr=true;renderBg()}));
+        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));renderBg()},()=>{stag=[]}));
         caricaMiei()}
       /* chi è anche un atleta (stessa email inserita dall'admin in Atleti) vede anche la parte «Ordina» */
       mioState='load';render();
