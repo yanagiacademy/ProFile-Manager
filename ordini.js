@@ -171,7 +171,7 @@ function ordinaHtml(){
     <h2 style="margin:18px 0 6px">Il mio ordine</h2>
     <div class="card">${carrello.length?carrello.map((r,i)=>`<div class="fh" style="padding:4px 0"><div><b>${esc(r.qta)} × ${esc(r.nome)}</b><div class="mu">${esc([r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&r.altroLabel+' '+r.altro].filter(Boolean).join(' · '))}</div></div><button class="btn ghost sm" data-a="togliR" data-i="${i}" aria-label="Togli ${esc(r.nome)} dall’ordine">Togli</button></div>`).join(''):'<div class="mu">Non hai ancora scelto niente.</div>'}
       <label for="nota">Note per l’ordine (facoltative)</label><textarea id="nota" maxlength="1000" placeholder="Altri dettagli utili per l’ordine">${esc(notaTxt)}</textarea>
-      <p class="err" role="alert" id="oer">${esc(invErr)}</p>
+      <p class="err" role="alert" id="oer" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(invErr)}</p>
       <div class="dact"><button class="btn" data-a="invia" ${carrello.length?'':'disabled'}>Invia l’ordine</button></div></div>
     <h2 style="margin:18px 0 6px">I miei ordini</h2>
     ${miei.length?miei.map(o=>{const [lab,cl]=STATO[o.stato]||['',''];return acc('m_'+o.id,esc(nomeDi(o)),`<span class="chip ${cl}">${lab}</span>`,`<div class="mu">${esc(quando(ms(o.at)))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="annulla" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}`)}).join(''):'<div class="card"><div class="mu">Non hai ancora inviato ordini.</div></div>'}`}
@@ -203,9 +203,18 @@ async function azioneAtleta(a,b){
     per=sel;inInvio=true;invErr='';
     const bt=document.querySelector('[data-a="invia"]');if(bt){bt.disabled=true;bt.textContent='Invio…'}
     try{
-      await raddDoc(rcol(db,'ordiniInviati'),{atleta,esterno,nome,cognome,righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()});
+      const ordine={atleta,nome,cognome,righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()};
+      if(esterno)ordine.esterno=true;      /* senza il campo per gli ordini normali: funziona anche con regole meno recenti */
+      await raddDoc(rcol(db,'ordiniInviati'),ordine);
       carrello=[];notaTxt='';extTxt='';nuovoForm=true;mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
-    }catch(x){console.error(x);errInv((x&&x.code==='permission-denied')?'Invio non permesso: le regole Firestore (firestore.rules) vanno ripubblicate nella console Firebase.':'Invio non riuscito ('+((x&&(x.code||x.message))||'errore')+'). Controlla la connessione e riprova.');if(bt){bt.disabled=false;bt.textContent='Invia l’ordine'}return false}
+    }catch(x){console.error(x);errInv(((x&&x.code==='permission-denied')?'Invio non permesso da Firebase.':'Invio non riuscito. Controlla la connessione e riprova.')+'\nDiagnosi: '+[
+        'errore '+((x&&(x.code||x.message))||'?'),
+        'admin '+(me&&me.admin?'sì':'no'),
+        'permesso Ordini '+perm(),
+        'atleta collegato '+(mio?mio.ids.join(','):'nessuno'),
+        'ordine per '+(esterno?'altra persona':atleta),
+        'atleta nel documento '+(atleta||'(vuoto)'),
+        'righe '+carrello.length].join(' · '));if(bt){bt.disabled=false;bt.textContent='Invia l’ordine'}return false}
     finally{inInvio=false}}
   if(a==='annulla'){
     if(!confirm('Annullare questo ordine?'))return false;
