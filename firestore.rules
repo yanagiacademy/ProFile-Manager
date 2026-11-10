@@ -150,7 +150,7 @@ service cloud.firestore {
     }
     match /ordiniInviati/{id} {
       allow read: if ordVede() || (signedIn() && resource.data.by == request.auth.uid);
-      allow create: if signedIn() && mioAtleta(request.resource.data.atleta)
+      allow create: if signedIn() && (mioAtleta(request.resource.data.atleta) || ordAdmin())
         && request.resource.data.by == request.auth.uid
         && request.resource.data.stato == 'inviato'
         && request.resource.data.keys().hasOnly(['atleta', 'nome', 'cognome', 'righe', 'nota', 'stato', 'by', 'at'])

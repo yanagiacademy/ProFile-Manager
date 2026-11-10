@@ -26,6 +26,7 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - DOVE STANNO I DATI: catalogo e archivio ordini su Telegram (sections/ordini, kind 'prodotto' e 'ordine'); la copia su Firebase del catalogo (fb:true) serve agli atleti per leggerlo. L'ordine appena inviato sta in ordiniInviati/<id> su Firebase (l'atleta non ha la sessione Telegram) finché l'admin lo segna «Ricevuto»: allora viene copiato, cifrato, su Telegram. «Togli dalla lista dell'atleta» cancella la copia Firebase di un ordine evaso; l'archivio su Telegram resta.
 - Home: tessera Ordini con il conteggio dei nuovi ordini (per chi può gestirli); «La mia area» ha «Ordina il materiale» per gli atleti collegati.
 - REGOLE FIRESTORE: ripubblicare firestore.rules (nuove: ordiniInviati, lettura del catalogo da parte degli atleti).
+- CORREZIONE: la parte «Ordina» ora c'è anche per chi gestisce gli Ordini (admin): sceglie per quale atleta ordinare (elenco atleti da Telegram) e invia l'ordine a suo nome. Se il catalogo o l'invio falliscono per le regole non ripubblicate, la pagina lo dice invece di mostrare «nessun prodotto».
 - Ipotesi da confermare: la quarta tendina l'ho resa «altra scelta» con nome libero; nessun pagamento né prezzo totale; l'atleta non modifica un ordine già inviato (lo annulla e lo rifà).
 - Numeri di versione NON aggiornati.
 

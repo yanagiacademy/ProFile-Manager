@@ -21,12 +21,16 @@ tick();setInterval(tick,15000);
 
 let auth,db,uid=null,me=null,unsubs=[],tab='',started=false;
 let reg=[],stag=[],regErr=false;                                  /* lato admin */
-let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='';   /* lato atleta: mio={ids:[],nomi:{}} */
+let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='',atlList=[],catErr='';   /* lato atleta: mio={ids:[],nomi:{}} */
 const perm=()=>me?(me.admin?'w':((me.perms||{}).ordini||'n')):'n';
 const gest=()=>perm()==='r'||perm()==='w',scrive=()=>perm()==='w';
 const ms=t=>t&&t.toMillis?t.toMillis():(typeof t==='number'?t:0);
 const quando=m=>m?new Date(m).toLocaleString('it-IT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
 const STATO={inviato:['Nuovo','warn'],ricevuto:['Ricevuto','ok'],evaso:['Evaso','']};
+/* Per chi si ordina: l'atleta collegato alla sua email; chi gestisce gli Ordini (admin) può ordinare per qualsiasi atleta */
+const chi=()=>gest()?atlList.map(a=>({id:a.id,n:nomeDi(a)})).sort((a,b)=>a.n.localeCompare(b.n,'it')):(mio?mio.ids.map(id=>({id,n:nomeDi(mio.nomi[id]||{})})):[]);
+const nomeAt=id=>{const c=chi().find(x=>x.id===id);return c?c.n:(mio&&mio.nomi[id]?nomeDi(mio.nomi[id]):'')};
+const catAttivo=()=>gest()?prodotti().filter(p=>p.attivo!==false):catalogo;
 const nomeDi=o=>((o.cognome||'')+' '+(o.nome||'')).trim()||'Atleta';
 
 /* ---------- finestra di dialogo ---------- */
@@ -135,22 +139,28 @@ async function caricaMio(){
     for(const id of ids){try{const s=await rgetDoc(rdoc(db,'atletiDati',id));nomi[id]=s.exists()?{nome:s.data().nome||'',cognome:s.data().cognome||''}:{nome:'',cognome:''}}catch(x){nomi[id]={nome:'',cognome:''}}}
     mio={ids,nomi};if(!per||!ids.includes(per))per=ids[0];return true
   }catch(x){console.error(x);return false}}
+async function caricaMiei(){
+  try{const sn=await rgetDocs(rquery(rcol(db,'ordiniInviati'),rwhere('by','==',uid)));miei=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>ms(b.at)-ms(a.at))}catch(x){miei=[]}}
 async function caricaCatalogo(){
-  try{
+  catErr='';
+  if(gest())catalogo=[];      /* chi gestisce legge il catalogo direttamente da Telegram */
+  else try{
     const sn=await rgetDocs(rquery(rcol(db,'sections','ordini','items'),rwhere('kind','==','prodotto'),rwhere('attivo','==',true)));
     catalogo=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'it'));
-  }catch(x){console.error(x);catalogo=[]}
+  }catch(x){console.error(x);catalogo=[];catErr=(x&&x.code==='permission-denied')?'Non ho il permesso di leggere il catalogo: l’admin deve ripubblicare le regole Firestore (firestore.rules).':'Non riesco a leggere il catalogo. Riprova tra poco.'}
   try{
     const sn=await rgetDocs(rquery(rcol(db,'ordiniInviati'),rwhere('by','==',uid)));
     miei=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>ms(b.at)-ms(a.at))
   }catch(x){console.error(x);miei=[]}}
 const optSel=(id,lab,arr)=>(arr||[]).length?`<label for="${id}">${esc(lab)}</label><select id="${id}"><option value="">Scegli…</option>${arr.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select>`:'';
 function ordinaHtml(){
-  const nomeAt=id=>nomeDi(mio.nomi[id]||{});
+  const C=catAttivo(),W=chi();
   return `${mioMsg?`<div class="card" role="status" style="margin-bottom:12px"><b>${esc(mioMsg)}</b></div>`:''}
-    ${mio.ids.length>1?`<label for="per">Per chi è l’ordine</label><select id="per">${mio.ids.map(id=>`<option value="${esc(id)}" ${id===per?'selected':''}>${esc(nomeAt(id)||'Atleta')}</option>`).join('')}</select>`:''}
+    ${catErr?`<div class="card" role="alert" style="margin-bottom:12px"><b>Catalogo non disponibile</b><div class="mu">${esc(catErr)}</div></div>`:''}
+    ${gest()&&!W.length?'<div class="card" style="margin-bottom:12px"><b>Elenco atleti non disponibile</b><div class="mu">Per ordinare a nome di un atleta serve l’elenco degli atleti, che è su Telegram: accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina.</div></div>':''}
+    ${W.length>1||gest()?`<label for="per">Per chi è l’ordine</label><select id="per">${W.map(c=>`<option value="${esc(c.id)}" ${c.id===per?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}</select>`:''}
     <h2 style="margin:12px 0 6px">Prodotti</h2>
-    ${catalogo.length?catalogo.map(p=>`<div class="card" style="margin-bottom:10px" data-p="${esc(p.id)}"><div class="fh"><div><b>${esc(p.nome)}</b>${p.prezzo?` <span class="mu">${esc(p.prezzo)}</span>`:''}</div></div>
+    ${C.length?C.map(p=>`<div class="card" style="margin-bottom:10px" data-p="${esc(p.id)}"><div class="fh"><div><b>${esc(p.nome)}</b>${p.prezzo?` <span class="mu">${esc(p.prezzo)}</span>`:''}</div></div>
       ${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
       ${optSel('m_'+p.id,'Misura',p.misure)}${optSel('c_'+p.id,'Colore',p.colori)}${optSel('k_'+p.id,'Marchio',p.marchi)}${optSel('a_'+p.id,altroNome(p),p.altro)}
       <label for="q_${esc(p.id)}">Quantità</label><input id="q_${esc(p.id)}" type="number" min="1" max="99" value="1" inputmode="numeric" style="max-width:110px">
@@ -164,7 +174,7 @@ function ordinaHtml(){
     ${miei.length?miei.map(o=>{const [lab,cl]=STATO[o.stato]||['',''];return `<div class="card" style="margin-bottom:10px"><div class="fh"><div><b>${esc(nomeAt(o.atleta)||'')}</b> <span class="mu">${esc(quando(ms(o.at)))}</span></div><span class="chip ${cl}">${lab}</span></div>${righeHtml(o)}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="annulla" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}</div>`}).join(''):'<div class="card"><div class="mu">Non hai ancora inviato ordini.</div></div>'}`}
 async function azioneAtleta(a,b){
   if(a==='agg'){
-    const p=catalogo.find(x=>x.id===b.dataset.id);if(!p)return;
+    const p=catAttivo().find(x=>x.id===b.dataset.id);if(!p)return;
     const v=id=>{const e=document.getElementById(id);return e?e.value:''};
     const r={p:p.id,nome:p.nome,misura:v('m_'+p.id),colore:v('c_'+p.id),marchio:v('k_'+p.id),altroLabel:p.altroLabel||'',altro:v('a_'+p.id),qta:Math.min(99,Math.max(1,parseInt(v('q_'+p.id),10)||1))};
     const manca=[['misura','Misura',p.misure],['colore','Colore',p.colori],['marchio','Marchio',p.marchi],['altro',altroNome(p),p.altro]].find(([k,,arr])=>(arr||[]).length&&!r[k]);
@@ -174,18 +184,21 @@ async function azioneAtleta(a,b){
   if(a==='invia'){
     const er=$('#oer'),nota=($('#nota').value||'').trim().slice(0,1000);
     if(!carrello.length)return false;
-    const n=mio.nomi[per]||{};
+    const sel=($('#per')||{}).value||per,pa=chi().find(c=>c.id===sel);
+    if(!pa){if(er)er.textContent='Scegli per chi è l’ordine.';return false}
+    const n=gest()?(atlList.find(a=>a.id===sel)||{}):(mio.nomi[sel]||{});
+    per=sel;
     try{
-      await raddDoc(rcol(db,'ordiniInviati'),{atleta:per,nome:n.nome||'',cognome:n.cognome||'',righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()});
+      await raddDoc(rcol(db,'ordiniInviati'),{atleta:sel,nome:n.nome||'',cognome:n.cognome||'',righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()});
       carrello=[];notaTxt='';mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
-    }catch(x){console.error(x);if(er)er.textContent='Invio non riuscito. Controlla la connessione e riprova.';return false}}
+    }catch(x){console.error(x);if(er)er.textContent=(x&&x.code==='permission-denied')?'Invio non permesso: l’admin deve ripubblicare le regole Firestore (firestore.rules).':'Invio non riuscito. Controlla la connessione e riprova.';return false}}
   if(a==='annulla'){
     if(!confirm('Annullare questo ordine?'))return false;
     await rdelete(rdoc(db,'ordiniInviati',b.dataset.id));await caricaCatalogo();return true}
   return false}
 
 /* ---------- pagina ---------- */
-const modi=()=>[...(gest()?[['g','Gestione']]:[]),...(mio?[['o','Ordina']]:[])];
+const modi=()=>[...(gest()?[['g','Gestione']]:[]),...((mio||gest())?[['o','Ordina']]:[])];
 function render(){
   if(!me)return;
   const M=modi();
@@ -219,7 +232,7 @@ if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora c
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);
   onAuthStateChanged(auth,u=>{
-    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];catalogo=[];miei=[];carrello=[];
+    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
     if(!u){location.href='index.html';return}
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
@@ -229,7 +242,9 @@ else{
       started=true;
       if(gest()){
         unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;render()},()=>{reg=[];regErr=true;render()}));
-        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{stag=[]}))}
+        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{stag=[]}));
+        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atlList=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>a.nome||a.cognome);if(!per||!atlList.some(a=>a.id===per))per=(atlList[0]||{}).id||'';render()},()=>{atlList=[]}));
+        caricaMiei()}
       /* chi è anche un atleta (stessa email inserita dall'admin in Atleti) vede anche la parte «Ordina» */
       mioState='load';render();
       caricaMio().then(async ok=>{mioState=ok?'ok':'no';if(ok){await caricaCatalogo();if(!gest())tab='o'}render()})},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}))})}
