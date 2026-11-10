@@ -54,6 +54,13 @@ legend{padding:0 6px;font-weight:700;font-size:.9rem;color:var(--ac)}
 .fr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
 .fr .mu{flex:1 1 140px;min-width:0;overflow-wrap:anywhere}
 .sj{display:grid;grid-template-columns:repeat(3,1fr);gap:0 10px}
+.ord{border-top:1px solid var(--ln);padding:2px 0}
+.ord summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;list-style:none}
+.ord summary::-webkit-details-marker{display:none}
+.ord .ot{flex:1;min-width:0;font-weight:700;overflow-wrap:anywhere}
+.ord .op::after{content:"+";font-size:1.5rem;line-height:1;color:var(--ac);display:inline-block;width:28px;text-align:center}
+.ord[open] .op::after{content:"−"}
+.ord .ob{padding:2px 0 8px}
 </style>
 </head>
 <body>

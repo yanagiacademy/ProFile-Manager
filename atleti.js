@@ -4,7 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,setDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,testTesto,scadStato} from "./atleti-scadenze.js";
-import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {ATL_EDIT,apriMedaglia,apriTest,apriDati,apriCarica,mieRichieste,richiesteHtml,annullaRichiesta} from "./richieste.js";
 
@@ -46,12 +46,14 @@ function syncKeys(){
     setDoc(doc(db,'atletiEmail',e),{atleta:ids[0],atleti:ids}).catch(()=>synced.delete(sig))})}
 /* ---------- la mia tessera: l'atleta loggato (email uguale a quella inserita dall'admin) scarica la propria tessera e il proprio certificato ----------
    Legge solo la copia su Firebase (senza Telegram) dal percorso sections/tessere/items; permessi applicati dalle regole Firestore. */
-let mioRich=[];
+let mioRich=[],mioOrd=[];
 let mioP=null,mioId='',mioIds=[],mioNomi={},mioT=null,mioF={t:null,c:null},mioErr=false;
 /* dettaglio di UNA scheda collegata (dati, modifiche proposte, tessera e certificato) */
 async function caricaMioAt(id){
   mioId=id;mioT=null;mioF={t:null,c:null};mioDati=null;mioMod={};
   try{mioRich=await mieRichieste(db,uid)}catch(x){mioRich=[]}
+  /* i miei ordini: solo quelli inviati da questo account (le regole non permettono di leggere gli altri) */
+  try{const sn=await rgetDocs(rquery(rcollection(db,'ordiniInviati'),rwhere('by','==',uid)));mioOrd=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>((b.at&&b.at.toMillis&&b.at.toMillis())||0)-((a.at&&a.at.toMillis&&a.at.toMillis())||0))}catch(x){mioOrd=[]}
   try{const d=await rgetDoc(rdoc(db,'atletiDati',id));mioDati=d.exists()?d.data():null}catch(x){mioDati=null}
   try{const m=await rgetDoc(rdoc(db,'atletiModifiche',id));mioMod=m.exists()?(m.data().campi||{}):{}}catch(x){mioMod={}}
   const tr=await rgetDoc(rdoc(db,'sections','tessere','items',id));if(!tr.exists()){mioT=null;return}
@@ -79,6 +81,7 @@ async function mioBlob(f){
   return new Blob(parts,{type:guessMime(f.title,f.mime)})}
 const rinfrescaMio=()=>{if(noAcc())mioView();else paintMio()};
 async function mioAct(a,b){
+  if(a==='ordAnn'){if(confirm('Annullare questo ordine?')){try{await rdelete(rdoc(db,'ordiniInviati',b.dataset.id));await caricaMioAt(mioId);rinfrescaMio()}catch(x){console.error(x);alert('Operazione non riuscita. Riprova.')}}return}
   if(a==='mioMed'){apriMedaglia({db,uid,soggetto:mioId,after:async()=>{await caricaMioAt(mioId);rinfrescaMio()}});return}
   if(a==='mioTest'){apriTest({db,uid,soggetto:mioId,nomi:[...new Set(((mioDati&&mioDati.test)||[]).flatMap(t=>(t.r||[]).map(r=>r.n)))],after:async()=>{await caricaMioAt(mioId);rinfrescaMio()}});return}
   if(a==='mioUp'){apriCarica({db,uid,soggetto:mioId,ruolo:'atleta',tipo:b.dataset.t,attuale:mioT||{},after:async()=>{await caricaMioAt(mioId);rinfrescaMio()}});return}
@@ -93,7 +96,19 @@ const mioFiles=()=>mioT?`<div style="margin-top:10px"><b style="font-size:.9rem"
 const mioChip=(l,d)=>{const s=scadStato(d);return !s?`<span class="chip">${l}: —</span>`:s.late?`<span class="chip bad">${l} scaduta da ${-s.g} g</span>`:s.soon?`<span class="chip bad">${l} ${s.g===0?'scade oggi':'scade tra '+s.g+' g'}</span>`:`<span class="chip">${l} fino al ${esc(fmtD(d))}</span>`};
 /* pagina Atleti per l'atleta senza permessi sulla sezione: vede solo la propria scheda tessera */
 /* La mia scheda: dati personali + tessera e certificato (con Scarica/Apri). Sempre disponibile all'atleta collegato, qualunque permesso abbia su Atleti. */
+const ORD_STATO={inviato:['Inviato','warn'],ricevuto:['Ricevuto','ok'],evaso:['Evaso','']};
+function mioOrdHtml(){
+  const fd=t=>t&&t.toDate?t.toDate().toLocaleString('it-IT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+  const l=mioOrd.map(o=>{
+    const [lab,cl]=ORD_STATO[o.stato]||['',''],nm=((o.cognome||'')+' '+(o.nome||'')).trim()||'Ordine';
+    const righe=(o.righe||[]).map(r=>{const det=[r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&(r.altroLabel||'Altro')+' '+r.altro].filter(Boolean).join(' · ');
+      return `<div style="padding:4px 0"><b>${esc(r.qta||1)} × ${esc(r.nome)}</b>${det?`<div class="mu">${esc(det)}</div>`:''}</div>`}).join('');
+    return `<details class="ord"><summary><span class="ot">${esc(nm)}</span><span class="chip ${cl}">${lab}</span><span class="op" aria-hidden="true"></span></summary><div class="ob"><div class="mu">${esc(fd(o.at))}${o.esterno?' · persona non atleta':''}</div>${righe}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="ordAnn" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}</div></details>`}).join('');
+  return `<div class="card dl" style="margin-top:12px"><h2 style="margin:0">I miei ordini</h2>${l||'<div class="mu" style="margin-top:6px">Non hai ancora inviato ordini.</div>'}
+    <div class="dact" style="justify-content:flex-start;margin-top:8px"><a class="btn sm" href="ordini.html" style="text-decoration:none">Ordina del materiale</a></div></div>`}
 function mioCardsHtml(){
+  return mioCardsBase()+mioOrdHtml()}
+function mioCardsBase(){
   const t=mioT||{},nome=((t.cognome||'')+' '+(t.nome||'')).trim()||t.title||'';
   const d=(l,v)=>v?`<dt>${l}</dt><dd>${esc(v)}</dd>`:'';
   const err=mioErr?box2('Impossibile leggere i tuoi dati','Non riesco a collegarmi ai tuoi dati. Riprova tra poco; se il problema continua avvisa l’admin (le regole di sicurezza potrebbero non essere aggiornate).'):'';

@@ -151,10 +151,7 @@ async function caricaCatalogo(){
     const sn=await rgetDocs(rquery(rcol(db,'sections','ordini','items'),rwhere('kind','==','prodotto'),rwhere('attivo','==',true)));
     catalogo=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.nome||'').localeCompare(String(b.nome||''),'it'));
   }catch(x){console.error(x);catalogo=[];catErr=(x&&x.code==='permission-denied')?'Non ho il permesso di leggere il catalogo: l’admin deve ripubblicare le regole Firestore (firestore.rules).':'Non riesco a leggere il catalogo. Riprova tra poco.'}
-  try{
-    const sn=await rgetDocs(rquery(rcol(db,'ordiniInviati'),rwhere('by','==',uid)));
-    miei=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>ms(b.at)-ms(a.at))
-  }catch(x){console.error(x);miei=[]}}
+}
 const optSel=(id,lab,arr)=>(arr||[]).length?`<label for="${id}">${esc(lab)}</label><select id="${id}"><option value="">Scegli…</option>${arr.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select>`:'';
 const ALTRA='__altra';
 function ordinaHtml(){
@@ -172,9 +169,7 @@ function ordinaHtml(){
     <div class="card">${carrello.length?carrello.map((r,i)=>`<div class="fh" style="padding:4px 0"><div><b>${esc(r.qta)} × ${esc(r.nome)}</b><div class="mu">${esc([r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&r.altroLabel+' '+r.altro].filter(Boolean).join(' · '))}</div></div><button class="btn ghost sm" data-a="togliR" data-i="${i}" aria-label="Togli ${esc(r.nome)} dall’ordine">Togli</button></div>`).join(''):'<div class="mu">Non hai ancora scelto niente.</div>'}
       <label for="nota">Note per l’ordine (facoltative)</label><textarea id="nota" maxlength="1000" placeholder="Altri dettagli utili per l’ordine">${esc(notaTxt)}</textarea>
       <p class="err" role="alert" id="oer" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(invErr)}</p>
-      <div class="dact"><button class="btn" data-a="invia" ${carrello.length?'':'disabled'}>Invia l’ordine</button></div></div>
-    <h2 style="margin:18px 0 6px">I miei ordini</h2>
-    ${miei.length?miei.map(o=>{const [lab,cl]=STATO[o.stato]||['',''];return acc('m_'+o.id,esc(nomeDi(o)),`<span class="chip ${cl}">${lab}</span>`,`<div class="mu">${esc(quando(ms(o.at)))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="annulla" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}`)}).join(''):'<div class="card"><div class="mu">Non hai ancora inviato ordini.</div></div>'}`}
+      <div class="dact"><button class="btn" data-a="invia" ${carrello.length?'':'disabled'}>Invia l’ordine</button></div></div>`}
 async function azioneAtleta(a,b){
   if(a==='agg'){
     const p=catAttivo().find(x=>x.id===b.dataset.id);if(!p)return;
@@ -206,7 +201,7 @@ async function azioneAtleta(a,b){
       const ordine={atleta,nome,cognome,righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()};
       if(esterno)ordine.esterno=true;      /* senza il campo per gli ordini normali: funziona anche con regole meno recenti */
       await raddDoc(rcol(db,'ordiniInviati'),ordine);
-      carrello=[];notaTxt='';extTxt='';nuovoForm=true;mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
+      carrello=[];notaTxt='';extTxt='';nuovoForm=true;mioMsg=gest()?'Ordine inviato: lo trovi in Gestione.':'Ordine inviato: l’admin lo riceve. Lo trovi in «I miei ordini», nella tua scheda personale (Atleti).';await caricaCatalogo();return true
     }catch(x){console.error(x);errInv(((x&&x.code==='permission-denied')?'Invio non permesso da Firebase.':'Invio non riuscito. Controlla la connessione e riprova.')+'\nDiagnosi: '+[
         'errore '+((x&&(x.code||x.message))||'?'),
         'admin '+(me&&me.admin?'sì':'no'),
@@ -282,8 +277,7 @@ else{
       started=true;
       if(gest()){
         unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;renderBg()},()=>{reg=[];regErr=true;renderBg()}));
-        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));renderBg()},()=>{stag=[]}));
-        caricaMiei()}
+        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));renderBg()},()=>{stag=[]}));}
       /* chi è anche un atleta (stessa email inserita dall'admin in Atleti) vede anche la parte «Ordina» */
       mioState='load';render();
       caricaMio().then(async ok=>{mioState=ok?'ok':'no';if(ok){await caricaCatalogo();if(!gest())tab='o'}render()})},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}))})}
