@@ -153,7 +153,8 @@ service cloud.firestore {
       allow create: if signedIn() && (mioAtleta(request.resource.data.atleta) || ordAdmin())
         && request.resource.data.by == request.auth.uid
         && request.resource.data.stato == 'inviato'
-        && request.resource.data.keys().hasOnly(['atleta', 'nome', 'cognome', 'righe', 'nota', 'stato', 'by', 'at'])
+        && request.resource.data.keys().hasOnly(['atleta', 'esterno', 'nome', 'cognome', 'righe', 'nota', 'stato', 'by', 'at'])
+        && (request.resource.data.get('esterno', false) == false || request.resource.data.nome.size() > 0)
         && request.resource.data.righe is list && request.resource.data.righe.size() > 0 && request.resource.data.righe.size() <= 30
         && request.resource.data.nota is string && request.resource.data.nota.size() <= 1000;
       allow update: if ordAdmin();

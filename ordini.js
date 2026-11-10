@@ -21,7 +21,8 @@ tick();setInterval(tick,15000);
 
 let auth,db,uid=null,me=null,unsubs=[],tab='',started=false;
 let reg=[],stag=[],regErr=false;                                  /* lato admin */
-let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='',atlList=[],catErr='';   /* lato atleta: mio={ids:[],nomi:{}} */
+let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='',atlList=[],catErr='',extTxt='';
+const aperti=new Set();      /* schede aperte con il + (restano aperte quando la pagina si ridisegna) */   /* lato atleta: mio={ids:[],nomi:{}} */
 const perm=()=>me?(me.admin?'w':((me.perms||{}).ordini||'n')):'n';
 const gest=()=>perm()==='r'||perm()==='w',scrive=()=>perm()==='w';
 const ms=t=>t&&t.toMillis?t.toMillis():(typeof t==='number'?t:0);
@@ -31,6 +32,9 @@ const STATO={inviato:['Nuovo','warn'],ricevuto:['Ricevuto','ok'],evaso:['Evaso',
 const chi=()=>gest()?atlList.map(a=>({id:a.id,n:nomeDi(a)})).sort((a,b)=>a.n.localeCompare(b.n,'it')):(mio?mio.ids.map(id=>({id,n:nomeDi(mio.nomi[id]||{})})):[]);
 const nomeAt=id=>{const c=chi().find(x=>x.id===id);return c?c.n:(mio&&mio.nomi[id]?nomeDi(mio.nomi[id]):'')};
 const catAttivo=()=>gest()?prodotti().filter(p=>p.attivo!==false):catalogo;
+/* scheda a tendina: si legge solo il titolo, il + (o −) apre e chiude tutto il resto */
+const acc=(id,titolo,extra,corpo)=>{const a=aperti.has(id);
+  return `<div class="card" style="margin-bottom:10px"><button type="button" class="acch" data-a="tog" data-id="${esc(id)}" aria-expanded="${a}"><span class="acct">${titolo}</span>${extra||''}<span class="accp" aria-hidden="true">${a?'−':'+'}</span></button><div class="accb" ${a?'':'hidden'}>${corpo}</div></div>`};
 const nomeDi=o=>((o.cognome||'')+' '+(o.nome||'')).trim()||'Atleta';
 
 /* ---------- finestra di dialogo ---------- */
@@ -93,19 +97,19 @@ function riepilogo(l){
 const rigaTxt=r=>[r.nome,r.misura&&'misura '+r.misura,r.colore&&r.colore,r.marchio&&r.marchio,r.altro&&(r.altroLabel||'')+' '+r.altro].filter(Boolean).join(', ');
 function ordineHtml(o){
   const [lab,cl]=STATO[o.stato]||['',''];
-  return `<div class="card" style="margin-bottom:10px"><div class="fh"><div><b>${esc(nomeDi(o))}</b> <span class="mu">${esc(quando(o.t))}</span></div><span class="chip ${cl}">${lab}</span></div>
-    ${righeHtml(o)}${o.nota?`<div class="fbox" style="white-space:pre-wrap"><span class="mu">Note dell’atleta</span><div>${esc(o.nota)}</div></div>`:''}
+  const corpo=`<div class="mu">${esc(quando(o.t))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="fbox" style="white-space:pre-wrap"><span class="mu">Note</span><div>${esc(o.nota)}</div></div>`:''}
     ${scrive()?`<div class="dact" style="flex-wrap:wrap">
       <button class="btn ghost sm" data-a="elim" data-id="${esc(o.id)}">Elimina</button>
       ${o.stato==='evaso'&&o.stag?`<button class="btn ghost sm" data-a="togli" data-id="${esc(o.id)}">Togli dalla lista dell’atleta</button>`:''}
       ${o.stato==='inviato'?`<button class="btn sm" data-a="ric" data-id="${esc(o.id)}">Segna come ricevuto</button>`:''}
-      ${o.stato==='ricevuto'?`<button class="btn sm" data-a="eva" data-id="${esc(o.id)}">Segna come evaso</button>`:''}</div>`:''}</div>`}
+      ${o.stato==='ricevuto'?`<button class="btn sm" data-a="eva" data-id="${esc(o.id)}">Segna come evaso</button>`:''}</div>`:''}`;
+  return acc('o_'+o.id,esc(nomeDi(o)),`<span class="chip ${cl}">${lab}</span>`,corpo)}
 async function azioneAdmin(a,id){
   const o=ordiniUniti().find(x=>x.id===id);
   if(a==='ric'){
     const s=stag.find(x=>x.id===id);if(!s)return;
     /* copia permanente su Telegram (cifrata), poi lo stato visibile all'atleta */
-    await setDoc(doc(db,'sections','ordini','items',id),{kind:'ordine',atleta:s.atleta,nome:s.nome||'',cognome:s.cognome||'',righe:s.righe||[],nota:s.nota||'',stato:'ricevuto',ts:ms(s.at)||Date.now(),by:uid,
+    await setDoc(doc(db,'sections','ordini','items',id),{kind:'ordine',atleta:s.atleta||'',esterno:!!s.esterno,nome:s.nome||'',cognome:s.cognome||'',righe:s.righe||[],nota:s.nota||'',stato:'ricevuto',ts:ms(s.at)||Date.now(),by:uid,
       title:'Ordine · '+nomeDi(s),note:(s.righe||[]).map(r=>(r.qta||1)+'× '+r.nome).join(', ').slice(0,300)});
     await rupdate(rdoc(db,'ordiniInviati',id),{stato:'ricevuto'})}
   else if(a==='eva'){
@@ -124,10 +128,9 @@ function gestioneHtml(){
       ${R.map(x=>`<div style="padding:5px 0;border-top:1px solid var(--ln)"><b>${x.qta} × ${esc(rigaTxt(x.r))}</b><div class="mu">${esc(x.chi.join(', '))}</div></div>`).join('')}</div>`:''}
     ${L.length?L.map(ordineHtml).join(''):'<div class="card"><div class="mu">Nessun ordine. Quando un atleta ne invia uno, lo trovi qui.</div></div>'}
     <div class="fh" style="margin:18px 0 6px"><h2 style="margin:0">Prodotti</h2>${scrive()?'<button class="btn sm" data-a="nuovoP">+ Nuovo prodotto</button>':''}</div>
-    ${P.length?P.map(p=>`<div class="card" style="margin-bottom:10px"><div class="fh"><div><b>${esc(p.nome)}</b>${p.prezzo?` <span class="mu">${esc(p.prezzo)}</span>`:''}</div>${p.attivo===false?'<span class="chip">Non disponibile</span>':''}</div>
-      ${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
+    ${P.length?P.map(p=>acc('p_'+p.id,esc(p.nome),p.attivo===false?'<span class="chip">Non disponibile</span>':'',`${p.prezzo?`<div class="mu">${esc(p.prezzo)}</div>`:''}${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
       ${[['Misure',p.misure],['Colori',p.colori],['Marchi',p.marchi],[altroNome(p),p.altro]].filter(x=>(x[1]||[]).length).map(([l,a])=>`<div class="mu" style="margin-top:4px"><b>${esc(l)}:</b> ${esc(a.join(', '))}</div>`).join('')}
-      ${scrive()?`<div class="dact"><button class="btn ghost sm" data-a="elP" data-id="${esc(p.id)}">Elimina</button><button class="btn ghost sm" data-a="edP" data-id="${esc(p.id)}">Modifica</button></div>`:''}</div>`).join(''):'<div class="card"><div class="mu">Nessun prodotto. Crea il primo: gli atleti potranno sceglierlo dalle tendine.</div></div>'}`}
+      ${scrive()?`<div class="dact"><button class="btn ghost sm" data-a="elP" data-id="${esc(p.id)}">Elimina</button><button class="btn ghost sm" data-a="edP" data-id="${esc(p.id)}">Modifica</button></div>`:''}`)).join(''):'<div class="card"><div class="mu">Nessun prodotto. Crea il primo: gli atleti potranno sceglierlo dalle tendine.</div></div>'}`}
 
 /* ---------- lato atleta ---------- */
 async function caricaMio(){
@@ -153,25 +156,26 @@ async function caricaCatalogo(){
     miei=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>ms(b.at)-ms(a.at))
   }catch(x){console.error(x);miei=[]}}
 const optSel=(id,lab,arr)=>(arr||[]).length?`<label for="${id}">${esc(lab)}</label><select id="${id}"><option value="">Scegli…</option>${arr.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select>`:'';
+const ALTRA='__altra';
 function ordinaHtml(){
-  const C=catAttivo(),W=chi();
+  const C=catAttivo(),W=chi(),sel=per===ALTRA||W.some(c=>c.id===per)?per:((W[0]||{}).id||ALTRA);
   return `${mioMsg?`<div class="card" role="status" style="margin-bottom:12px"><b>${esc(mioMsg)}</b></div>`:''}
     ${catErr?`<div class="card" role="alert" style="margin-bottom:12px"><b>Catalogo non disponibile</b><div class="mu">${esc(catErr)}</div></div>`:''}
-    ${gest()&&!W.length?'<div class="card" style="margin-bottom:12px"><b>Elenco atleti non disponibile</b><div class="mu">Per ordinare a nome di un atleta serve l’elenco degli atleti, che è su Telegram: accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina.</div></div>':''}
-    ${W.length>1||gest()?`<label for="per">Per chi è l’ordine</label><select id="per">${W.map(c=>`<option value="${esc(c.id)}" ${c.id===per?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}</select>`:''}
+    ${gest()&&!W.length?'<div class="card" style="margin-bottom:12px"><b>Elenco atleti non disponibile</b><div class="mu">Per ordinare a nome di un atleta serve l’elenco degli atleti, che è su Telegram: accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina. Intanto puoi ordinare per un’altra persona.</div></div>':''}
+    <label for="per">Per chi è l’ordine</label><select id="per">${W.map(c=>`<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}<option value="${ALTRA}" ${sel===ALTRA?'selected':''}>Un’altra persona (non atleta)…</option></select>
+    ${sel===ALTRA?`<label for="pext">Nome e cognome della persona (obbligatorio)</label><input id="pext" type="text" autocomplete="off" required aria-required="true" value="${esc(extTxt)}" placeholder="es. Mario Rossi">`:''}
     <h2 style="margin:12px 0 6px">Prodotti</h2>
-    ${C.length?C.map(p=>`<div class="card" style="margin-bottom:10px" data-p="${esc(p.id)}"><div class="fh"><div><b>${esc(p.nome)}</b>${p.prezzo?` <span class="mu">${esc(p.prezzo)}</span>`:''}</div></div>
-      ${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
+    ${C.length?C.map(p=>acc('a_'+p.id,esc(p.nome),p.prezzo?`<span class="mu">${esc(p.prezzo)}</span>`:'',`${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
       ${optSel('m_'+p.id,'Misura',p.misure)}${optSel('c_'+p.id,'Colore',p.colori)}${optSel('k_'+p.id,'Marchio',p.marchi)}${optSel('a_'+p.id,altroNome(p),p.altro)}
       <label for="q_${esc(p.id)}">Quantità</label><input id="q_${esc(p.id)}" type="number" min="1" max="99" value="1" inputmode="numeric" style="max-width:110px">
-      <div class="dact"><button class="btn sm" data-a="agg" data-id="${esc(p.id)}">Aggiungi all’ordine</button></div></div>`).join(''):'<div class="card"><div class="mu">Al momento non ci sono prodotti da ordinare.</div></div>'}
+      <div class="dact"><button class="btn sm" data-a="agg" data-id="${esc(p.id)}">Aggiungi all’ordine</button></div>`)).join(''):'<div class="card"><div class="mu">Al momento non ci sono prodotti da ordinare.</div></div>'}
     <h2 style="margin:18px 0 6px">Il mio ordine</h2>
     <div class="card">${carrello.length?carrello.map((r,i)=>`<div class="fh" style="padding:4px 0"><div><b>${esc(r.qta)} × ${esc(r.nome)}</b><div class="mu">${esc([r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&r.altroLabel+' '+r.altro].filter(Boolean).join(' · '))}</div></div><button class="btn ghost sm" data-a="togliR" data-i="${i}" aria-label="Togli ${esc(r.nome)} dall’ordine">Togli</button></div>`).join(''):'<div class="mu">Non hai ancora scelto niente.</div>'}
       <label for="nota">Note per l’ordine (facoltative)</label><textarea id="nota" maxlength="1000" placeholder="Altri dettagli utili per l’ordine">${esc(notaTxt)}</textarea>
       <p class="err" role="alert" id="oer"></p>
       <div class="dact"><button class="btn" data-a="invia" ${carrello.length?'':'disabled'}>Invia l’ordine</button></div></div>
     <h2 style="margin:18px 0 6px">I miei ordini</h2>
-    ${miei.length?miei.map(o=>{const [lab,cl]=STATO[o.stato]||['',''];return `<div class="card" style="margin-bottom:10px"><div class="fh"><div><b>${esc(nomeAt(o.atleta)||'')}</b> <span class="mu">${esc(quando(ms(o.at)))}</span></div><span class="chip ${cl}">${lab}</span></div>${righeHtml(o)}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="annulla" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}</div>`}).join(''):'<div class="card"><div class="mu">Non hai ancora inviato ordini.</div></div>'}`}
+    ${miei.length?miei.map(o=>{const [lab,cl]=STATO[o.stato]||['',''];return acc('m_'+o.id,esc(nomeDi(o)),`<span class="chip ${cl}">${lab}</span>`,`<div class="mu">${esc(quando(ms(o.at)))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="annulla" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}`)}).join(''):'<div class="card"><div class="mu">Non hai ancora inviato ordini.</div></div>'}`}
 async function azioneAtleta(a,b){
   if(a==='agg'){
     const p=catAttivo().find(x=>x.id===b.dataset.id);if(!p)return;
@@ -184,13 +188,21 @@ async function azioneAtleta(a,b){
   if(a==='invia'){
     const er=$('#oer'),nota=($('#nota').value||'').trim().slice(0,1000);
     if(!carrello.length)return false;
-    const sel=($('#per')||{}).value||per,pa=chi().find(c=>c.id===sel);
-    if(!pa){if(er)er.textContent='Scegli per chi è l’ordine.';return false}
-    const n=gest()?(atlList.find(a=>a.id===sel)||{}):(mio.nomi[sel]||{});
+    const sel=($('#per')||{}).value||per;let atleta,nome,cognome,esterno=false;
+    if(sel===ALTRA){
+      const t=(($('#pext')||{}).value||'').trim().replace(/\s+/g,' ');
+      if(!t){if(er)er.textContent='Scrivi il nome della persona per cui ordini: non può restare vuoto.';const f=$('#pext');if(f)f.focus();return false}
+      esterno=true;nome=t;cognome='';
+      atleta=gest()?'':((mio&&mio.ids[0])||'');      /* l'ordine resta legato all'account di chi lo invia */
+    }else{
+      const pa=chi().find(c=>c.id===sel);
+      if(!pa){if(er)er.textContent='Scegli per chi è l’ordine.';return false}
+      const n=gest()?(atlList.find(a=>a.id===sel)||{}):(mio.nomi[sel]||{});
+      atleta=sel;nome=n.nome||'';cognome=n.cognome||''}
     per=sel;
     try{
-      await raddDoc(rcol(db,'ordiniInviati'),{atleta:sel,nome:n.nome||'',cognome:n.cognome||'',righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()});
-      carrello=[];notaTxt='';mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
+      await raddDoc(rcol(db,'ordiniInviati'),{atleta,esterno,nome,cognome,righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()});
+      carrello=[];notaTxt='';extTxt='';mioMsg='Ordine inviato: l’admin lo riceve e lo trovi qui sotto.';await caricaCatalogo();return true
     }catch(x){console.error(x);if(er)er.textContent=(x&&x.code==='permission-denied')?'Invio non permesso: l’admin deve ripubblicare le regole Firestore (firestore.rules).':'Invio non riuscito. Controlla la connessione e riprova.';return false}}
   if(a==='annulla'){
     if(!confirm('Annullare questo ordine?'))return false;
@@ -211,10 +223,13 @@ function render(){
   ${M.length>1?`<div class="flt" role="tablist">${M.map(([k,l])=>`<button class="btn ${tab===k?'':'ghost'} sm" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}</button>`).join('')}</div>`:''}
   ${tab==='g'?gestioneHtml():ordinaHtml()}</div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
-  const sp=$('#per');if(sp)sp.onchange=e=>{per=e.target.value};
+  const sp=$('#per');if(sp)sp.onchange=e=>{per=e.target.value;render()};
+  const pe=$('#pext');if(pe)pe.oninput=()=>{extTxt=pe.value};
   const nt=$('#nota');if(nt)nt.oninput=()=>{notaTxt=nt.value};
   app.onclick=async e=>{
     const t=e.target.closest('[data-tab]');if(t){tab=t.dataset.tab;mioMsg='';render();return}
+    const tg=e.target.closest('[data-a="tog"]');
+    if(tg){const id=tg.dataset.id,ap=!aperti.has(id);if(ap)aperti.add(id);else aperti.delete(id);tg.setAttribute('aria-expanded',ap);tg.querySelector('.accp').textContent=ap?'−':'+';tg.nextElementSibling.hidden=!ap;return}
     const b=e.target.closest('[data-a]');if(!b||b.disabled)return;const a=b.dataset.a;
     try{
       if(tab==='o'){const ok=await azioneAtleta(a,b);if(ok)render();return}

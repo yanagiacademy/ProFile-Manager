@@ -27,6 +27,8 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Home: tessera Ordini con il conteggio dei nuovi ordini (per chi può gestirli); «La mia area» ha «Ordina il materiale» per gli atleti collegati.
 - REGOLE FIRESTORE: ripubblicare firestore.rules (nuove: ordiniInviati, lettura del catalogo da parte degli atleti).
 - CORREZIONE: la parte «Ordina» ora c'è anche per chi gestisce gli Ordini (admin): sceglie per quale atleta ordinare (elenco atleti da Telegram) e invia l'ordine a suo nome. Se il catalogo o l'invio falliscono per le regole non ripubblicate, la pagina lo dice invece di mostrare «nessun prodotto».
+- SCHEDE A TENDINA: in Prodotti e in Ordini (Gestione, Ordina e «I miei ordini») ogni articolo mostra solo il titolo; il + (e −) apre e chiude tutta la scheda.
+- ORDINE PER UN'ALTRA PERSONA: nella tendina «Per chi è l'ordine» c'è «Un'altra persona (non atleta)…» con nome e cognome OBBLIGATORI (non si invia a campo vuoto; la regola Firestore lo richiede). L'ordine resta legato all'account di chi lo invia (campo esterno:true) e nell'elenco compare «persona non atleta».
 - Ipotesi da confermare: la quarta tendina l'ho resa «altra scelta» con nome libero; nessun pagamento né prezzo totale; l'atleta non modifica un ordine già inviato (lo annulla e lo rifà).
 - Numeri di versione NON aggiornati.
 
