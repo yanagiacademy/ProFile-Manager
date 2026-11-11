@@ -17,6 +17,16 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    /* Coda dello Storico: gli account senza sessione Telegram (atleti, tecnici, operatori) vi accodano le proprie voci, CIFRATE con la chiave pubblica dello Storico.
+       Le crea ognuno solo a proprio nome; le legge e le toglie solo l'admin, che le porta nello Storico. */
+    match /storicoCoda/{id} {
+      allow create: if hasAccount() && request.resource.data.keys().hasOnly(['by', 't', 'enc'])
+                    && request.resource.data.by == request.auth.uid
+                    && request.resource.data.enc is string && request.resource.data.enc.size() < 20000;
+      allow read, delete: if isAdmin();
+      allow update: if false;
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();

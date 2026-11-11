@@ -1,4 +1,4 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 02/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 11/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
@@ -18,6 +18,13 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (11/11) – STORICO: ORA REGISTRA ANCHE GLI ACCOUNT SENZA TELEGRAM
+- PROBLEMA: lo Storico mostrava solo admin e account di prova. Le voci si scrivevano su Telegram con la sessione Telegram del browser (hasSession): chi non l'ha (atleti, tecnici, operatori) non scriveva nulla e la voce andava persa in silenzio.
+- SOLUZIONE (fsx.js): senza sessione Telegram la voce viene CIFRATA con la chiave pubblica dello Storico e accodata su Firestore in storicoCoda/<id> (campi by, t, enc). L'admin con sessione Telegram le porta nello Storico (svuotaCodaStorico) all'apertura della Home e della pagina Storico, poi le toglie dalla coda (stesso id = nessun doppione). Contenuti e privacy come prima: solo l'admin le legge.
+- REGOLE FIRESTORE: ripubblicare firestore.rules (nuova raccolta storicoCoda: ognuno crea solo a proprio nome, legge e cancella solo l'admin).
+- LIMITI: le voci già perse non si recuperano; le voci accodate compaiono nello Storico solo quando l'admin apre la Home o lo Storico con la sessione Telegram attiva; le proposte di modifica di atleti e tecnici restano in Richieste (registro delle decisioni), non nello Storico.
+- File modificati: fsx.js, storico.js, index.html, firestore.rules, RESOCONTO.md. Numeri di versione NON aggiornati.
 
 ## NOVITÀ (09/11 bis) – ORDINI (ordini.html, ordini.js)
 - Nuova scheda ORDINI (Home → Attività) con l'argomento Telegram «Ordini» (telegram.js, migra.js, cifra-esistenti.js, storico.js, cestino.js). I dati passano da fsx.js: sono CIFRATI come le altre sezioni.

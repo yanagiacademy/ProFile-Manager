@@ -92,7 +92,7 @@ details.adm summary svg{width:18px;height:18px;color:var(--mu)}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp,logEvento} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp,logEvento,svuotaCodaStorico} from "./fsx.js";
 import {assicuraCoppia} from "./cifra.js";
 
 import {firebaseConfig} from "./firebase-config.js";
@@ -187,6 +187,7 @@ function onMe(){
     try{if(!sessionStorage.getItem('pfm_acc')){sessionStorage.setItem('pfm_acc','1');logEvento('accesso','','',me.name||me.email||'','Accesso all’app')}}catch(e){}
     if(me.admin){          /* una tantum: coppie di chiavi di Cestino e Storico (tutti scrivono, leggono solo gli autorizzati) e data dell'ultimo backup */
       assicuraCoppia('cestino').catch(e=>console.warn('Chiavi Cestino:',e&&e.message));assicuraCoppia('storico').catch(e=>console.warn('Chiavi Storico:',e&&e.message));
+      setTimeout(()=>svuotaCodaStorico().catch(()=>{}),4000);     /* porta nello Storico le voci degli account senza sessione Telegram */
       setTimeout(()=>import('./notifiche-motore.js').then(m=>m.autoSincronizza(db)).catch(()=>{}),6000);     /* notifiche Telegram: sincronizzazione in silenzio (al massimo ogni 10 ore) */
       getDoc(doc(db,'app','backup')).then(s=>{bk=s.exists()&&s.data().at&&s.data().at.toMillis?s.data().at.toMillis():null;render()}).catch(()=>{})}}
 }

@@ -4,7 +4,7 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {getFirestore,doc,collection,onSnapshot} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,svuotaCodaStorico} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {assicuraCoppia} from "./cifra.js";
 
@@ -69,6 +69,7 @@ else{
     if(!me||!me.admin){app.innerHTML=box('Solo admin','Lo storico è riservato all’amministratore.');return}
     assicuraCoppia('storico').catch(e=>console.warn('Chiavi storico:',e&&e.message));
     if(!shell)costruisci();
+    setTimeout(()=>svuotaCodaStorico().catch(()=>{}),1500);     /* voci accodate da atleti, tecnici e operatori senza sessione Telegram */
     unsubs.push(onSnapshot(collection(db,'sections','storico','items'),s=>{
       voci=s.docs.map(d=>d.data()).filter(v=>v&&typeof v.t==='number').sort((a,b)=>b.t-a.t);render()},()=>{}));
     render()})}

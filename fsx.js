@@ -295,11 +295,27 @@ async function utente(){
 let logQ=Promise.resolve();
 /* azione: crea, modifica, elimina, ripristina, accesso, account, backup… Non blocca mai l'operazione: se lo storico non è pronto, la voce si perde. */
 export function logEvento(azione,sec,id,titolo,dett){
-  if(!tgConfigured()||!hasSession()||!CIFRA_ATTIVA||sec==='storico')return;
+  if(!CIFRA_ATTIVA||sec==='storico')return;
   logQ=logQ.then(async()=>{
     const u=await utente();
-    await tgSendSicuro('storico',newId(),'set',{t:Date.now(),u:u.uid,n:u.nome,a:azione,s:sec||'',i:id||'',T:String(titolo||'').slice(0,160),c:String(dett||'').slice(0,300)})
+    const voce={t:Date.now(),u:u.uid,n:u.nome,a:azione,s:sec||'',i:id||'',T:String(titolo||'').slice(0,160),c:String(dett||'').slice(0,300)};
+    /* chi ha la sessione Telegram scrive subito nello Storico; tutti gli altri (atleti, tecnici, operatori) accodano la voce su Firestore, cifrata: la porta nello Storico l'admin alla prossima apertura */
+    if(tgConfigured()&&hasSession()){try{await tgSendSicuro('storico',newId(),'set',voce);return}catch(e){console.warn('Storico su Telegram non scritto, uso la coda:',e&&e.message)}}
+    const u2=getAuth(DB.app).currentUser;if(!u2)return;
+    await SDK.setDoc(SDK.doc(DB,'storicoCoda',newId()),{by:u2.uid,t:voce.t,enc:await cifraTesto(JSON.stringify(voce),'storico')})
   }).catch(e=>console.warn('Storico non scritto:',e&&e.message))}
+/* solo admin con sessione Telegram: porta nello Storico le voci accodate dagli altri account, poi le toglie dalla coda (id uguale = nessun doppione) */
+export async function svuotaCodaStorico(){
+  if(!tgConfigured()||!hasSession()||!CIFRA_ATTIVA)return 0;
+  let n=0;
+  try{const sn=await SDK.getDocs(SDK.collection(DB,'storicoCoda'));
+    for(const d of sn.docs){
+      try{const v=JSON.parse(await decifraTesto(d.data().enc));
+        if(!v||typeof v.t!=='number')throw new Error('voce non valida');
+        await tgSendSicuro('storico',d.id,'set',v);await SDK.deleteDoc(d.ref);n++}
+      catch(e){console.warn('Voce in coda non trasferita:',d.id,e&&e.message)}}}
+  catch(e){console.warn('Coda storico non letta:',e&&e.message)}
+  return n}
 const loggabile=ref=>ref.coll==='items'&&ref.S!=='storico'&&ref.S!=='cestino'&&ref.S!=='notifiche'&&ref.S!=='account';
 
 /* ---------- Cestino: ogni elemento eliminato viene prima copiato in "cestino" (e il file resta su Telegram) ---------- */
