@@ -13,8 +13,12 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='lezioni';
+let atl=[],atlErr=false,atlSub=false,sel=new Set(),selNames=new Map();
 let auth,db,col,arch,uid=null,me=null,items=[],q='',unsubs=[],shellFor='',editing=null,pend=[],addTarget=null,memo=null;
 const offs=new Map();
+const nameOf=i=>((i.cognome||'')+' '+(i.nome||'')).trim()||i.title||'';
+const fmtOre=n=>String(n).replace('.',',')+' h';
+const ORE=Array.from({length:16},(_,k)=>(k+1)/2);      /* da 0,5 a 8 ore, a passi di mezz'ora */
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const fmtD=d=>String(d||'').split('-').reverse().join('/');
 const dayOf=d=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(d||''))return '';const g=new Date(d+'T12:00:00').toLocaleDateString('it-IT',{weekday:'long'});return g.charAt(0).toUpperCase()+g.slice(1)};
@@ -36,6 +40,9 @@ function shell(){
     <div class="two"><div><label for="dt">Data</label><input id="dt" type="date"></div><div><label for="dy">Giorno</label><input id="dy" type="text" readonly tabindex="-1" aria-live="polite"></div></div>
     <label for="ms">Maestro</label><input id="ms" type="text" list="lm" autocomplete="off"><datalist id="lm"></datalist>
     <label for="tp">Tipologia lezione</label><input id="tp" type="text" list="lt" autocomplete="off"><datalist id="lt"></datalist>
+    <div class="two"><div><label for="or">N. ore lezione</label><select id="or"><option value="">Seleziona…</option>${ORE.map(n=>`<option value="${n}">${fmtOre(n)}</option>`).join('')}</select></div>
+      <div><label id="prlb">Atleti presenti</label><details class="dd" id="pr"><summary id="prs" aria-labelledby="prlb prs">Nessun atleta selezionato</summary>
+        <div class="ddp"><input id="prq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off"><div class="acts"><button type="button" class="btn ghost sm" id="pra">Seleziona tutti</button><button type="button" class="btn ghost sm" id="prn">Nessuno</button></div><div id="prl"></div></div></details></div></div>
     <label for="rp">Rapporto della lezione</label><textarea id="rp" placeholder="Argomenti trattati, presenze, osservazioni…"></textarea>
     <label for="fl">Allega file (foto, video, PDF…)</label><input id="fl" type="file" multiple><div id="fls"></div>
     <p class="mu" style="margin:6px 0 0">Limite ${limiteMB()} MB per file. Puoi aggiungerne altri anche dopo, dalla riga della lezione.</p>
@@ -52,12 +59,32 @@ function shell(){
     $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);
     $('#dt').oninput=()=>{$('#dy').value=dayOf($('#dt').value)};
     $('#sv').onclick=save;$('#cx').onclick=resetForm;
+    $('#prq').oninput=renderAtl;
+    $('#pra').onclick=()=>{visAtl().forEach(x=>{sel.add(x.id);selNames.set(x.id,x.n)});renderAtl()};
+    $('#prn').onclick=()=>{sel.clear();renderAtl()};
+    renderAtl();
     $('#fl').onchange=e=>{const add=[...e.target.files];e.target.value='';const big=add.find(f=>f.size>arch.maxBytes());
       if(big){$('#er').textContent='“'+big.name+'” supera il limite di '+limiteMB()+' MB.';return}
       $('#er').textContent='';pend.push(...add);renderPend()};
     $('#addf').onchange=async e=>{const fs=[...e.target.files];e.target.value='';if(addTarget&&fs.length)await uploadTo(addTarget,fs);addTarget=null};
   }
 }
+/* ---------- atleti presenti (menu a tendina con caselle) ---------- */
+function baseAtl(){
+  const base=atl.map(a=>({id:a.id,n:nameOf(a)})),ids=new Set(base.map(x=>x.id));
+  [...sel].filter(id=>!ids.has(id)).forEach(id=>base.push({id,n:selNames.get(id)||'Atleta non più in elenco'}));
+  return base.sort((a,b)=>a.n.localeCompare(b.n,'it'))}
+function visAtl(){const t=(($('#prq')||{}).value||'').trim().toLowerCase();return baseAtl().filter(x=>!t||x.n.toLowerCase().includes(t))}
+function summAtl(){const e=$('#prs');if(e)e.textContent=sel.size?sel.size+(sel.size===1?' atleta presente':' atleti presenti'):'Nessun atleta selezionato'}
+function renderAtl(){
+  const l=$('#prl');if(!l)return;
+  const vis=visAtl(),t=(($('#prq')||{}).value||'').trim();
+  l.innerHTML=vis.length?vis.map(x=>`<label class="ck"><input type="checkbox" data-p="${esc(x.id)}" ${sel.has(x.id)?'checked':''}> ${esc(x.n)}</label>`).join('')
+    :`<div class="mu" style="padding:6px 2px">${atlErr?'Elenco atleti non disponibile: serve il permesso di lettura sulla scheda Atleti.':t||atl.length?'Nessun risultato.':'Nessun atleta registrato.'}</div>`;
+  l.querySelectorAll('[data-p]').forEach(c=>c.onchange=()=>{
+    const x=vis.find(v=>v.id===c.dataset.p);
+    if(c.checked){sel.add(c.dataset.p);if(x)selNames.set(x.id,x.n)}else sel.delete(c.dataset.p);summAtl()});
+  summAtl()}
 function renderPend(){
   const el=$('#fls');if(!el)return;
   el.innerHTML=pend.map((f,i)=>`<div class="row"><div>${esc(f.name)} <span class="mu">(${fmtSize(f.size)})</span></div><button class="btn ghost sm" data-x="${i}">Rimuovi</button></div>`).join('');
@@ -67,7 +94,8 @@ function setForm(o){
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo della lezione':'Apri il modulo della lezione')}
 function resetForm(){
   setForm(false);editing=null;pend=[];renderPend();$('#ft').textContent='Nuova lezione';$('#sv').textContent='Salva lezione';$('#cx').hidden=true;
-  $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);$('#ms').value='';$('#tp').value='';$('#rp').value='';$('#fbk').checked=false;$('#er').textContent=''}
+  $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);$('#ms').value='';$('#tp').value='';$('#rp').value='';$('#fbk').checked=false;$('#er').textContent='';
+  $('#or').value='';sel.clear();selNames.clear();$('#prq').value='';$('#pr').open=false;renderAtl()}
 
 /* Controlla che si possa usare l'archivio file (Telegram collegato, se è quello in uso) */
 function canUpload(){
@@ -93,8 +121,10 @@ async function save(){
   if(!date){er.textContent='Inserisci la data.';return}
   if(!master){er.textContent='Inserisci il maestro.';return}
   if(!type){er.textContent='Inserisci la tipologia della lezione.';return}
+  const ore=parseFloat($('#or').value);
+  if(!(ore>0)){er.textContent='Seleziona il numero di ore della lezione.';return}
   if(pend.length&&!canUpload())return;
-  const data={date,day:dayOf(date),master,type,report,fb:$('#fbk').checked,title:'Lezione '+fmtD(date)+' – '+type,note:master+(report?' · '+report.replace(/\s+/g,' ').slice(0,160):'')};
+  const ids=[...sel],data={date,day:dayOf(date),master,type,ore,presenti:ids,presentiN:ids.map(id=>selNames.get(id)||(baseAtl().find(x=>x.id===id)||{}).n||''),report,fb:$('#fbk').checked,title:'Lezione '+fmtD(date)+' – '+type,note:master+' · '+fmtOre(ore)+(ids.length?' · '+ids.length+' presenti':'')+(report?' · '+report.replace(/\s+/g,' ').slice(0,160):'')};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
     let id=editing;
@@ -107,11 +137,12 @@ async function save(){
 function edit(it){
   setForm(true);editing=it.id;$('#ft').textContent='Modifica lezione';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;
   $('#dt').value=it.date||today();$('#dy').value=dayOf($('#dt').value);$('#ms').value=it.master||'';$('#tp').value=it.type||'';$('#rp').value=it.report||'';$('#fbk').checked=!!it.fb;$('#er').textContent='';
+  $('#or').value=it.ore?String(it.ore):'';sel=new Set(it.presenti||[]);selNames=new Map((it.presenti||[]).map((id,k)=>[id,(it.presentiN||[])[k]||'']));$('#prq').value='';renderAtl();
   $('#dt').scrollIntoView({behavior:'smooth',block:'center'})}
 
 /* ---------- viewer ---------- */
 function openReport(it){
-  const w=perm()==='w',txt=`${it.day||dayOf(it.date)} ${fmtD(it.date)}\nMaestro: ${it.master||''}\nTipologia: ${it.type||''}\n\nRapporto della lezione\n${it.report||'(nessun rapporto inserito)'}`;
+  const w=perm()==='w',txt=`${it.day||dayOf(it.date)} ${fmtD(it.date)}\nMaestro: ${it.master||''}\nTipologia: ${it.type||''}${it.ore?'\nOre lezione: '+fmtOre(it.ore):''}${(it.presenti||[]).length?'\nPresenti ('+it.presenti.length+'): '+(it.presentiN||[]).filter(Boolean).join(', '):''}\n\nRapporto della lezione\n${it.report||'(nessun rapporto inserito)'}`;
   const extra=w?[{label:'Modifica',fn:()=>{pv.close();edit(it)}},{label:'Aggiungi file',fn:()=>{pv.close();addTarget=it.id;$('#addf').click()}}]:[];
   const pv=showPreview({title:'Lezione '+fmtD(it.date),fileName:'Lezione '+it.date+'.txt',mime:'text/plain',load:async()=>new Blob([txt],{type:'text/plain'}),extra});
 }
@@ -130,7 +161,7 @@ function tileAtt(a){
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const w=perm()==='w',t=q.trim().toLowerCase();
-  const hay=i=>[i.title,i.note,i.master,i.type,i.report,i.date&&fmtD(i.date),i.day,...attsOf(i.id).map(a=>a.title)].filter(Boolean).join(' ').toLowerCase();
+  const hay=i=>[i.title,i.note,i.master,i.type,i.report,...(i.presentiN||[]),i.date&&fmtD(i.date),i.day,...attsOf(i.id).map(a=>a.title)].filter(Boolean).join(' ').toLowerCase();
   const list=lessonsOf().filter(i=>!t||hay(i).includes(t)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
   ls.innerHTML=list.length?list.map(i=>{
     const mn=w?`<button class="btn ghost sm mn" data-act="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione" title="Azioni">⋯</button>`:'';
@@ -140,7 +171,7 @@ function renderList(){
       <button class="lt ls" data-act="rep" data-id="${esc(i.id)}" aria-label="Apri il rapporto della lezione del ${esc(fmtD(i.date))}"><img class="lg" src="logo-yanagi.png" alt=""><span class="cp">Rapporto</span></button>
       ${vis.map(tileAtt).join('')}
       ${n>2?`<button class="arw" data-act="prev" data-id="${esc(i.id)}" aria-label="File precedenti" ${off<=0?'disabled':''}>‹</button><button class="arw" data-act="next" data-id="${esc(i.id)}" aria-label="File successivi" ${off>=max?'disabled':''}>›</button>`:''}</div>
-      <div class="inf" title="${esc(fmtD(i.date)+' · '+(i.day||dayOf(i.date))+' · Maestro: '+(i.master||'')+' · '+(i.type||'')+(n?' · '+n+' file':''))}"><div><b>${esc(fmtD(i.date))}</b> · ${esc(i.day||dayOf(i.date))}</div><div class="mu">${esc(i.master||'—')}${i.type?' · '+esc(i.type):''}</div></div>${mn}</div>`}).join('')
+      <div class="inf" title="${esc(fmtD(i.date)+' · '+(i.day||dayOf(i.date))+' · Maestro: '+(i.master||'')+' · '+(i.type||'')+(n?' · '+n+' file':''))}"><div><b>${esc(fmtD(i.date))}</b> · ${esc(i.day||dayOf(i.date))}</div><div class="mu">${esc(i.master||'—')}${i.type?' · '+esc(i.type):''}${i.ore?' · '+esc(fmtOre(i.ore)):''}${(i.presenti||[]).length?' · '+i.presenti.length+' presenti':''}</div></div>${mn}</div>`}).join('')
     :`<div class="mu">${t?'Nessun risultato.':'Nessuna lezione registrata.'+(w?' Compila il modulo qui sopra.':'')}</div>`;
   if(w){const uniq=k=>[...new Set(lessonsOf().map(i=>i[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
     $('#lm').innerHTML=uniq('master').map(v=>`<option value="${esc(v)}">`).join('');
@@ -176,13 +207,15 @@ else{
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
     if(!u){location.href='index.html';return}
-    uid=u.uid;arch=archivio(db,SEC,uid);
+    uid=u.uid;arch=archivio(db,SEC,uid);atlSub=false;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
       if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
+      if(!atlSub&&perm()==='w'){atlSub=true;
+        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>(!a.kind||a.kind==='atleta')&&(a.nome||a.cognome||a.title));atlErr=false;renderAtl()},()=>{atl=[];atlErr=true;renderAtl()}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });

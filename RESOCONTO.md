@@ -19,6 +19,12 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (11/11 bis) – LEZIONI: ATLETI PRESENTI E N. ORE
+- Nel modulo «Nuova lezione» (lezioni.js, lezioni.html) due campi nuovi: menu «N. ore lezione» (da 0,5 a 8 ore a passi di mezz'ora, OBBLIGATORIO) e menu a tendina «Atleti presenti» con una casella per ogni atleta (ricerca, «Seleziona tutti», «Nessuno», conteggio nel titolo del menu).
+- Dati: ore, presenti (id atleti) e presentiN (nomi, copiati nella lezione: restano anche se l'atleta viene tolto). La riga della lezione mostra ore e numero di presenti; il rapporto elenca ore e nomi; la ricerca trova anche i nomi dei presenti.
+- L'elenco atleti si legge dalla scheda Atleti: serve il permesso di lettura su Atleti (altrimenti il menu lo dice). Le lezioni già registrate non hanno ore: alla prima modifica vanno indicate.
+- File modificati: lezioni.js, lezioni.html, RESOCONTO.md. Regole Firestore invariate. Numeri di versione NON aggiornati. Non provato in un browser (solo controllo di sintassi).
+
 ## NOVITÀ (11/11) – STORICO: ORA REGISTRA ANCHE GLI ACCOUNT SENZA TELEGRAM
 - PROBLEMA: lo Storico mostrava solo admin e account di prova. Le voci si scrivevano su Telegram con la sessione Telegram del browser (hasSession): chi non l'ha (atleti, tecnici, operatori) non scriveva nulla e la voce andava persa in silenzio.
 - SOLUZIONE (fsx.js): senza sessione Telegram la voce viene CIFRATA con la chiave pubblica dello Storico e accodata su Firestore in storicoCoda/<id> (campi by, t, enc). L'admin con sessione Telegram le porta nello Storico (svuotaCodaStorico) all'apertura della Home e della pagina Storico, poi le toglie dalla coda (stesso id = nessun doppione). Contenuti e privacy come prima: solo l'admin le legge.
