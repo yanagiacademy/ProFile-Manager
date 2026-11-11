@@ -2,7 +2,7 @@
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
-Sezioni: Documenti, Mail, File importanti, Lezioni, Tecnici, Atleti, Tessere, Eventi (ex Gare), Video, Foto, Archivio. In più una Chat.
+Sezioni: Documenti, Mail, File importanti, Lezioni, Esami, Tecnici, Atleti, Tessere, Eventi (ex Gare), Video, Foto, Archivio. In più una Chat.
 Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a destra. In ogni sezione c'è il Promemoria in basso.
 
 ## DECISIONI
@@ -18,6 +18,16 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (11/11 ter) – SCHEDA ESAMI (esami.html, esami.js, gradi.js)
+- Nuova sezione ESAMI (Home → Attività) con 16 categorie fisse: 6 kyu bianca, 5 kyu gialla, 4 kyu arancione, 3 kyu verde, 2 kyu blu, 1 kyu marrone, 1-5 dan nera, 6-10 dan bianco rossa (gradi.js). In ogni categoria: documenti, foto, video (file) e link; filtro per tipo, note, rinomina, sposta in altra categoria, elimina (Cestino), ricerca su tutte le categorie.
+- GRADO ATLETA: in Atleti il campo Grado è ora un menu con le 16 categorie (anche nella modifica proposta dall'atleta, richieste.js). I gradi vecchi in testo libero si riconoscono se contengono «N kyu/dan» e vengono riportati alla forma standard; gli altri restano com'erano (voce «non in elenco»).
+- ACCESSO: l'atleta con permesso di LETTURA su Esami vede le categorie dalla prima (6 kyu) fino al proprio grado. Chi ha la scrittura (admin compreso) e i tecnici in sola lettura non collegati a un atleta vedono tutto.
+- DATI: sections/esami/items, ogni voce con liv (1–16), kind 'file' o 'link'. Il livello dell'atleta sta in atletiEmail/<email>.liv (grado più alto tra le schede collegate alla stessa email), scritto dall'admin da Atleti e riallineato quando l'admin apre Atleti dopo un cambio di grado.
+- ATLETI E TELEGRAM: gli atleti non hanno la sessione Telegram, quindi leggono solo i contenuti con la copia su Firebase (casella «Visibile agli atleti», spuntata di default; file fino a 20 MB). I file più grandi restano solo su Telegram (lucchetto 🔒, invisibili agli atleti): per i video grandi usare un link. I link sono sempre visibili.
+- REGOLE FIRESTORE: ripubblicare firestore.rules (nuove regole per sections/esami con limite per grado; le regole generiche escludono esami). L'atleta interroga con where('liv','<=',suo livello).
+- Registrata la sezione in: index.html (gruppo Attività, icona), telegram.js (argomento «Esami»), migra.js, cifra-esistenti.js, storico.js, cestino.js. Dopo la pubblicazione: assegnare ad atleti/tecnici il permesso su Esami dalla tabella account.
+- File nuovi: esami.html, esami.js, gradi.js. Modificati: atleti.js, richieste.js, index.html, telegram.js, migra.js, cifra-esistenti.js, storico.js, cestino.js, firestore.rules, RESOCONTO.md. Numeri di versione NON aggiornati. Non provato in un browser né sulle regole reali (solo controllo di sintassi e della logica dei gradi).
 
 ## NOVITÀ (11/11 bis) – LEZIONI: ATLETI PRESENTI E N. ORE
 - Nel modulo «Nuova lezione» (lezioni.js, lezioni.html) due campi nuovi: menu «N. ore lezione» (da 0,5 a 8 ore a passi di mezz'ora, OBBLIGATORIO) e menu a tendina «Atleti presenti» con una casella per ogni atleta (ricerca, «Seleziona tutti», «Nessuno», conteggio nel titolo del menu).

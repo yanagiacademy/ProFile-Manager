@@ -16,7 +16,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div><p style="margin-top:16px"><a href="index.html" class="mu">← Torna alla suite</a></p></div></div>`;
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
-const SECS=['documenti','file-importanti','lezioni','tecnici','atleti','eventi','video','foto','commercialista','mail','archivio','documenti-in-scadenza','richieste','ordini'];
+const SECS=['documenti','file-importanti','lezioni','esami','tecnici','atleti','eventi','video','foto','commercialista','mail','archivio','documenti-in-scadenza','richieste','ordini'];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let stop=false,running=false;
 

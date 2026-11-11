@@ -6,6 +6,7 @@ import {memoBar} from "./promemoria.js";
 import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,testTesto,scadStato} from "./atleti-scadenze.js";
 import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
+import {GRADI_LAB,livDaGrado,gradoCanon} from "./gradi.js";
 import {ATL_EDIT,apriMedaglia,apriTest,apriDati,apriCarica,mieRichieste,richiesteHtml,annullaRichiesta} from "./richieste.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -23,9 +24,11 @@ const MAIL_RE=/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]{2,}$/;
 /* atletiEmail/<email> = {atleta:id, atleti:[id,…]}: serve all'account loggato per trovare le proprie schede (può leggere solo la chiave uguale alla sua email).
    Più atleti possono avere la stessa email (un genitore con più figli): l'elenco atleti raccoglie tutti. */
 const idsOf=email=>Object.keys(mails).filter(k=>mailOf(k)&&mailOf(k).toLowerCase()===String(email).toLowerCase());
+/* liv = grado più alto tra le schede collegate (1–16, 0 se non impostato): le regole lo usano per limitare il materiale di Esami */
+const livOf=ids=>Math.max(0,...ids.map(id=>{const a=items.find(x=>x.id===id);return a?livDaGrado(a.grado):0}));
 async function scriviChiave(email,ids){
   if(!ids.length)await deleteDoc(doc(db,'atletiEmail',email)).catch(()=>{});
-  else await setDoc(doc(db,'atletiEmail',email),{atleta:ids[0],atleti:ids})}
+  else await setDoc(doc(db,'atletiEmail',email),{atleta:ids[0],atleti:ids,liv:livOf(ids)})}
 async function saveMail(id,email){
   if(!isAdm())return;
   const old=mailOf(id);
@@ -42,8 +45,8 @@ const synced=new Set();
 function syncKeys(){
   if(!isAdm())return;
   const g={};Object.entries(mails).forEach(([id,m])=>{const e=m&&m.email;if(e)(g[e]=g[e]||[]).push(id)});
-  Object.entries(g).forEach(([e,ids])=>{ids.sort();const sig=e+'|'+ids.join(',');if(synced.has(sig))return;synced.add(sig);
-    setDoc(doc(db,'atletiEmail',e),{atleta:ids[0],atleti:ids}).catch(()=>synced.delete(sig))})}
+  Object.entries(g).forEach(([e,ids])=>{ids.sort();const sig=e+'|'+ids.join(',')+'|'+livOf(ids);if(synced.has(sig))return;synced.add(sig);
+    setDoc(doc(db,'atletiEmail',e),{atleta:ids[0],atleti:ids,liv:livOf(ids)}).catch(()=>synced.delete(sig))})}
 /* ---------- la mia tessera: l'atleta loggato (email uguale a quella inserita dall'admin) scarica la propria tessera e il proprio certificato ----------
    Legge solo la copia su Firebase (senza Telegram) dal percorso sections/tessere/items; permessi applicati dalle regole Firestore. */
 let mioRich=[],mioOrd=[];
@@ -227,7 +230,7 @@ function shell(){
     <fieldset><legend>Dati anagrafici</legend>
       <div class="two"><div><label for="nm">Nome</label><input id="nm" type="text" autocomplete="off"></div><div><label for="cg">Cognome</label><input id="cg" type="text" autocomplete="off"></div></div>
       <div class="two"><div><label for="sx">Sesso</label><select id="sx"><option value=""></option><option value="M">M</option><option value="F">F</option></select></div><div><label for="an">Anno di nascita</label><input id="an" type="number" inputmode="numeric" min="1900" max="2100" autocomplete="off"></div></div>
-      <div class="two"><div><label for="gr">Grado</label><input id="gr" type="text" list="lg" autocomplete="off"><datalist id="lg"></datalist></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
+      <div class="two"><div><label for="gr">Grado</label><select id="gr"><option value=""></option>${GRADI_LAB.map(x=>`<option value="${x}">${x}</option>`).join('')}</select><div class="mu" style="font-size:.8rem;margin-top:4px">Dà accesso al materiale della scheda Esami fino a questo grado.</div></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
       <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="mu" style="font-size:.8rem;margin-top:4px">Più atleti possono avere la stessa email (es. un genitore con più figli): da quell’account si vedono tutte le schede.</div></div>':''}</div>
       <label for="tp">Agonista o Dilettante</label><select id="tp"><option value=""></option><option value="agonista">Agonista</option><option value="dilettante">Dilettante</option></select>
@@ -263,11 +266,13 @@ function setForm(o){
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?"Chiudi il modulo dell'atleta":"Apri il modulo dell'atleta")}
 const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grado'],['ct','categoria'],['pe','peso'],['al','altezza'],['at','allenatore'],['tp','tipo'],
   ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['nt','annotazioni']];
+function gradoSel(v){const s=$('#gr');if(!s)return;s.querySelectorAll('.leg').forEach(o=>o.remove());const c=gradoCanon(v);
+  if(c&&!GRADI_LAB.includes(c)){const o=document.createElement('option');o.className='leg';o.value=c;o.textContent=c+' (non in elenco)';s.append(o)}s.value=c}
 function resetForm(){
-  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;
+  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');gradoSel('');if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;
   $('#ft').textContent='Nuovo atleta';$('#sv').textContent='Salva atleta';$('#cx').hidden=true;$('#er').textContent=''}
 function edit(it){
-  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
+  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');gradoSel(it.grado);if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
   $('#ft').textContent='Modifica atleta';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 

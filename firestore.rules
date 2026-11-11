@@ -44,7 +44,7 @@ service cloud.firestore {
     function protetto(d) { return d.get('conservaFinoTs', null) != null && d.conservaFinoTs > request.time; }
 
     match /sections/{sec}/items/{id}/chunks/{n} {
-      allow read: if hasAccount() && level(sec) in ['r', 'w'];
+      allow read: if sec != 'esami' && hasAccount() && level(sec) in ['r', 'w'];
       allow create, update: if hasAccount() && level(sec) == 'w';
       allow delete: if hasAccount() && level(sec) == 'w'
         && !(exists(/databases/$(database)/documents/sections/$(sec)/items/$(id))
@@ -181,8 +181,24 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('archiviatoIl', null) == null;
     }
 
+    /* Esami: ogni contenuto ha liv (1 = 6 kyu … 16 = 10 dan). Chi ha la scrittura vede tutto; chi ha la lettura e è un atleta collegato
+       (atletiEmail/<email>, con liv = grado più alto tra le sue schede, scritto dall'admin in Atleti) vede solo i contenuti con liv <= il proprio grado.
+       Chi ha la lettura e non è un atleta collegato (es. un tecnico) vede tutto. L'atleta deve interrogare con where('liv', '<=', suo liv). */
+    function esamiAtl() { return signedIn() && exists(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())); }
+    function esamiLiv() { return get(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())).data.get('liv', 0); }
+    function esamiVede(d) {
+      return hasAccount() && (level('esami') == 'w'
+        || (level('esami') == 'r' && (!esamiAtl() || d.get('liv', 99) <= esamiLiv())));
+    }
+    match /sections/esami/items/{id} {
+      allow read: if esamiVede(resource.data);
+    }
+    match /sections/esami/items/{id}/chunks/{n} {
+      allow read: if esamiVede(get(/databases/$(database)/documents/sections/esami/items/$(id)).data);
+    }
+
     match /sections/{sec}/items/{id} {
-      allow read: if hasAccount() && level(sec) in ['r', 'w'];
+      allow read: if sec != 'esami' && hasAccount() && level(sec) in ['r', 'w'];
       allow create: if hasAccount() && level(sec) == 'w';
       allow update: if hasAccount() && level(sec) == 'w'
         && (!protetto(resource.data)

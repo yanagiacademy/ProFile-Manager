@@ -10,6 +10,7 @@
 import {doc,collection,getDoc,getDocs,setDoc,addDoc,updateDoc,deleteDoc,serverTimestamp,Bytes,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {isD,fmtD} from "./atleti-scadenze.js";
 import {guessMime} from "./file-tools.js";
+import {GRADI_LAB} from "./gradi.js";
 import {ALBI,livelloEtichetta,livelloEsempio,tesName,rigaBreve,tesserini} from "./tesserini.js";
 
 export const MAX_FILE=10*1024*1024,CH=900000;
@@ -17,7 +18,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 
 /* ---------- campi che la persona può proporre di cambiare: [chiave, etichetta, tipo] ----------
    tipi: t testo · n numero · d decimale · a testo lungo · s sesso · p agonista/dilettante · D data · c codice fiscale */
-export const ATL_EDIT=[['nome','Nome','t'],['cognome','Cognome','t'],['sesso','Sesso','s'],['anno','Anno di nascita','n'],['peso','Peso (kg)','d'],['altezza','Altezza (cm)','n'],['grado','Grado','t'],['categoria','Categoria','t'],['allenatore','Allenatore','t'],['tipo','Agonista o dilettante','p'],['kumi','Kumi kata','t'],['tachi','Tachi waza (una per riga)','a'],['ne','Ne waza (una per riga)','a'],['richieste','Richieste','a'],['obiettivi','Obiettivi','a'],['infortuni','Infortuni','a']];
+export const ATL_EDIT=[['nome','Nome','t'],['cognome','Cognome','t'],['sesso','Sesso','s'],['anno','Anno di nascita','n'],['peso','Peso (kg)','d'],['altezza','Altezza (cm)','n'],['grado','Grado',GRADI_LAB],['categoria','Categoria','t'],['allenatore','Allenatore','t'],['tipo','Agonista o dilettante','p'],['kumi','Kumi kata','t'],['tachi','Tachi waza (una per riga)','a'],['ne','Ne waza (una per riga)','a'],['richieste','Richieste','a'],['obiettivi','Obiettivi','a'],['infortuni','Infortuni','a']];
 export const TEC_EDIT=[['nome','Nome','t'],['cognome','Cognome','t'],['nascita','Data di nascita','D'],['cf','Codice fiscale','c'],['info','Informazioni','a']];
 export const TIPO_LAB={agonista:'Agonista',dilettante:'Dilettante'};
 export const TIPO_RICH={tessera:'Tessera',certificato:'Certificato medico',tesserino:'Tesserino',medaglia:'Medaglia o risultato',test:'Rilevazione test'};
@@ -62,7 +63,7 @@ function campoHtml(id,[k,l,t],v){
   if(t==='D')return `<label for="${id}${k}">${esc(l)}</label><input id="${id}${k}" type="date" value="${esc(v)}">`;
   if(t==='s')return `<label for="${id}${k}">${esc(l)}</label><select id="${id}${k}"><option value=""></option>${['M','F'].map(x=>`<option value="${x}" ${v===x?'selected':''}>${x}</option>`).join('')}</select>`;
   if(t==='p')return `<label for="${id}${k}">${esc(l)}</label><select id="${id}${k}"><option value=""></option>${Object.entries(TIPO_LAB).map(([x,n])=>`<option value="${x}" ${v===x?'selected':''}>${n}</option>`).join('')}</select>`;
-  if(Array.isArray(t))return `<label for="${id}${k}">${esc(l)}</label><select id="${id}${k}"><option value=""></option>${t.map(x=>`<option value="${x}" ${v===x?'selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select>`;
+  if(Array.isArray(t))return `<label for="${id}${k}">${esc(l)}</label><select id="${id}${k}"><option value=""></option>${(v&&!t.includes(v)?[v,...t]:t).map(x=>`<option value="${x}" ${v===x?'selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select>`;
   return `<label for="${id}${k}">${esc(l)}</label><input id="${id}${k}" type="text" inputmode="${t==='d'?'decimal':t==='n'?'numeric':'text'}" autocomplete="off" ${t==='c'?'maxlength="16" autocapitalize="characters" ':''}value="${esc(v)}">`}
 
 /* ---------- modifica dei propri dati: si inviano solo i campi cambiati ---------- */
