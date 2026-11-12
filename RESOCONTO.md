@@ -1,8 +1,8 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 11/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 12/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
-Sezioni: Documenti, Mail, File importanti, Lezioni, Esami, Tecnici, Atleti, Tessere, Eventi (ex Gare), Video, Foto, Archivio. In più una Chat.
+Sezioni: Documenti, Mail, File importanti, Lezioni, Esami, Tecnici, Atleti, Tessere, Eventi (ex Gare), Ordini, Ricevute, Video, Foto, Archivio. In più una Chat.
 Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a destra. In ogni sezione c'è il Promemoria in basso.
 
 ## DECISIONI
@@ -18,6 +18,17 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (12/11) – RICEVUTE DEI PAGAMENTI (ricevute.html, ricevute.js)
+- Nuova sezione RICEVUTE (Home → gruppo Amministrazione, accanto a Commercialista; icona e argomento Telegram «Ricevute»). L'admin o la commercialista caricano le ricevute dei pagamenti; ogni atleta vede e scarica le proprie.
+- CARICARE (admin, o account con Ricevute in SCRITTURA, es. la commercialista): «+ Carica ricevuta» → atleta (menu), data del pagamento, importo, causale, n. ricevuta e modalità (facoltativi), file PDF o foto fino a 20 MB. Dalla scheda di ogni ricevuta: Apri, Scarica, Modifica dati, Elimina (va nel Cestino). Per cambiare il file si elimina la ricevuta e si ricarica. Filtri per atleta e per anno, ricerca, totale degli importi visibili, CSV (rispetta i filtri). Chi ha la LETTURA vede e scarica tutto ma non modifica.
+- ATLETA: Home → «La mia area» → «Le mie ricevute» (compare per gli atleti collegati dall'email inserita in Atleti; un genitore con più figli sceglie il figlio con i pulsanti). Elenco con data, causale, importo, Scarica e Apri; filtro per anno con il totale dell'anno (utile per le detrazioni). L'atleta non scrive e non ha permessi sulla sezione.
+- DATI: sections/ricevute/items/<id>, kind 'file' (come i file di Tessere) con ricAtl (id atleta), nome, cognome, ricData (AAAA-MM-GG), importo (numero), causale, ricNum, metodo, note. Il registro è su Telegram (cifrato come le altre sezioni) e OGNI ricevuta ha anche la copia su Firebase (fb:true, blocchi, max 20 MB): l'atleta non ha la sessione Telegram e legge solo da lì. Nome del file scaricato: «Ricevuta AAAA-MM-GG Cognome n N.pdf».
+- REGOLE FIRESTORE: ripubblicare firestore.rules (nuovo blocco sections/ricevute: l'atleta legge solo i documenti con ricAtl uguale a una sua scheda, e i relativi blocchi; interroga con where('ricAtl','==',id)). Per tutto il resto valgono le regole generiche (lettura e scrittura da permesso).
+- DA FARE DOPO LA PUBBLICAZIONE: 1) alla commercialista dare Ricevute = Scrittura (e Atleti = Lettura, altrimenti il menu degli atleti resta vuoto: l'elenco viene dalla scheda Atleti); 2) agli account degli atleti lasciare Ricevute = Nessuno (con la lettura vedrebbero le ricevute di tutti); 3) il primo caricamento richiede la sessione Telegram (dalla Chat) e crea da solo l'argomento «Ricevute» e la chiave di cifratura; 4) l'atleta vede le ricevute solo se ha un account con la stessa email inserita nella sua scheda Atleti.
+- Registrata la sezione in: index.html (gruppo Amministrazione, icona, tessera «La mia area»), telegram.js (argomento), migra.js, cifra-esistenti.js, storico.js, cestino.js, firestore.rules. File nuovi: ricevute.html, ricevute.js. Numeri di versione NON aggiornati.
+- Non fatto: avviso su Telegram all'atleta quando arriva una ricevuta; conservazione 10 anni in Archivio; sostituzione del file da Modifica; ricevute più grandi di 20 MB (l'atleta non potrebbe scaricarle).
+- Non provato in un browser né sulle regole reali (solo controllo di sintassi e delle funzioni di calcolo: importi, date, nomi dei file).
 
 ## NOVITÀ (11/11 ter) – SCHEDA ESAMI (esami.html, esami.js, gradi.js)
 - Nuova sezione ESAMI (Home → Attività) con 16 categorie fisse: 6 kyu bianca, 5 kyu gialla, 4 kyu arancione, 3 kyu verde, 2 kyu blu, 1 kyu marrone, 1-5 dan nera, 6-10 dan bianco rossa (gradi.js). In ogni categoria: documenti, foto, video (file) e link; filtro per tipo, note, rinomina, sposta in altra categoria, elimina (Cestino), ricerca su tutte le categorie.

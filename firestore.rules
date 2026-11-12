@@ -181,6 +181,16 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sections/tessere/items/$(id)).data.get('archiviatoIl', null) == null;
     }
 
+    /* Ricevute dei pagamenti (sections/ricevute, una ricevuta = un file con ricAtl = id dell'atleta). Chi ha Ricevute in lettura/scrittura (admin, commercialista)
+       usa le regole generiche qui sotto; chi scrive carica, modifica ed elimina. L'atleta collegato alla sua email legge SOLO le ricevute con ricAtl uguale a una
+       sua scheda (e i blocchi del relativo file) e non scrive mai: deve interrogare con where('ricAtl', '==', suo id). L'account di un atleta deve avere «Nessuno» su Ricevute. */
+    match /sections/ricevute/items/{id} {
+      allow read: if mioAtleta(resource.data.ricAtl);
+    }
+    match /sections/ricevute/items/{id}/chunks/{n} {
+      allow read: if mioAtleta(get(/databases/$(database)/documents/sections/ricevute/items/$(id)).data.ricAtl);
+    }
+
     /* Esami: ogni contenuto ha liv (1 = 6 kyu … 16 = 10 dan). Chi ha la scrittura vede tutto; chi ha la lettura e è un atleta collegato
        (atletiEmail/<email>, con liv = grado più alto tra le sue schede, scritto dall'admin in Atleti) vede solo i contenuti con liv <= il proprio grado.
        Chi ha la lettura e non è un atleta collegato (es. un tecnico) vede tutto. L'atleta deve interrogare con where('liv', '<=', suo liv). */
