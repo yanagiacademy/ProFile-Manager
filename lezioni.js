@@ -50,10 +50,19 @@ function shell(){
     <p class="err" id="er" role="alert"></p>
     <div class="acts"><button class="btn" id="sv">Salva lezione</button><button class="btn ghost" id="cx" hidden>Annulla modifica</button></div></div></div>
   <input type="file" id="addf" multiple hidden>`:''}
+  <div class="card" style="margin-bottom:12px"><div class="fh"><h3 style="margin:0">Ore di allenamento</h3><button class="btn sm" id="otg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="ob" aria-label="Apri il conteggio delle ore di allenamento">+</button></div>
+    <div id="ob" hidden><div class="two"><div><label for="od">Dal</label><input id="od" type="date"></div><div><label for="oa">Al</label><input id="oa" type="date"></div></div>
+    <div class="acts"><button class="btn ghost sm" id="orst">Tutto il periodo</button></div>
+    <input id="oq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off" style="margin-top:8px">
+    <div class="mu" id="ot" role="status" style="margin:8px 0"></div><div id="ol"></div></div></div>
   <div class="card" id="ls"></div></div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   $('#q').oninput=e=>{q=e.target.value;renderList()};
   $('#ls').onclick=onListClick;
+  $('#otg').onclick=()=>{const ap=$('#ob').hidden;$('#ob').hidden=!ap;$('#otg').textContent=ap?'−':'+';$('#otg').setAttribute('aria-expanded',String(ap));if(ap)renderOre()};
+  ['#od','#oa'].forEach(s=>$(s).onchange=renderOre);$('#oq').oninput=renderOre;
+  $('#orst').onclick=()=>{$('#od').value='';$('#oa').value='';renderOre()};
+  $('#ol').onclick=e=>{const b=e.target.closest('[data-oa]');if(!b)return;const id=b.dataset.oa;if(oreOpen.has(id))oreOpen.delete(id);else oreOpen.add(id);renderOre()};
   if(w){
     $('#ftg').onclick=()=>setForm($('#fb').hidden);
     $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);
@@ -69,6 +78,28 @@ function shell(){
     $('#addf').onchange=async e=>{const fs=[...e.target.files];e.target.value='';if(addTarget&&fs.length)await uploadTo(addTarget,fs);addTarget=null};
   }
 }
+/* ---------- ore di allenamento per atleta: dalle lezioni (ore e atleti presenti), con periodo facoltativo ---------- */
+let oreOpen=new Set();
+function oreAtleti(da,a){
+  const m=new Map();
+  atl.forEach(x=>m.set(x.id,{id:x.id,n:nameOf(x),ore:0,les:[]}));
+  lessonsOf().forEach(l=>{
+    if(!l.date||!(l.ore>0)||!Array.isArray(l.presenti))return;
+    if((da&&l.date<da)||(a&&l.date>a))return;
+    l.presenti.forEach((id,k)=>{let r=m.get(id);if(!r){r={id,n:(l.presentiN||[])[k]||'Atleta non più in elenco',ore:0,les:[]};m.set(id,r)}r.ore+=l.ore;r.les.push(l)})});
+  return [...m.values()].sort((x,y)=>x.n.localeCompare(y.n,'it'))}
+function renderOre(){
+  const ol=$('#ol');if(!ol||$('#ob').hidden)return;
+  const da=$('#od').value,a=$('#oa').value,t=$('#oq').value.trim().toLowerCase();
+  const L=lessonsOf().filter(l=>l.date&&l.ore>0&&(!da||l.date>=da)&&(!a||l.date<=a)),tot=L.reduce((s,l)=>s+l.ore,0);
+  const rows=oreAtleti(da,a).filter(r=>!t||r.n.toLowerCase().includes(t));
+  $('#ot').textContent=L.length+(L.length===1?' lezione · ':' lezioni · ')+fmtOre(tot)+' di lezione'+((da||a)?' nel periodo scelto':'');
+  ol.innerHTML=rows.length?rows.map(r=>{
+    const open=oreOpen.has(r.id),n=r.les.length;
+    const det=open?`<div class="od">${n?[...r.les].sort((x,y)=>y.date.localeCompare(x.date)).map(l=>`<div class="fh"><span>${esc(fmtD(l.date))} · ${esc(l.day||dayOf(l.date))}${l.type?' · '+esc(l.type):''}${l.master?' · '+esc(l.master):''}</span><b>${esc(fmtOre(l.ore))}</b></div>`).join(''):'<div class="mu">Nessuna lezione nel periodo.</div>'}</div>`:'';
+    return `<div class="oa"><button class="oh" data-oa="${esc(r.id)}" aria-expanded="${open}"><span class="nm">${esc(r.n)}</span><span class="mu">${n} ${n===1?'lezione':'lezioni'}</span><span class="hr">${esc(fmtOre(r.ore))}</span><span aria-hidden="true">${open?'−':'+'}</span></button>${det}</div>`}).join('')
+    :`<div class="mu">${atl.length||L.length?'Nessun atleta trovato.':'Nessun dato: registra le lezioni indicando gli atleti presenti.'}</div>`}
+
 /* ---------- atleti presenti (menu a tendina con caselle) ---------- */
 function baseAtl(){
   const base=atl.map(a=>({id:a.id,n:nameOf(a)})),ids=new Set(base.map(x=>x.id));
@@ -176,6 +207,7 @@ function renderList(){
   if(w){const uniq=k=>[...new Set(lessonsOf().map(i=>i[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
     $('#lm').innerHTML=uniq('master').map(v=>`<option value="${esc(v)}">`).join('');
     $('#lt').innerHTML=uniq('type').map(v=>`<option value="${esc(v)}">`).join('')}
+  renderOre()
 }
 function menu(it){
   const o=document.createElement('div');o.className='mnu-ov';
@@ -214,8 +246,8 @@ else{
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
       if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
-      if(!atlSub&&perm()==='w'){atlSub=true;
-        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>(!a.kind||a.kind==='atleta')&&(a.nome||a.cognome||a.title));atlErr=false;renderAtl()},()=>{atl=[];atlErr=true;renderAtl()}))}
+      if(!atlSub){atlSub=true;        /* l'elenco atleti serve anche al conteggio ore (chi non ha la lettura su Atleti vede solo chi compare nelle lezioni) */
+        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>(!a.kind||a.kind==='atleta')&&(a.nome||a.cognome||a.title));atlErr=false;renderAtl();renderOre()},()=>{atl=[];atlErr=true;renderAtl();renderOre()}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
