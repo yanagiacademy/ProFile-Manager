@@ -12,11 +12,12 @@
    Le regole Firestore (firestore.rules) fanno leggere all'atleta soltanto i documenti con ricAtl uguale a una sua scheda. */
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,updateDoc} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc} from "./fsx.js";
 import {doc as rdoc,collection as rcol,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 import {archivio} from "./archivio.js";
+import {archiviaFile} from "./conservazione.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -27,7 +28,7 @@ tick();setInterval(tick,15000);
 
 const SEC='ricevute',MAXB=20*1024*1024;
 const METODI=['Contanti','Bonifico','Carta / POS','Altro'];
-let auth,db,col,uid=null,me=null,items=[],atl=[],unsubs=[],started=false,sigPerm='',shellOn=false,memo=null,arch=null,errItems=false;
+let auth,db,col,uid=null,me=null,items=[],atl=[],dir=[],unsubs=[],started=false,sigPerm='',shellOn=false,memo=null,arch=null,errItems=false;
 let q='',fAtl='',fAnno='',vista='';                                   /* lato gestione */
 let mioState='load',mio=null,mioId='',mieR=[],mioErr='',mAnno='';      /* lato atleta: mio={ids,nomi} */
 const perm=()=>{if(!me)return 'n';if(me.admin)return 'w';const v=(me.perms||{})[SEC]||'n';return v==='u'?'n':v};
@@ -81,12 +82,13 @@ function canWrite(){
   return true}
 
 /* ---------- lato gestione (admin, commercialista) ---------- */
-const ricList=()=>items.filter(i=>i.ricAtl).sort(cmp);
+const ricList=()=>items.filter(i=>i.ricAtl&&!i.archiviatoIl).sort(cmp);
 const passa=r=>passaQ(r)&&(!fAtl||r.ricAtl===fAtl)&&(!fAnno||String(r.ricData||'').startsWith(fAnno));
 /* atleti tra cui scegliere: la scheda Atleti (serve la lettura su Atleti) più quelli che hanno già una ricevuta */
 function pickList(){
   const m=new Map();
   atl.filter(a=>a.nome||a.cognome||a.title).forEach(a=>m.set(a.id,{id:a.id,nome:a.nome||'',cognome:a.cognome||(a.nome?'':a.title)||''}));
+  dir.forEach(a=>{if(!m.has(a.id)&&(a.nome||a.cognome))m.set(a.id,{id:a.id,nome:a.nome||'',cognome:a.cognome||''})});
   ricList().forEach(r=>{if(!m.has(r.ricAtl))m.set(r.ricAtl,{id:r.ricAtl,nome:r.nome||'',cognome:r.cognome||''})});
   return [...m.values()].sort((a,b)=>nameOf(a).localeCompare(nameOf(b),'it'))}
 const rowHtml=r=>`<button class="tr" data-a="det" data-id="${esc(r.id)}"><span class="inf"><div><b>${esc(nameOf(r))}</b></div><div class="mu">${esc([fmtD(r.ricData),r.causale,r.ricNum&&'n. '+r.ricNum].filter(Boolean).join(' · '))}</div></span>${typeof r.importo==='number'?`<span class="chips"><span class="chip ok">${esc(euro(r.importo))}</span></span>`:''}</button>`;
@@ -101,22 +103,26 @@ function gestHtml(){
     <div class="card" style="padding:8px 14px">${L.length?L.map(rowHtml).join(''):`<div class="mu" style="padding:10px 0">${all.length?'Nessuna ricevuta con questi filtri.':(w?'Ancora nessuna ricevuta. Premi «Carica ricevuta» per aggiungere la prima.':'Ancora nessuna ricevuta.')}</div>`}</div>`}
 
 function openDetail(r){
-  const w=scrive(),dd=(k,v)=>v?`<dt>${k}</dt><dd>${esc(v)}</dd>`:'';
+  const w=scrive(),rec=!!(r.ricTs&&Date.now()-r.ricTs<864e5),dd=(k,v)=>v?`<dt>${k}</dt><dd>${esc(v)}</dd>`:'';
   const o=modal('Ricevuta · '+nameOf(r),`<div class="dl" style="margin-top:8px"><dl>${dd('Atleta',nameOf(r))}${dd('Data del pagamento',fmtD(r.ricData))}${dd('Importo',euro(r.importo))}${dd('Causale',r.causale)}${dd('N. ricevuta',r.ricNum)}${dd('Modalità',r.metodo)}${dd('File',(r.title||'')+(r.size?' ('+kb(r.size)+')':''))}</dl></div>
-    <div class="dact" style="justify-content:flex-start"><button class="btn" data-a="o">Apri</button><button class="btn ghost" data-a="d">Scarica</button>${w?'<button class="btn ghost" data-a="e">Modifica</button><button class="btn ghost" data-a="x">Elimina</button>':''}</div>`,{cancel:'Chiudi'});
+    <div class="dact" style="justify-content:flex-start"><button class="btn" data-a="o">Apri</button><button class="btn ghost" data-a="d">Scarica</button>${w?'<button class="btn ghost" data-a="e">Modifica</button><button class="btn ghost" data-a="x">'+(rec?'Elimina':'Archivia')+'</button>':''}</div>`,{cancel:'Chiudi'});
   const chiudi=()=>o.querySelector('[data-x]').click(),on=(a,f)=>{const b=o.querySelector(`[data-a="${a}"]`);if(b)b.onclick=f};
   on('o',()=>showPreview({title:dlName(r),mime:r.mime,load:say=>arch.getBlob(r,say),errText:x=>'Impossibile aprire il file: '+arch.errText(x),fileName:dlName(r)}));
   on('d',async()=>{try{saveBlob(await arch.getBlob(r,()=>{}),dlName(r))}catch(x){console.error(x);alert('Impossibile scaricare il file: '+arch.errText(x))}});
   on('e',()=>{chiudi();openForm(r)});
   on('x',async()=>{
     if(!canWrite())return;
-    if(!confirm('Eliminare la ricevuta di '+nameOf(r)+' del '+fmtD(r.ricData)+'? Finisce nel Cestino e l’atleta non potrà più vederla.'))return;
-    try{await arch.remove(r);chiudi()}catch(x){console.error(x);alert('Eliminazione non riuscita. Riprova.')}})}
+    if(rec){        /* caricata da meno di 24 ore: si può ancora eliminare (errori di caricamento) */
+      if(!confirm('Eliminare la ricevuta di '+nameOf(r)+' del '+fmtD(r.ricData)+'? Finisce nel Cestino e l’atleta non potrà più vederla.'))return;
+      try{await arch.remove(r);chiudi()}catch(x){console.error(x);alert('Eliminazione non riuscita. Riprova.')}
+      return}
+    if(!confirm('Togliere dall’elenco la ricevuta di '+nameOf(r)+' del '+fmtD(r.ricData)+'? L’atleta non la vedrà più e resta in Archivio per 10 anni (obbligo di conservazione): fino ad allora non si può eliminare.'))return;
+    try{await archiviaFile(db,r,SEC,{tipo:'Ricevute',origine:'Ricevute · '+nameOf(r),note:r.note||'',motivo:'ricevuta tolta dall’elenco'});chiudi()}catch(x){console.error(x);alert('Archiviazione non riuscita. Riprova.')}})}
 
 /* carica una nuova ricevuta (r nullo) oppure modifica i dati di una esistente: per cambiare il file si elimina e si ricarica */
-function openForm(r){
+function openForm(r,pre){
   if(!r&&!canWrite())return;
-  const t=r||{},list=pickList();
+  const t=r||pre||{},list=pickList();
   const body=`<label for="fa2">Atleta</label><select id="fa2"><option value="">Scegli l’atleta…</option>${list.map(a=>`<option value="${esc(a.id)}" ${a.id===t.ricAtl?'selected':''}>${esc(nameOf(a))}</option>`).join('')}</select>
     ${list.length?'':'<div class="mu" style="margin-top:6px">L’elenco atleti è vuoto: serve il permesso di lettura su Atleti e l’accesso a Telegram dalla Chat.</div>'}
     <div class="two"><div><label for="fd">Data del pagamento</label><input id="fd" type="date" value="${esc(t.ricData||oggi())}"></div>
@@ -124,7 +130,7 @@ function openForm(r){
     <label for="fc">Causale (facoltativa)</label><input id="fc" type="text" autocomplete="off" maxlength="120" placeholder="es. Quota associativa 2026/27" value="${esc(t.causale||'')}">
     <div class="two"><div><label for="fn">N. ricevuta (facoltativo)</label><input id="fn" type="text" autocomplete="off" maxlength="40" value="${esc(t.ricNum||'')}"></div>
       <div><label for="fm">Modalità (facoltativa)</label><select id="fm"><option value=""></option>${METODI.map(m=>`<option ${m===t.metodo?'selected':''}>${m}</option>`).join('')}</select></div></div>
-    ${r?`<p class="mu" style="margin:12px 0 0">File: ${esc(r.title||'')}. Per cambiare il file elimina la ricevuta e caricala di nuovo.</p>`
+    ${r?`<p class="mu" style="margin:12px 0 0">File attuale: ${esc(r.title||'')}.</p><label for="ff">Sostituisci il file (facoltativo, max 20 MB)</label><input id="ff" type="file" accept="application/pdf,image/*"><p class="mu" style="font-size:.8rem;margin:4px 0 0">Il file vecchio resta in Archivio per 10 anni.</p>`
        :'<label for="ff">File della ricevuta (PDF o foto, max 20 MB)</label><input id="ff" type="file" accept="application/pdf,image/*">'}
     <p class="mu" style="font-size:.8rem;margin:10px 0 0">L’atleta la vede in «Le mie ricevute» se ha un account con la stessa email inserita nella sua scheda Atleti.</p>`;
   modal(r?'Modifica la ricevuta':'Carica una ricevuta',body,{ok:r?'Salva':'Carica',onSave:async(o,er)=>{
@@ -133,19 +139,46 @@ function openForm(r){
     if(!a){er.textContent='Scegli l’atleta.';return false}
     const d=g('fd');if(!isD(d)){er.textContent='Indica la data del pagamento.';return false}
     const imp=parseImporto(g('fi'));if(Number.isNaN(imp)){er.textContent='L’importo non è valido: scrivi per esempio 45,00.';return false}
-    const f=r?null:o.querySelector('#ff').files[0];
-    if(!r){
-      if(!f){er.textContent='Scegli il file della ricevuta (PDF o foto).';return false}
-      if(!f.size){er.textContent='Il file è vuoto.';return false}
-      if(f.size>MAXB){er.textContent='Il file supera i 20 MB: l’atleta non potrebbe scaricarlo. Riducilo e riprova.';return false}}
+    const f=o.querySelector('#ff').files[0]||null;
+    if(!r&&!f){er.textContent='Scegli il file della ricevuta (PDF o foto).';return false}
+    if(f&&!f.size){er.textContent='Il file è vuoto.';return false}
+    if(f&&f.size>MAXB){er.textContent='Il file supera i 20 MB: l’atleta non potrebbe scaricarlo. Riducilo e riprova.';return false}
     if(!canWrite())return false;
     const v={ricAtl:aid,nome:a.nome,cognome:a.cognome,ricData:d,importo:imp,causale:g('fc'),ricNum:g('fn'),metodo:g('fm')};
     v.note=[nameOf(a),v.causale,imp!=null&&euro(imp),v.ricNum&&'n. '+v.ricNum].filter(Boolean).join(' · ');
-    if(r){await updateDoc(doc(db,'sections',SEC,'items',r.id),v);return}
+    if(r&&!f){await updateDoc(doc(db,'sections',SEC,'items',r.id),v);return}
     er.textContent='Caricamento…';
-    try{await arch.save(f,{...v,fb:true},p=>{er.textContent='Caricamento '+p+'%'})}
-    catch(x){console.error(x);er.textContent='Caricamento non riuscito ('+arch.errText(x)+'). Riprova.';return false}}})}
+    /* ricTs = quando è stata caricata (serve all'avviso Telegram); una ricevuta sostituita tiene rcKey e ricTs: l'atleta non viene avvisato due volte */
+    const ex=r?{...v,rcKey:r.rcKey||r.id,ricTs:r.ricTs||Date.now(),evId:r.evId||'',ricUid:r.ricUid||''}:{...v,ricTs:Date.now(),evId:t.evId||'',ricUid:t.ricUid||''};
+    try{await arch.save(f,{...ex,fb:true},p=>{er.textContent='Caricamento '+p+'%'})}
+    catch(x){console.error(x);er.textContent='Caricamento non riuscito ('+arch.errText(x)+'). Riprova.';return false}
+    if(r){try{await archiviaFile(db,r,SEC,{tipo:'Ricevute',origine:'Ricevute · '+nameOf(r),note:r.note||'',motivo:'file sostituito'})}
+      catch(x){console.error(x);er.textContent='Il nuovo file è stato caricato, ma il vecchio non si è archiviato: toglilo dall’elenco con «Archivia».';return false}}
+    if(me.admin)import('./notifiche-motore.js').then(m=>m.notificaSubito(db,['ricevuta'])).catch(e=>console.warn('Notifica ricevuta:',e&&e.message))}})}
 
+/* elenco minimo atleti (nome e cognome) per chi non ha la lettura su Atleti: lo tiene aggiornato l'admin */
+const sigDir=new Map();
+function syncDir(){
+  if(!me||!me.admin)return;
+  atl.filter(a=>a.nome||a.cognome||a.title).forEach(a=>{
+    const v={nome:a.nome||'',cognome:a.cognome||(a.nome?'':a.title)||''},s=v.nome+'|'+v.cognome,d=dir.find(x=>x.id===a.id);
+    if(sigDir.get(a.id)===s||(d&&(d.nome||'')===v.nome&&(d.cognome||'')===v.cognome))return;
+    sigDir.set(a.id,s);setDoc(doc(db,'ricevuteAtleti',a.id),v).catch(()=>sigDir.delete(a.id))})}
+/* «Crea ricevuta» da Eventi: ricevute.html?ev=…&uid=…&imp=…&cau=… apre il modulo già compilato (l'atleta si sceglie da solo se l'account ne ha uno solo) */
+const PRE=(()=>{const p=new URLSearchParams(location.search);return p.get('ev')||p.get('uid')?{ev:p.get('ev')||'',uid:p.get('uid')||'',imp:p.get('imp')||'',cau:p.get('cau')||''}:null})();
+let okI=false,okA=false,okD=false,preDone=false;
+async function provaPre(){
+  if(!PRE||preDone||!okI||!okA||!okD||!scrive())return;
+  preDone=true;
+  let aid='';
+  if(me.admin&&PRE.uid){
+    try{
+      const u=await rgetDoc(rdoc(db,'users',PRE.uid)),em=u.exists()?String(u.data().email||'').toLowerCase():'';
+      if(em){const k=await rgetDoc(rdoc(db,'atletiEmail',em));if(k.exists()){const d=k.data(),ids=(d.atleti&&d.atleti.length)?d.atleti:(d.atleta?[d.atleta]:[]);if(ids.length===1)aid=ids[0]}}
+    }catch(x){console.warn(x)}}
+  const imp=parseImporto(PRE.imp);
+  history.replaceState(null,'',location.pathname);
+  openForm(null,{ricAtl:aid,causale:PRE.cau,importo:Number.isNaN(imp)?null:imp,evId:PRE.ev,ricUid:PRE.uid})}
 const stamp=()=>oggi();
 const cella=x=>{x=String(x??'');if(/^[=+\-@]/.test(x))x="'"+x;return '"'+x.replace(/"/g,'""')+'"'};
 function exportCsv(){
@@ -166,7 +199,7 @@ async function caricaMio(){
   }catch(x){console.error(x);return false}}
 async function caricaMieRicevute(){
   mioErr='';
-  try{const sn=await rgetDocs(rquery(rcol(db,'sections',SEC,'items'),rwhere('ricAtl','==',mioId)));mieR=sn.docs.map(d=>({id:d.id,...d.data()})).sort(cmp)}
+  try{const sn=await rgetDocs(rquery(rcol(db,'sections',SEC,'items'),rwhere('ricAtl','==',mioId)));mieR=sn.docs.map(d=>({id:d.id,...d.data()})).filter(r=>!r.archiviatoIl).sort(cmp)}
   catch(x){console.error(x);mieR=[];mioErr=x&&x.code==='permission-denied'?'Non ho il permesso di leggere le ricevute: l’admin deve ripubblicare le regole di Firestore (file firestore.rules).':'Non riesco a leggere le ricevute. Controlla la connessione e riprova.'}}
 async function mioBlob(r){
   const sn=await rgetDocs(rcol(db,'sections',SEC,'items',r.id,'chunks'));
@@ -231,7 +264,7 @@ if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora c
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);col=collection(db,'sections',SEC,'items');
   onAuthStateChanged(auth,u=>{
-    unsubs.forEach(f=>f());unsubs=[];started=false;shellOn=false;mio=null;mioState='load';mieR=[];items=[];atl=[];
+    unsubs.forEach(f=>f());unsubs=[];started=false;shellOn=false;mio=null;mioState='load';mieR=[];items=[];atl=[];dir=[];okI=okA=okD=false;
     if(!u){location.href='index.html';return}
     uid=u.uid;arch=archivio(db,SEC,uid);
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
@@ -242,9 +275,10 @@ else{
       started=true;sigPerm=sig;
       if(gest()){
         memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
-        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));errItems=false;repaint()},()=>{items=[];errItems=true;repaint()}));
+        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));errItems=false;okI=true;repaint();provaPre()},()=>{items=[];errItems=true;okI=true;repaint();provaPre()}));
         /* la lista degli atleti viene dalla sezione Atleti (se non c'è la lettura restano gli atleti che hanno già una ricevuta) */
-        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()}));repaint()},()=>{atl=[]}))}
+        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()}));okA=true;syncDir();repaint();provaPre()},()=>{atl=[];okA=true;provaPre()}));
+        unsubs.push(onSnapshot(collection(db,'ricevuteAtleti'),s=>{dir=s.docs.map(d=>({id:d.id,...d.data()}));okD=true;syncDir();repaint();provaPre()},()=>{dir=[];okD=true;provaPre()}))}
       repaint();
       /* chi è anche un atleta (stessa email inserita in Atleti) vede anche «Le mie ricevute» */
       caricaMio().then(async ok=>{mioState=ok?'ok':'no';if(ok)await caricaMieRicevute();repaint()})

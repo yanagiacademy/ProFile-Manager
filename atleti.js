@@ -150,9 +150,11 @@ const datiOf=o=>{const r={};ATL_KEYS.forEach(k=>r[k]=String((o&&o[k])??'').trim(
 const diffKeys=(it,campi)=>campi?ATL_KEYS.filter(k=>k in campi&&String(campi[k]??'').trim()!==String(it[k]??'').trim()):[];
 const modKeys=it=>diffKeys(it,mods[it.id]&&mods[it.id].campi);
 const noteOf=v=>[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300);
-const synced2=new Map();
+const synced2=new Map(),sigRic=new Map();
+/* ricevuteAtleti/<id> = solo nome e cognome: serve a chi carica le ricevute (commercialista) senza dargli la lettura su Atleti */
 function syncDati(){
   if(!isAdm())return;
+  items.forEach(it=>{const v={nome:it.nome||'',cognome:it.cognome||''},s=v.nome+'|'+v.cognome;if(sigRic.get(it.id)===s)return;sigRic.set(it.id,s);setDoc(doc(db,'ricevuteAtleti',it.id),v).catch(()=>sigRic.delete(it.id))});
   items.forEach(it=>{
     if(!mailOf(it.id))return;
     const v=datiOf(it),sig=JSON.stringify(v);
@@ -394,7 +396,7 @@ function openDetail(id){
     else if(a==='edit'){close();edit(it)}
     else if(a==='del'){
       if(!confirm('Eliminare '+nameOf(it)+'? La scheda va nel Cestino (recuperabile per 30 giorni); l’email dell’atleta e il collegamento al suo account vengono invece rimossi subito.'))return;
-      try{const em=mailOf(it.id);await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()){if(mails[it.id])await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(em)await scriviChiave(em,idsOf(em).filter(k=>k!==it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
+      try{const em=mailOf(it.id);await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(isAdm()){if(mails[it.id])await deleteDoc(doc(db,'atletiMail',it.id)).catch(()=>{});if(em)await scriviChiave(em,idsOf(em).filter(k=>k!==it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiDati',it.id)).catch(()=>{});await deleteDoc(doc(db,'atletiModifiche',it.id)).catch(()=>{});await deleteDoc(doc(db,'ricevuteAtleti',it.id)).catch(()=>{})};if(editing===it.id)resetForm();close()}
       catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
     else if(perm()!=='w')return;
     else if(a==='addT')openTest(it);

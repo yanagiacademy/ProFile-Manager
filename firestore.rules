@@ -191,6 +191,13 @@ service cloud.firestore {
       allow read: if mioAtleta(get(/databases/$(database)/documents/sections/ricevute/items/$(id)).data.ricAtl);
     }
 
+    /* Elenco minimo per chi carica le ricevute: solo nome e cognome degli atleti (la scrive l'admin dalla scheda Atleti o chi ha la scrittura su Atleti).
+       Così la commercialista sceglie l'atleta senza avere la lettura su Atleti. */
+    match /ricevuteAtleti/{id} {
+      allow read: if isAdmin() || (hasAccount() && level('ricevute') in ['r', 'w']);
+      allow write: if isAdmin() || (hasAccount() && level('atleti') == 'w');
+    }
+
     /* Esami: ogni contenuto ha liv (1 = 6 kyu … 16 = 10 dan). Chi ha la scrittura vede tutto; chi ha la lettura e è un atleta collegato
        (atletiEmail/<email>, con liv = grado più alto tra le sue schede, scritto dall'admin in Atleti) vede solo i contenuti con liv <= il proprio grado.
        Chi ha la lettura e non è un atleta collegato (es. un tecnico) vede tutto. L'atleta deve interrogare con where('liv', '<=', suo liv). */

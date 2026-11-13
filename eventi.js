@@ -19,7 +19,7 @@ const SEC='eventi',ALERT_GG=10,MAXB=20*1024*1024,CH=900000;
 const CATS={seminario:'Seminari',gara:'Gare',allenamento:'Allenamenti',altro:'Altro'};
 const CAT1={seminario:'Seminario',gara:'Gara',allenamento:'Allenamento',altro:'Altro'};
 const MOTIVI=['Sold out','Iscrizioni complete','Altro motivo'];
-let auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='';
+let auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set();
 const isAdmin=()=>!!(me&&me.admin);
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const meName=()=>(me&&(me.name||me.email))||'';
@@ -278,7 +278,7 @@ function paintDetail(){
     const paid=yes.filter(r=>bonificiOf(r).length).length,ok=yes.filter(r=>r.pagatoOk).length,att=parseFloat(ev.quota)>0?money(parseFloat(ev.quota)*yes.length):'';
     rep=`<h3>Resoconto iscritti<button class="btn ghost sm" data-a="csv">Scarica CSV</button></h3>
       <div class="kpi"><span>✔ Partecipano: <b>${yes.length}</b></span><span>✖ Non partecipano: <b>${nos.length}</b></span>${users.length?`<span>… Senza risposta: <b>${sen.length}</b></span>`:''}${ev.quota?`<span>Bonifici caricati: <b>${paid}/${yes.length}</b></span><span>Verificati: <b>${ok}/${yes.length}</b></span>`:''}${att?`<span>Quota attesa: <b>${esc(att)}</b></span>`:''}</div>
-      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(ev.quota?'<span class="chip warn">nessun bonifico</span>':'')}${ev.quota?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
+      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(ev.quota?'<span class="chip warn">nessun bonifico</span>':'')}${ev.quota?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${ev.quota&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(ev.quota)}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
       ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
       ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
@@ -324,7 +324,9 @@ async function loadUsers(){
 /* iscrizioni: l'admin le legge tutte, l'atleta solo le proprie */
 function listenIscr(){
   const base=fcol(db,'iscrizioni');
-  unsubs.push(fon(isAdmin()?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},e=>console.error('iscrizioni',e)))}
+  unsubs.push(fon(isAdmin()?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},e=>console.error('iscrizioni',e)));
+  /* ricevute già caricate per questo evento (le scrive la sezione Ricevute con evId e ricUid): solo l'admin */
+  if(isAdmin())unsubs.push(fon(fcol(db,'sections','ricevute','items'),s=>{ricEv=new Set(s.docs.map(d=>d.data()).filter(d=>d.evId&&d.ricUid&&!d.archiviatoIl).map(d=>d.evId+'_'+d.ricUid));if(detail)paintDetail()},()=>{ricEv=new Set()}))}
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{

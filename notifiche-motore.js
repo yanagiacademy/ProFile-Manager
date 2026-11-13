@@ -49,8 +49,10 @@ export async function sincronizza(db,{log=()=>{},solo=null,anteprima=false}={}){
   await caricaDati();
   const cfg=await leggiConfig(db),rubrica=await leggiRubrica(db),reg=await leggiRegistro(db);
   const [atleti,tessere,documenti,eventi]=await Promise.all(['atleti','tessere','documenti','eventi'].map(s=>lista(db,s)));
+  /* ricevute ed esiti sono facoltativi: se non si leggono, semplicemente non ci sono messaggi di questo tipo (non si annulla nulla) */
+  const [ricevute,esiti]=await Promise.all(['ricevute','richieste'].map(s=>lista(db,s).catch(()=>[])));
   const now=Date.now();
-  const D=costruisci({atleti,tessere,documenti,eventi,rubrica,cfg,now:new Date(now),url:new URL('index.html',location.href).href});
+  const D=costruisci({atleti,tessere,documenti,eventi,ricevute,esiti,rubrica,cfg,now:new Date(now),url:new URL('index.html',location.href).href});
   /* primo avvio: gli eventi che esistono già non si notificano (altrimenti gli atleti riceverebbero tutto il passato) */
   let primo=false;
   if(!reg.base){primo=true;reg.base=now;D.filter(x=>x.tipo==='evento').forEach(x=>{reg.voci[x.key]={k:'ev',t:now}});R.note.push('Primo avvio: gli eventi già esistenti non vengono notificati, solo quelli creati da ora.')}
@@ -101,12 +103,28 @@ export async function riepilogoProgrammate(db){
     if(v.k==='ev')eventi++}
   return {atleti,admin,eventi,prossima,ult:reg.ult}}
 
-/* Per la Home: ogni 10 ore al massimo, in silenzio. Non fa nulla se Telegram non è collegato o se è tutto disattivato. */
+/* Subito, solo per alcuni tipi (['ricevuta'] dopo il caricamento di una ricevuta, ['esito'] dopo le decisioni sulle richieste).
+   Va chiamata da chi ha Telegram collegato e legge le notifiche (l'admin): per gli altri non fa nulla. */
+export async function notificaSubito(db,tipi){
+  try{
+    if(!prontoTg())return null;
+    if(!Object.keys(await leggiRubrica(db)).length)return null;
+    const cfg=await leggiConfig(db);
+    if(!((tipi.includes('ricevuta')&&cfg.ricevute)||(tipi.includes('esito')&&cfg.esiti)))return null;
+    return await sincronizza(db,{solo:tipi})
+  }catch(e){console.warn('Notifiche immediate:',e&&e.message);return null}}
+
+/* Per la Home: sincronizzazione completa ogni 10 ore al massimo, in silenzio; nel frattempo, al massimo ogni 30 minuti, solo ricevute ed esiti nuovi.
+   Non fa nulla se Telegram non è collegato o se è tutto disattivato. */
 export async function autoSincronizza(db){
   try{
     if(!prontoTg())return null;
-    const ts=Number(localStorage.getItem('pfm_notif_ts')||0);if(Date.now()-ts<10*3600e3)return null;
-    const cfg=await leggiConfig(db);if(!cfg.eventi&&!cfg.atleti&&!cfg.admin)return null;
-    localStorage.setItem('pfm_notif_ts',String(Date.now()));
-    return await sincronizza(db)
+    const now=Date.now(),ts=Number(localStorage.getItem('pfm_notif_ts')||0);
+    if(now-ts>=10*3600e3){
+      const cfg=await leggiConfig(db);if(!cfg.eventi&&!cfg.atleti&&!cfg.admin&&!cfg.ricevute&&!cfg.esiti)return null;
+      localStorage.setItem('pfm_notif_ts',String(now));
+      return await sincronizza(db)}
+    const t2=Number(localStorage.getItem('pfm_notif_ts2')||0);if(now-t2<30*60e3)return null;
+    localStorage.setItem('pfm_notif_ts2',String(now));
+    return await notificaSubito(db,['ricevuta','esito'])
   }catch(e){console.warn('Notifiche automatiche:',e&&e.message);return null}}

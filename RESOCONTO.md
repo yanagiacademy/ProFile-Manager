@@ -1,4 +1,4 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 12/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 13/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
@@ -18,6 +18,20 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (13/11) – AVVISI TELEGRAM, EVENTI↔RICEVUTE, ARCHIVIO RICEVUTE, ELENCO ATLETI, AVVISO ACCOUNT
+- AVVISI TELEGRAM (notifiche-core.js, notifiche-motore.js, notifiche.js): due nuovi tipi, attivabili nella pagina Notifiche («Ricevute di pagamento», «Esito delle richieste»).
+  • RICEVUTA: all'atleta (o al genitore, riferita all'atleta) quando viene caricata una sua ricevuta: importo, causale, data, «La trovi in Le mie ricevute». Si notificano solo ricevute con ricTs degli ultimi 14 giorni (nessun messaggio sul passato); una ricevuta sostituita tiene rcKey e non rinotifica. Se la carica l'admin parte subito (notificaSubito); se la carica la commercialista parte alla prima apertura della Home da admin (controllo ogni 30 minuti, la sincronizzazione completa resta ogni 10 ore).
+  • ESITO: all'atleta quando l'admin accetta/rifiuta modifiche, file, medaglie, test: un messaggio per gruppo di decisioni (✅/❌ campo). Parte 4 secondi dopo l'ultima decisione. Il registro delle decisioni ora salva anche sogg (id della persona); le decisioni vecchie, senza sogg, non vengono notificate. Solo atleti con Telegram in rubrica (i tecnici non sono in rubrica).
+  • NON FATTO e non fattibile senza server: avviso all'admin quando arriva una richiesta o una ricevuta dalla commercialista nel momento stesso (i messaggi partono solo dal browser dell'admin con Telegram collegato). Servirebbe una Cloud Function (piano Blaze).
+- EVENTI↔RICEVUTE (eventi.js, ricevute.js): nel resoconto iscritti, dopo «Pagamento verificato», compare «Crea ricevuta» (o «ricevuta caricata» se esiste già). Apre ricevute.html?ev=…&uid=…&imp=…&cau=… con il modulo già compilato (importo = quota, causale = «Iscrizione <evento>», atleta scelto da solo se l'account ne ha uno). Le ricevute portano evId e ricUid.
+- RICEVUTE – ARCHIVIO 10 ANNI: «Elimina» resta solo per le ricevute caricate da meno di 24 ore (errori) e va nel Cestino; dopo diventa «Archivia»: la ricevuta esce dall'elenco e dall'area dell'atleta e va in Archivio per 10 anni (tipologia «Ricevute», non eliminabile fino alla scadenza). archivio-pagina.js ora legge anche sections/ricevute.
+- RICEVUTE – SOSTITUIRE IL FILE: in Modifica, campo «Sostituisci il file»: il nuovo si carica con gli stessi dati e il vecchio va in Archivio (10 anni).
+- RICEVUTE – ELENCO ATLETI SENZA LETTURA SU ATLETI: nuova raccolta ricevuteAtleti/<id> con solo nome e cognome, scritta dall'admin (da atleti.js e da ricevute.js) e letta da chi ha Ricevute in lettura/scrittura. Il menu atleti della commercialista ora funziona con Ricevute=Scrittura e Atleti=Nessuno. Nuova regola in firestore.rules. Gli atleti già esistenti compaiono dopo che l'admin apre Atleti o Ricevute una volta.
+- ACCOUNT (index.html, Gestione account): se un account è collegato a un atleta (email in Atleti) e ha Lettura/Scrittura su Atleti, Tecnici, Tessere, Ricevute, Commercialista o Ordini, compare l'avviso rosso «⚠ Collegato a un atleta ma con accesso a…». Il testo su «Rimuovi» ora ha il link diretto ad Authentication nella console Firebase (per cancellare davvero il login).
+- NON FATTO (sicurezza): cambio della chiave di cifratura di una sezione dopo la revoca di un operatore: richiederebbe di ricifrare tutti i messaggi e i file già su Telegram. Per ora chi perde il permesso conserva la chiave già letta; se serve escluderlo davvero, il sistema più semplice è non dargli più materiale nuovo in quella sezione e, per dati molto sensibili, spostarli in una sezione nuova (nuova chiave).
+- REGOLE FIRESTORE: ripubblicare firestore.rules (nuovo blocco ricevuteAtleti).
+- File modificati: notifiche-core.js, notifiche-motore.js, notifiche.js, richieste-pagina.js, atleti.js, eventi.js, index.html, archivio-pagina.js, ricevute.js, firestore.rules, RESOCONTO.md. Numeri di versione NON aggiornati. Provato in Node solo il calcolo dei messaggi (ricevute ed esiti, doppioni, registro, interruttori); il resto non è provato in un browser.
 
 ## NOVITÀ (12/11) – RICEVUTE DEI PAGAMENTI (ricevute.html, ricevute.js)
 - Nuova sezione RICEVUTE (Home → gruppo Amministrazione, accanto a Commercialista; icona e argomento Telegram «Ricevute»). L'admin o la commercialista caricano le ricevute dei pagamenti; ogni atleta vede e scarica le proprie.

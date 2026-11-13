@@ -41,13 +41,17 @@ const reqs=id=>rich.filter(r=>r.soggetto===id);
 const modKeys=id=>{const m=mods[id],P=pers(id);if(!m||!m.campi)return [];return Object.keys(m.campi).filter(k=>!P||!uguali(k,m.campi[k],P.p[k]))};
 
 /* ---------- registro delle decisioni: sezione «Richieste» (argomento Telegram omonimo) ---------- */
+let tNot=0;
+/* dopo le decisioni (quando smetti di decidere per 4 secondi) l'atleta riceve su Telegram l'esito */
+function notificaEsiti(){clearTimeout(tNot);tNot=setTimeout(()=>{import('./notifiche-motore.js').then(m=>m.notificaSubito(db,['esito'])).catch(e=>console.warn('Notifica esiti:',e&&e.message))},4000)}
 async function registra(P,e){
   try{
     const nm=P?nameOf(P.p):'Persona non più in elenco',acc=e.esito==='accettato';
-    await addDoc(collection(db,'sections','richieste','items'),{kind:'esito',ts:Date.now(),persona:nm,ruolo:P?P.ruolo:'',tipo:e.tipo,campo:e.campo||'',prima:e.prima||'',dopo:e.dopo||'',file:e.file||'',esito:e.esito,by:uid,
+    await addDoc(collection(db,'sections','richieste','items'),{kind:'esito',ts:Date.now(),persona:nm,ruolo:P?P.ruolo:'',sogg:(P&&P.p&&P.p.id)||'',tipo:e.tipo,campo:e.campo||'',prima:e.prima||'',dopo:e.dopo||'',file:e.file||'',esito:e.esito,by:uid,
       title:(acc?'Accettato':'Rifiutato')+' · '+nm+' · '+(e.campo||(e.file?'file '+e.file:(TIPO_RICH[e.tipo]||''))),
       note:[TIPO_RICH[e.tipo]||'Dati personali',e.campo&&((e.prima||'vuoto')+' → '+(e.dopo||'vuoto'))].filter(Boolean).join(' · ').slice(0,300),at:serverTimestamp()})
-  }catch(x){console.warn('Registro delle richieste non scritto:',x&&x.message)}}   /* il registro non deve mai bloccare la decisione */
+  }catch(x){console.warn('Registro delle richieste non scritto:',x&&x.message)}
+  notificaEsiti()}   /* il registro non deve mai bloccare la decisione */
 
 /* ---------- applicare ---------- */
 async function risolviDati(id,keys,accetta){

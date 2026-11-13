@@ -9,15 +9,16 @@ import {prossimoTest} from "./atleti-scadenze.js";
 export const isD=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
 export const fmtD=d=>String(d||'').split('-').reverse().join('/');
 const p2=n=>String(n).padStart(2,'0');
-export const CFG0={eventi:true,atleti:true,admin:true,giorni:[30,7,1],ora:9};
+export const CFG0={eventi:true,atleti:true,admin:true,ricevute:true,esiti:true,giorni:[30,7,1],ora:9};
 export const MIN_ANTICIPO=150*1000;                 /* Telegram vuole almeno qualche decina di secondi di anticipo */
 export const FINESTRA_ADMIN=90;                     /* giorni: i riepiloghi dell'admin si programmano al massimo 90 giorni avanti (limite di 100 messaggi programmati per chat) */
+export const RECENTI=14*864e5;                    /* ricevute ed esiti si notificano solo se recenti (ultimi 14 giorni): niente messaggi sul passato */
 export const RITENTA=24*3600e3;                     /* un invio fallito si ritenta dopo 24 ore */
 export const CATCHUP_MAX_RITARDO=14;                /* un promemoria "già scaduto" si manda solo se la scadenza è di meno di 14 giorni fa */
 
 export function cfgOk(c){
   const o={...CFG0,...(c||{})};
-  o.eventi=o.eventi!==false;o.atleti=o.atleti!==false;o.admin=o.admin!==false;
+  o.eventi=o.eventi!==false;o.atleti=o.atleti!==false;o.admin=o.admin!==false;o.ricevute=o.ricevute!==false;o.esiti=o.esiti!==false;
   const g=[...new Set((Array.isArray(o.giorni)?o.giorni:String(o.giorni||'').split(/[,\s;]+/)).map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=90))].sort((a,b)=>b-a);
   o.giorni=g.length?g.slice(0,6):CFG0.giorni.slice();
   o.ora=Math.min(21,Math.max(6,Math.round(Number(o.ora))||CFG0.ora));
@@ -52,7 +53,7 @@ export function testoEvento(ev,url){
 
 /* dati: {atleti, tessere, documenti, eventi} (liste di elementi con id), rubrica: {idAtleta: handle}, cfg, now, url.
    Restituisce la lista di tutto ciò che DEVE esistere: [{key,tipo:'atleta'|'admin'|'evento',peer,peers,when,text}] */
-export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],rubrica={},cfg,now=new Date(),url=''}){
+export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],ricevute=[],esiti=[],rubrica={},cfg,now=new Date(),url=''}){
   cfg=cfgOk(cfg);now=new Date(+now);const t0=+now,out=[],nomi={};
   atleti.forEach(a=>{nomi[a.id]=nomeAt(a)});
   tessere.forEach(t=>{const id=t.atleta||t.id;if(id&&!nomi[id])nomi[id]=nomeAt(t)});
@@ -104,6 +105,28 @@ export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],rubrica=
     for(const e of eventi){
       if(e.kind!=='evento'||e.chiuso||(isD(e.data)&&giorniA(e.data,now)<0))continue;
       out.push({key:'ev:'+e.id,tipo:'evento',peers,when:null,text:testoEvento(e,url)})}}
+  /* --- ricevute di pagamento: subito all'atleta (solo se caricate negli ultimi 14 giorni; una ricevuta sostituita non si rinotifica: stessa rcKey) --- */
+  if(cfg.ricevute){
+    const visti=new Set();
+    for(const r of ricevute){
+      if(!r.ricAtl||!r.ricTs||r.archiviatoIl||t0-r.ricTs>RECENTI)continue;
+      const k='rc:'+(r.rcKey||r.id);if(visti.has(k))continue;visti.add(k);
+      const rv=rubrica[r.ricAtl],h=hOf(rv);if(!h)continue;
+      const nome=(r.nome||'').trim(),fam=!!h&&(gOf(rv)||conta[h]>1);
+      const imp=typeof r.importo==='number'?' di '+euro(r.importo):'',cau=r.causale?' ('+r.causale+')':'';
+      out.push({key:k,tipo:'ricevuta',peer:h,when:null,
+        text:`Ciao${fam?'':nome?' '+nome:''}, è stata caricata${fam?' per '+(nomi[r.ricAtl]||nome||'l’atleta'):''} una ricevuta di pagamento${imp}${cau}${isD(r.ricData)?' del '+fmtD(r.ricData):''}. La trovi nell’app, in «Le mie ricevute»: ${url}${FIRMA}`})}}
+  /* --- esito delle richieste (dati, file, medaglie, test): all'atleta, un messaggio per ogni gruppo di decisioni --- */
+  if(cfg.esiti){
+    const per={};
+    for(const e of esiti){if(e.kind!=='esito'||!e.sogg||!e.ts||t0-e.ts>RECENTI)continue;(per[e.sogg]=per[e.sogg]||[]).push(e)}
+    for(const [sid,L] of Object.entries(per)){
+      const rv=rubrica[sid],h=hOf(rv);if(!h)continue;
+      const at=atleti.find(a=>a.id===sid),nome=((at&&at.nome)||'').trim(),fam=!!h&&(gOf(rv)||conta[h]>1);
+      L.sort((a,b)=>a.ts-b.ts);
+      const righe=L.slice(0,10).map(e=>{const acc=e.esito==='accettato',cosa=e.campo||(e.file?'file '+e.file:'')||'richiesta';return (acc?'✅ ':'❌ ')+cosa+(acc?' accettato':' rifiutato')});
+      out.push({key:'es:'+sid+':'+hash(L.map(e=>e.id||e.ts).join(',')),tipo:'esito',peer:h,when:null,
+        text:`Ciao${fam?'':nome?' '+nome:''}, l’admin ha esaminato ${fam?'le richieste di '+(nomi[sid]||nome||'un atleta'):'le tue richieste'}:\n${righe.join('\n')}${L.length>10?'\n… e altre '+(L.length-10):''}\nI dettagli sono nell’app: ${url}${FIRMA}`})}}
   return out}
 
 /* Confronto con il registro: reg = {base, voci:{chiave:{k:'sched'|'now'|'ev',t,id,p,fail}}} */

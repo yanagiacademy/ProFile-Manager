@@ -92,7 +92,7 @@ details.adm summary svg{width:18px;height:18px;color:var(--mu)}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,serverTimestamp,logEvento,svuotaCodaStorico} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,getDocs,serverTimestamp,logEvento,svuotaCodaStorico} from "./fsx.js";
 import {assicuraCoppia} from "./cifra.js";
 
 import {firebaseConfig} from "./firebase-config.js";
@@ -338,13 +338,22 @@ const mAcc=t=>{msgAcc=t;const e=$('#er2');if(e)e.textContent=t};
 function mNew(html,mail,extra){msgNew=html;newMail=mail||'';newExtra=extra||'';const e=$('#er');if(e){e.innerHTML=html;bindRst()}}
 function bindRst(){const b=$('#rst');if(b)b.onclick=async()=>{const r=await inviaResetA(newMail);mNew(esc(r.t)+(r.ok&&newExtra?' '+esc(newExtra):''),newMail,newExtra)}}
 function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked);bindEd(n)}
+/* Account collegati a un atleta (email in Atleti) che hanno anche accesso a schede con i dati di tutti: li segnala nella Gestione account */
+const SENS={atleti:'Atleti',tecnici:'Tecnici',tessere:'Tessere',ricevute:'Ricevute',commercialista:'Commercialista',ordini:'Ordini'};
+let legati=null;
+function caricaLegati(){if(legati)return;legati=new Set();getDocs(collection(db,'atletiEmail')).then(s=>{legati=new Set(s.docs.map(d=>d.id));if($('#er2'))adminView()}).catch(()=>{})}
+const warnAcc=a=>{
+  if(a.admin||!a.email||!legati||!legati.has(a.email.toLowerCase()))return '';
+  const l=Object.keys(SENS).filter(k=>['r','w'].includes((a.perms||{})[k])).map(k=>SENS[k]+' ('+((a.perms||{})[k]==='w'?'scrittura':'lettura')+')');
+  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta ma con accesso a: ${esc(l.join(', '))}. Un atleta dovrebbe avere «Nessuno» su queste schede (su Atleti «Solo dati utente»), altrimenti vede i dati di tutti.</div>`:''};
 function adminView(){
+  caricaLegati();
   const adminsLeft=accounts.filter(a=>a.admin).length;
   const keep=['#nn2','#ne','#np'].map(i=>$(i)?$(i).value:''),keepA=$('#na')?$('#na').checked:false;
   app.innerHTML=topbar()+`<div class="wrap"><div class="bar"><button class="btn ghost sm" id="bk">Indietro</button><h2>Gestione account</h2></div>
   <div class="card"><h2 style="margin:0">Account (${accounts.length})</h2>
-  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${editorHtml(a.id,a.perms,!!a.admin)}</div>`).join('')}
-  <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso ma il login resta: per riattivare la stessa email basta crearla di nuovo (se non ricordi la sua password, l’app ti offre di inviare il link per sceglierne una nuova). Per cancellare del tutto il login usa la console Firebase.</p></div>
+  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin)}</div>`).join('')}
+  <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso ma il login resta: per riattivare la stessa email basta crearla di nuovo (se non ricordi la sua password, l’app ti offre di inviare il link per sceglierne una nuova). Per cancellare del tutto il login apri <a href="https://console.firebase.google.com/project/yanagi-academy-profile-manager/authentication/users" target="_blank" rel="noopener">Authentication nella console Firebase</a>, cerca l’email e scegli «Elimina utente».</p></div>
   ${rimossiHtml()}
   <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label class="ck" style="margin-top:8px"><input type="checkbox" id="na"> Admin</label><div id="ned" style="margin-top:4px"></div><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
   $('#nn2').value=keep[0];$('#ne').value=keep[1];$('#np').value=keep[2];$('#na').checked=keepA;

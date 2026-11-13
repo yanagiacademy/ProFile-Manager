@@ -34,6 +34,8 @@ function costruisci(){
   <div class="card" style="margin-top:12px"><h2>Cosa inviare</h2>
     <label class="ck"><input type="checkbox" id="ce"><span><b>Nuovi eventi</b><br><span class="mu">Messaggio subito a tutti gli atleti con Telegram quando crei un evento (se lo crea un operatore, parte alla prima apertura della Home da admin).</span></span></label>
     <label class="ck"><input type="checkbox" id="ca"><span><b>Scadenze agli atleti</b><br><span class="mu">A ogni atleta con Telegram: promemoria prima della scadenza di tessera e certificato medico.</span></span></label>
+    <label class="ck"><input type="checkbox" id="cr"><span><b>Ricevute di pagamento</b><br><span class="mu">Messaggio all’atleta (o al genitore) quando viene caricata una sua ricevuta. Se la carica l’admin parte subito; se la carica la commercialista parte alla prima apertura della Home da admin (entro mezz’ora).</span></span></label>
+    <label class="ck"><input type="checkbox" id="cx"><span><b>Esito delle richieste</b><br><span class="mu">Messaggio all’atleta quando accetti o rifiuti le sue modifiche, i file caricati, le medaglie o i test. Parte pochi secondi dopo le tue decisioni.</span></span></label>
     <label class="ck"><input type="checkbox" id="cm"><span><b>Scadenze per me (admin)</b><br><span class="mu">Un riepilogo per ogni giorno con scadenze, nei tuoi «Messaggi salvati»: documenti, tessere e certificati di tutti gli atleti, iscrizioni e hotel degli eventi, test.</span></span></label>
     <div class="two"><div><label for="cg">Giorni di preavviso</label><input id="cg" type="text" inputmode="numeric" placeholder="30, 7, 1"></div><div><label for="co">Ora del promemoria</label><select id="co">${Array.from({length:16},(_,i)=>`<option value="${i+6}">${String(i+6).padStart(2,'0')}:00</option>`).join('')}</select></div></div>
     <p class="err" id="er" role="alert"></p><div class="btns"><button class="btn" id="sv">Salva e applica</button></div></div>
@@ -46,7 +48,7 @@ function costruisci(){
   $('#sv').onclick=salva;$('#sync').onclick=()=>esegui('sync');$('#ant').onclick=()=>esegui('ant');
   $('#pm').onclick=()=>esegui('pm');$('#pp').onclick=()=>esegui('pp');
   $('#ls').onchange=e=>{const i=e.target.closest('input[data-a]');if(i){salvaHandle(i);return}const g=e.target.closest('input[data-g]');if(g)salvaGenitore(g)};
-  leggiConfig(db).then(c=>{$('#ce').checked=c.eventi;$('#ca').checked=c.atleti;$('#cm').checked=c.admin;$('#cg').value=c.giorni.join(', ');$('#co').value=String(c.ora)});
+  leggiConfig(db).then(c=>{$('#ce').checked=c.eventi;$('#ca').checked=c.atleti;$('#cm').checked=c.admin;$('#cr').checked=c.ricevute;$('#cx').checked=c.esiti;$('#cg').value=c.giorni.join(', ');$('#co').value=String(c.ora)});
   stato()}
 
 async function stato(){
@@ -81,7 +83,7 @@ async function salva(){
   const er=$('#er');er.textContent='';
   const g=$('#cg').value.split(/[,\s;]+/).filter(Boolean).map(Number);
   if(g.some(n=>!Number.isInteger(n)||n<1||n>90)||!g.length){er.textContent='Scrivi i giorni di preavviso separati da virgola, tra 1 e 90 (per esempio 30, 7, 1).';return}
-  try{await salvaConfig(db,{eventi:$('#ce').checked,atleti:$('#ca').checked,admin:$('#cm').checked,giorni:g,ora:Number($('#co').value)})}
+  try{await salvaConfig(db,{eventi:$('#ce').checked,atleti:$('#ca').checked,admin:$('#cm').checked,ricevute:$('#cr').checked,esiti:$('#cx').checked,giorni:g,ora:Number($('#co').value)})}
   catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla che Telegram sia collegato e riprova.';return}
   if(tgOk())esegui('sync');else log('Impostazioni salvate. Telegram non è collegato: i messaggi verranno programmati alla prossima sincronizzazione.')}
 
