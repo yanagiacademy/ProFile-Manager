@@ -17,13 +17,14 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 /* Esami: 16 categorie fisse (6 kyu … 10 dan, vedi gradi.js). In ogni categoria: documenti, foto, video e link.
-   Ogni contenuto ha liv (1–16) = categoria. Chi ha la scrittura vede tutto; un atleta (account collegato in Atleti) con la lettura
-   vede le categorie dalla prima fino al proprio grado (atletiEmail/<email>.liv); le regole Firestore applicano lo stesso limite.
+   Ogni contenuto ha liv (1–16) = categoria. Chi ha la scrittura vede tutto; chi ha «Solo dati utente» (account collegato in Atleti)
+   vede le categorie dalla prima fino al proprio grado; con la lettura vede tutto (atletiEmail/<email>.liv); le regole Firestore applicano lo stesso limite.
    Gli atleti non hanno la sessione Telegram: leggono solo i contenuti con la copia su Firebase (fb:true), per questo la casella è spuntata di default. */
 const SEC='esami',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 let auth,db,col,uid=null,me=null,items=[],cat=0,flt='all',q='',unsubs=[],memo=null;
 let subMode='',subOff=null,restricted=false,livMax=16,errRead=false,fbNew=true;
-const perm=()=>me?(me.admin?'w':(((me.perms||{})[SEC]||'n')==='u'?'n':((me.perms||{})[SEC]||'n'))):'n';
+const perm=()=>me?(me.admin?'w':(((me.perms||{})[SEC]||'n')==='u'?'r':((me.perms||{})[SEC]||'n'))):'n';
+const solo=()=>!!(me&&!me.admin&&(me.perms||{})[SEC]==='u');      /* «Solo dati utente»: vede le categorie fino al proprio grado; con Lettura o Scrittura vede tutto */
 const canW=()=>perm()==='w';
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
@@ -50,7 +51,7 @@ async function subscribe(){
   if(mode==='w'){restricted=false;livMax=16;subOff=onSnapshot(col,cb,()=>{});return}
   restricted=false;livMax=16;
   try{const e=auth.currentUser&&auth.currentUser.email;
-    if(e&&!me.admin){const k=await rgetDoc(rdoc(db,'atletiEmail',e.toLowerCase()));if(k.exists()){restricted=true;livMax=Number(k.data().liv)||0}}}catch(x){console.error(x)}
+    if(solo()){restricted=true;livMax=0;const k=e?await rgetDoc(rdoc(db,'atletiEmail',e.toLowerCase())):null;if(k&&k.exists())livMax=Number(k.data().liv)||0}}catch(x){console.error(x)}
   if(subMode!==mode)return;
   const rc=rcollection(db,'sections',SEC,'items');
   subOff=ronSnapshot(restricted?rquery(rc,rwhere('liv','<=',livMax)):rc,cb,e=>{console.error(e);errRead=true;render()});

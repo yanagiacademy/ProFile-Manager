@@ -321,10 +321,10 @@ async function loadUsers(){
   if(!isAdmin()||users.length)return;
   try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));renderList()}catch(e){console.error(e)}}
 
-/* iscrizioni: l'admin le legge tutte, l'atleta solo le proprie */
+/* iscrizioni: admin e chi ha Lettura/Scrittura le leggono tutte; con «Solo dati utente» solo le proprie */
 function listenIscr(){
   const base=fcol(db,'iscrizioni');
-  unsubs.push(fon(isAdmin()?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},e=>console.error('iscrizioni',e)));
+  unsubs.push(fon((isAdmin()||perm()==='r'||perm()==='w')?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},e=>console.error('iscrizioni',e)));
   /* ricevute già caricate per questo evento (le scrive la sezione Ricevute con evId e ricUid): solo l'admin */
   if(isAdmin())unsubs.push(fon(fcol(db,'sections','ricevute','items'),s=>{ricEv=new Set(s.docs.map(d=>d.data()).filter(d=>d.evId&&d.ricUid&&!d.archiviatoIl).map(d=>d.evId+'_'+d.ricUid));if(detail)paintDetail()},()=>{ricEv=new Set()}))}
 
@@ -338,7 +338,7 @@ else{
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
-      if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),isAdmin());
+      if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm()==='u'?'n':perm(),isAdmin());
       if(shellFor!==perm()+(isAdmin()?'a':''))shell();
       if(!started){
         started=true;

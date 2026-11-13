@@ -403,6 +403,7 @@ else{
     uid=u.uid;arch=archivio(db,SEC,uid);
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
+      if(me&&!me.admin&&(me.perms||{}).tessere==='u'){location.replace('atleti.html');return}      /* «Solo dati utente»: la propria tessera è nella propria scheda */
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();

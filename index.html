@@ -93,6 +93,7 @@ details.adm summary svg{width:18px;height:18px;color:var(--mu)}
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,getDocs,serverTimestamp,logEvento,svuotaCodaStorico} from "./fsx.js";
+import {filtra} from "./visibilita.js";
 import {assicuraCoppia} from "./cifra.js";
 
 import {firebaseConfig} from "./firebase-config.js";
@@ -143,7 +144,7 @@ let msgAcc='',msgNew='',newMail='',newExtra='';
 let accReg={},accRegOk=false,allineaT=null;const inVolo=new Map();     /* elenco cifrato degli account su Telegram (argomento «Account»): attivi e rimossi */
 const page=s=>key(s)+'.html';
 /* 'u' = "Solo dati utente" (Atleti, Tecnici, Ordini, Ricevute): nessun accesso ai dati degli altri, vede soltanto i propri (la propria scheda, i propri ordini, le proprie ricevute). Per i dati vale come 'n'. */
-const SOLO_U=['atleti','tecnici','ordini','ricevute'];
+const SOLO_U=['atleti','tecnici','ordini','ricevute','tessere','documenti','video','foto','esami','eventi'];
 const perm=s=>{if(!me)return 'n';if(me.admin)return 'w';const v=(me.perms||{})[key(s)]||'n';return v==='u'?'n':v};
 const solo=s=>!!me&&!me.admin&&(me.perms||{})[key(s)]==='u';
 const allItems=()=>SEC.filter(s=>s!=='Cestino').flatMap(s=>(items[key(s)]||[]).map(i=>({...i,sec:s}))).filter(i=>!i.lesson&&!i.evento&&(!i.tesAtl||i.archiviatoIl)&&(!i.archiviatoIl||perm('Archivio')!=='n')).map(i=>i.archiviatoIl?{...i,sec:'Archivio'}:i);
@@ -176,7 +177,7 @@ function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)retur
 function onMe(){
   unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
   if(!me){app.innerHTML=box('Account non abilitato','Hai effettuato l’accesso ma un admin deve ancora abilitarti.','<p><button class="btn ghost" id="out">Esci</button></p>');$('#out').onclick=()=>signOut(auth);return}
-  SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=sn.docs.map(d=>({id:d.id,...d.data()}));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
+  SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=filtra(sn.docs.map(d=>({id:d.id,...d.data()})),uid,!!(me&&me.admin));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
   /* admin: quante schede atleta hanno modifiche proposte dall'atleta (riquadro Atleti con bordo giallo) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
   /* ordini nuovi degli atleti: li vede chi ha Ordini in lettura o scrittura */
@@ -273,7 +274,7 @@ const loaded=k=>k==='file-importanti'||k==='documenti-in-scadenza'?items.documen
 /* Riquadro di una sezione: icona, nome, quanti elementi; badge rosso = da fare/in scadenza, giallo = da rivedere/verificare */
 function tile(s){
   const k=key(s),ico=`<span class="ico">${ic(k)}</span>`;
-  if(solo(s))return`<button class="tile" data-s="${esc(s)}">${ico}<span class="tn">${esc(s)}</span><span class="ts">${({ordini:'I miei ordini',ricevute:'Le mie ricevute'})[key(s)]||'La mia scheda'}</span></button>`;
+  if(solo(s))return`<button class="tile" data-s="${esc(s)}">${ico}<span class="tn">${esc(s)}</span><span class="ts">${({ordini:'I miei ordini',ricevute:'Le mie ricevute',tessere:'La mia tessera',documenti:'I miei documenti',video:'I miei video',foto:'Le mie foto',esami:'Il mio materiale',eventi:'I miei eventi'})[key(s)]||'La mia scheda'}</span></button>`;
   const p=perm(s);if(p==='n')return'';
   const n=count(s),pills=[];
   const ver=k==='archivio'?[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length:0,
@@ -340,13 +341,16 @@ function mNew(html,mail,extra){msgNew=html;newMail=mail||'';newExtra=extra||'';c
 function bindRst(){const b=$('#rst');if(b)b.onclick=async()=>{const r=await inviaResetA(newMail);mNew(esc(r.t)+(r.ok&&newExtra?' '+esc(newExtra):''),newMail,newExtra)}}
 function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked);bindEd(n)}
 /* Account collegati a un atleta (email in Atleti) che hanno anche accesso a schede con i dati di tutti: li segnala nella Gestione account */
-const SENS={atleti:'Atleti',tecnici:'Tecnici',tessere:'Tessere',ricevute:'Ricevute',commercialista:'Commercialista',ordini:'Ordini'};
+const SENS={atleti:'Atleti',tecnici:'Tecnici',tessere:'Tessere',ricevute:'Ricevute',ordini:'Ordini',esami:'Esami',eventi:'Eventi',commercialista:'Commercialista',mail:'Mail',archivio:'Archivio',cestino:'Cestino'};
 let legati=null;
 function caricaLegati(){if(legati)return;legati=new Set();getDocs(collection(db,'atletiEmail')).then(s=>{legati=new Set(s.docs.map(d=>d.id));if($('#er2'))adminView()}).catch(()=>{})}
 const warnAcc=a=>{
   if(a.admin||!a.email||!legati||!legati.has(a.email.toLowerCase()))return '';
   const l=Object.keys(SENS).filter(k=>['r','w'].includes((a.perms||{})[k])).map(k=>SENS[k]+' ('+((a.perms||{})[k]==='w'?'scrittura':'lettura')+')');
-  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta ma con accesso a: ${esc(l.join(', '))}. Un atleta dovrebbe avere «Solo dati utente» (o nessuna spunta) su queste schede, altrimenti vede i dati di tutti.</div>`:''};
+  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta e con accesso a: ${esc(l.join(', '))}. Con Lettura vede i dati di tutti, con Scrittura li modifica. Se non è voluto scegli «Solo dati utente» (dove c’è) o togli la spunta. <button class="btn ghost sm" onclick="fixU('${esc(a.id)}')">Passa a «Solo dati utente»</button></div>`:''};
+/* porta a «Solo dati utente» tutte le schede (che lo prevedono) su cui l'account ha Lettura o Scrittura */
+window.fixU=async id=>{const a=accounts.find(x=>x.id===id);if(!a)return;const ch={};SOLO_U.forEach(k=>{if(['r','w'].includes((a.perms||{})[k]))ch['perms.'+k]='u'});if(!Object.keys(ch).length){alert('Nelle altre schede non esiste «Solo dati utente»: togli la spunta da “Schede visibili”.');return}
+  try{await updateDoc(doc(db,'users',id),ch);logEvento('account','',id,nomeAcc(id),'passato a «Solo dati utente»: '+Object.keys(ch).map(x=>x.slice(6)).join(', '))}catch(e){alert('Modifica non riuscita. Riprova.')}};
 function adminView(){
   caricaLegati();
   const adminsLeft=accounts.filter(a=>a.admin).length;

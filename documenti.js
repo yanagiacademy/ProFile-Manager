@@ -9,8 +9,10 @@ import {memoBar} from "./promemoria.js";
 import {inScadenza,giorni,fmtD,isD,testo} from "./scadenze.js";
 import {archiviaScaduti,archiviaDoc,addMesi,oggiISO,ANNI} from "./conservazione.js";
 import {stelle} from "./stella.js";
+import {filtra,ristretto} from "./visibilita.js";
 const stella=stelle();
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
+import {collection as rcolR,query as rqueryR,where as rwhereR,onSnapshot as ronSnapR,getDocs as rgetDocsR} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -27,8 +29,11 @@ let auth,db,col,uid=null,me=null,items=[],cur='',q='',unsubs=[],hashDone=false,s
 const VKEY=SEC==='documenti'?'doc_view':SEC+'_view';
 let view=(()=>{try{return localStorage.getItem(VKEY)||'list'}catch(e){return 'list'}})();
 let memo=null;
+let visMode='all',visSel=new Set(),accs=[];      /* chi può vedere i file che carichi: 'all' = tutti, 'sel' = solo chi si sceglie (accs = account, li legge solo l'admin) */
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const canW=()=>perm()==='w';
+const solo=()=>!!(me&&!me.admin&&(me.perms||{})[SEC]==='u');      /* «Solo dati utente»: vede soltanto i file che gli sono stati assegnati (soloPer) */
+let soloOn=false;
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
@@ -40,9 +45,11 @@ else{
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
+      if(me&&solo()){if(!soloOn){soloOn=true;vistaMia()}return}
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW()&&!MEDIA)archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
+        unsubs.push(onSnapshot(col,s=>{items=filtra(s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl),uid,!!me.admin);items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW()&&!MEDIA)archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
+        if(me.admin)unsubs.push(onSnapshot(collection(db,'users'),s=>{accs=s.docs.map(d=>({id:d.id,...d.data()}))},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
@@ -101,18 +108,18 @@ function render(){
   const rows=list.map(i=>{const meta=[i.kind==='folder'?'':fmtSize(i.size),fmtDate(i)].filter(Boolean).join(' · ');
     const where=t&&i.parent?`<div class="mu" style="font-size:.75rem">${esc(pathOf(i.parent))}</div>`:'';
     return view==='list'
-      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${i.fb?' <span class="mu" title="Salvato anche su Firebase" aria-label="Salvato anche su Firebase">☁</span>':''}${where}${scadLine(i)}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
+      ?`<div class="frow"${thAttr(i)}>${lead(i)}<span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${i.fb?' <span class="mu" title="Salvato anche su Firebase" aria-label="Salvato anche su Firebase">☁</span>':''}${ristretto(i)?' <span class="mu" title="Visibile solo ad alcuni" aria-label="Visibile solo ad alcuni">🔒</span>':''}${where}${scadLine(i)}</button><span class="meta">${esc(meta)}</span><button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button><button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`
       :`<div class="ico"${thAttr(i)}>${lead(i)}<button class="big" data-act="open" data-id="${esc(i.id)}" aria-label="Apri ${esc(i.title)}">${ico(i)}</button><button class="nm" data-act="open" data-id="${esc(i.id)}">${esc(i.title)}</button><button class="more" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}).join('');
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in ${NOME}" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="bar"><h2>${NOME}</h2><div class="seg" role="group" aria-label="Vista"><button data-act="view" data-id="icons" aria-pressed="${view==='icons'}">Icone</button><button data-act="view" data-id="list" aria-pressed="${view==='list'}">Elenco</button></div></div>
-  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button>${MEDIA?'':'<button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button>'}<label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem"><input type="checkbox" data-act="fbn" ${fbNew?'checked':''}> Salva anche su Firebase</label><input type="file" id="uf" multiple ${ACCEPT?`accept="${ACCEPT}"`:''} hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
+  ${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn sm" data-act="upd">Carica cartella</button><button class="btn ghost sm" data-act="newdir">Nuova cartella</button>${MEDIA?'':'<button class="btn ghost sm" data-act="newtxt">Nuova nota .txt</button>'}<label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem"><input type="checkbox" data-act="fbn" ${fbNew?'checked':''}> Salva anche su Firebase</label><label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem">Visibile a <select data-act="vm" aria-label="Chi può vedere i file che carichi"><option value="all">Tutti</option><option value="sel" ${visMode==='sel'?'selected':''}>${me.admin?'Solo chi scelgo…':'Solo io e l’admin'}</option></select>${visMode==='sel'&&me.admin?`<button class="btn ghost sm" data-act="vpick">${visSel.size} ${visSel.size===1?'persona':'persone'}</button>`:''}</label><input type="file" id="uf" multiple ${ACCEPT?`accept="${ACCEPT}"`:''} hidden><input type="file" id="ud" webkitdirectory hidden></div>`:''}
   <div class="tools"><button class="btn ghost sm" data-act="selmode">${selMode?'Esci dalla selezione':'Seleziona'}</button>${selMode?`<button class="btn ghost sm" data-act="selall">Seleziona tutto</button><button class="btn sm" data-act="dlsel" ${sel.size?'':'disabled'}>Scarica selezionati (${sel.size})</button>`:''}</div>
   <nav class="crumb" aria-label="Percorso"><button data-act="goto" data-id="">${NOME}</button>${crumbs.map(c=>`<span aria-hidden="true">/</span><button data-act="goto" data-id="${esc(c.id)}">${esc(c.title)}</button>`).join('')}</nav>
   <div class="card">${list.length?(view==='list'?rows:`<div class="icons">${rows}</div>`):`<div class="mu">${t?'Nessun risultato.':'Cartella vuota.'+(w?' Carica file o crea una cartella.':'')}</div>`}</div></div>`;
   if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
   $('#q').oninput=e=>{q=e.target.value;render()};
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
-  app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{if(b.dataset.act==='fbn'){fbNew=b.checked;return}act(b.dataset.act,b.dataset.id)});
+  app.querySelectorAll('[data-act]').forEach(b=>{if(b.dataset.act==='vm'){b.onchange=()=>{visMode=b.value;if(visMode==='sel'&&me.admin)pickVis();else render()};return}b.onclick=()=>{if(b.dataset.act==='fbn'){fbNew=b.checked;return}act(b.dataset.act,b.dataset.id)}});
   if(w){const uf=$('#uf'),ud=$('#ud');
     uf.onchange=()=>{uploadMany([...uf.files].map(file=>({file,parent:cur})));uf.value=''};
     ud.onchange=()=>uploadFolder([...ud.files]);}
@@ -130,6 +137,7 @@ function act(a,id){
   else if(a==='selmode'){selMode=!selMode;sel.clear();render()}
   else if(a==='selall'){vis.forEach(i=>sel.add(i.id));render()}
   else if(a==='dlsel')dlSel();
+  else if(a==='vpick')pickVis();
   else if(!it)return;
   else if(a==='sel'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}
   else if(a==='open'){if(selMode&&it.kind!=='folder'){sel.has(it.id)?sel.delete(it.id):sel.add(it.id);render()}else openItem(it)}
@@ -201,6 +209,7 @@ function moreModal(it){
     b.push({label:'Rinomina',cls:'ghost',fn:()=>{setTimeout(()=>renameModal(it),0)}});
     b.push({label:'Sposta',cls:'ghost',fn:()=>{setTimeout(()=>moveModal(it),0)}});
     if(it.kind==='file')b.push({label:'Archivia',cls:'ghost',fn:()=>{setTimeout(()=>archModal(it),0)}});
+    if(me.admin||it.by===uid)b.push({label:ristretto(it)?'Chi può vederlo…':'Limita chi può vederlo…',cls:'ghost',fn:()=>{setTimeout(()=>visModal(it),0)}});
     b.push({label:'Elimina',cls:'ghost',fn:()=>{setTimeout(()=>delModal(it),0)}})}
   const o=modal(it.title,'<div class="acts"></div>',[{label:'Chiudi',cls:'ghost'}]);
   const c=o.querySelector('.acts');b.forEach(x=>{const e=document.createElement('button');e.className='btn '+(x.cls||'');e.textContent=x.label;e.onclick=()=>{o.remove();x.fn()};c.append(e)});
@@ -219,7 +228,45 @@ function newDir(){
     try{await mkFolder(n,cur)}catch(e){return merr(o,'Creazione non riuscita.')}}}])}
 /* "Salva anche su Firebase": vale per i contenuti creati mentre la casella è spuntata (fb:true = copia su Firebase) */
 let fbNew=false;
-const fbx=()=>fbNew?{fb:true}:{};
+/* ---------- «Solo dati utente»: elenco dei file assegnati a me (sola lettura; legge da Firebase, senza Telegram) ---------- */
+function vistaMia(){
+  let mie=[],err='';
+  const ms=x=>x&&x.toMillis?x.toMillis():(x&&x.seconds?x.seconds*1000:(typeof x==='number'?x:0));
+  const kbx=n=>n>=1048576?(n/1048576).toFixed(1).replace('.',',')+' MB':Math.max(1,Math.round((n||0)/1024))+' KB';
+  const blobMio=async f=>{const sn=await rgetDocsR(rcolR(db,'sections',SEC,'items',f.id,'chunks'));const parts=sn.docs.map(d=>({i:d.data().i,b:d.data().data.toUint8Array()})).sort((a,b)=>a.i-b.i).map(x=>x.b);if(!parts.length)throw new Error('EMPTY');return new Blob(parts,{type:guessMime(f.title,f.mime)})};
+  const paint=()=>{
+    const L=mie.filter(f=>f.kind==='file'||f.kind==='link').sort((a,b)=>ms(b.at)-ms(a.at));
+    app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
+    <div class="wrap"><h2 style="margin:0 0 4px">${esc(NOME)}</h2><div class="mu" style="margin-bottom:12px">Qui trovi i file che ti sono stati assegnati.</div>
+    ${err?`<div class="card" role="alert"><b>Non riesco a leggere i file</b><div class="mu">${esc(err)}</div></div>`:''}
+    <div class="card" style="padding:4px 14px">${L.length?L.map(f=>`<div style="border-top:1px solid var(--ln);padding:10px 0"><b>${esc(f.title||'File')}</b><div class="mu">${esc([f.kind==='link'?'Collegamento':kbx(f.size),ms(f.at)?new Date(ms(f.at)).toLocaleDateString('it-IT'):''].filter(Boolean).join(' · '))}</div><div class="dact" style="justify-content:flex-start;margin-top:6px">${f.kind==='link'?`<a class="btn sm" href="${esc(f.url||'#')}" target="_blank" rel="noopener">Apri</a>`:(f.chunks?`<button class="btn sm" data-a="d" data-id="${esc(f.id)}">Scarica</button><button class="btn ghost sm" data-a="o" data-id="${esc(f.id)}">Apri</button>`:'<span class="mu">Il file non è disponibile online: chiedi di caricarlo di nuovo.</span>')}</div></div>`).join(''):'<div class="mu" style="padding:10px 0">Non ci sono file per te.</div>'}</div></div>`;
+    document.getElementById('out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
+    app.onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const f=mie.find(x=>x.id===b.dataset.id);if(!f)return;
+      try{if(b.dataset.a==='d')saveBlob(await blobMio(f),f.title);else showPreview({title:f.title,mime:f.mime,load:()=>blobMio(f),errText:()=>'Impossibile aprire il file.',fileName:f.title})}
+      catch(x){console.error(x);alert('Impossibile aprire il file. Controlla la connessione e riprova.')}}};
+  unsubs.push(ronSnapR(rqueryR(rcolR(db,'sections',SEC,'items'),rwhereR('soloPer','array-contains',uid)),s=>{mie=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);err='';paint()},e=>{console.error(e);err='Non ho il permesso di leggere questi file: l’admin deve ripubblicare le regole di Firestore.';paint()}));
+  paint()}
+
+/* Visibilità: soloPer = uid di chi può vedere (chi carica e l'admin vedono sempre). Gli account li legge solo l'admin: gli altri scelgono «Tutti» o «Solo io e l'admin». */
+const visX=()=>visMode==='sel'?{soloPer:[...new Set([...(me.admin?visSel:[]),uid])]}:{};
+const accSez=()=>accs.filter(a=>!a.admin&&a.id!==uid&&['u','r','w'].includes((a.perms||{})[SEC])).sort((a,b)=>String(a.name||a.email||'').localeCompare(String(b.name||b.email||''),'it'));
+const checks=sel=>{const l=accSez();return l.length?`<div style="max-height:40vh;overflow:auto">${l.map(a=>`<label class="ck"><input type="checkbox" value="${esc(a.id)}" ${sel.has(a.id)?'checked':''}> ${esc(a.name||a.email||a.id)}${(a.perms||{})[SEC]==='u'?' <span class="mu">(solo dati utente)</span>':''}</label>`).join('')}</div>`:'<div class="mu">Nessun altro account ha accesso a questa sezione.</div>'};
+/* chi ha «Solo dati utente» non ha Telegram: legge solo i file con la copia su Firebase, che viene aggiunta da sola */
+const needFb=()=>visMode==='sel'&&[...visSel].some(id=>{const a=accs.find(x=>x.id===id);return a&&(a.perms||{})[SEC]==='u'});
+function pickVis(){
+  modal('Chi può vedere i file che carichi',`<div class="mu" style="margin-bottom:8px">Tu e l’admin li vedete sempre. «Tutti» vale per chi ha Lettura o Scrittura; chi ha «Solo dati utente» vede soltanto ciò che spunti qui.</div>${checks(visSel)}`,
+    [{label:'Annulla',cls:'ghost',fn:()=>{if(!visSel.size)visMode='all';render()}},{label:'Fatto',fn:o=>{visSel=new Set([...o.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value));render()}}])}
+function visModal(it){
+  const adm=!!me.admin,cur=new Set(Array.isArray(it.soloPer)?it.soloPer:[]);
+  const body=adm
+    ?`<label class="ck" style="margin-top:0"><input type="checkbox" id="vall" ${ristretto(it)?'':'checked'}> Visibile a tutti (chi ha accesso a ${NOME})</label><div class="mu" style="margin:8px 0">Altrimenti spunta chi può vederlo (tu e chi l’ha caricato lo vedete sempre).</div>${checks(cur)}${it.kind==='folder'?'<div class="mu" style="margin-top:8px">Vale anche per tutto ciò che c’è dentro la cartella.</div>':''}`
+    :`<label class="ck" style="margin-top:0"><input type="radio" name="vm2" value="all" ${ristretto(it)?'':'checked'}> Tutti (chi ha accesso a ${NOME})</label><label class="ck"><input type="radio" name="vm2" value="me" ${ristretto(it)?'checked':''}> Solo io e l’admin</label>`;
+  modal('Chi può vederlo – '+it.title,body,[cancel,{label:'Salva',fn:async o=>{
+    const tutti=adm?o.querySelector('#vall').checked:o.querySelector('input[name=vm2]:checked').value==='all';
+    const ids=adm?[...o.querySelectorAll('input[type=checkbox]:checked')].filter(c=>c.id!=='vall').map(c=>c.value):[];
+    if(!tutti&&it.kind==='file'&&!it.chunks&&ids.some(id=>{const a=accs.find(x=>x.id===id);return a&&(a.perms||{})[SEC]==='u'}))return merr(o,'Questo file non ha la copia su Firebase: chi ha «Solo dati utente» non potrebbe aprirlo. Ricaricalo spuntando «Salva anche su Firebase».');
+    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{soloPer:tutti?deleteField():[...new Set([...ids,it.by||uid,uid])]})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
+const fbx=()=>({...((fbNew||needFb())?{fb:true}:{}),...visX()});
 const mkFolder=(name,parent)=>addDoc(col,{title:name,kind:'folder',parent,note:'',by:uid,at:serverTimestamp(),...fbx()});
 function editText(it){const w=canW();
   modal(it?it.title:'Nuova nota .txt',`<label for="n" style="margin-top:0">Nome file</label><input id="n" type="text" value="${esc(it?it.title:'note.txt')}" ${it&&!w?'readonly':''}><label for="tx">Testo</label><textarea id="tx" ${w?'':'readonly'}>${esc(it?it.text:'')}</textarea>`,
@@ -271,12 +318,12 @@ async function up1(file,parent){
     if(file.size>MAX_TG)throw new Error('size');
     const id=await upTg(file);
     const base={title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',tg:id,...(CIFRA_ATTIVA?{enc:true}:{}),note:'',by:uid,at:serverTimestamp(),...tx};
-    if(fbNew&&file.size<=MAX){const dref=doc(col),n=await putChunks(dref.id,file);await setDoc(dref,{...base,chunks:n,fb:true});return}
+    if((fbNew||needFb())&&file.size<=MAX){const dref=doc(col),n=await putChunks(dref.id,file);await setDoc(dref,{...base,chunks:n,fb:true,...visX()});return}
     await addDoc(col,{...base,...fbx()});return}
   if(file.size>MAX)throw new Error('size');
   const dref=doc(col),n=Math.max(1,Math.ceil(file.size/CH)),cc=collection(db,'sections',SEC,'items',dref.id,'chunks');
   try{for(let k=0;k<n;k++){const buf=new Uint8Array(await file.slice(k*CH,(k+1)*CH).arrayBuffer());await setDoc(doc(cc,'c'+k),{i:k,data:Bytes.fromUint8Array(buf)})}
-    await setDoc(dref,{title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',chunks:n,note:'',by:uid,at:serverTimestamp(),...tx})
+    await setDoc(dref,{title:file.name,kind:'file',parent,size:file.size,mime:file.type||'',chunks:n,note:'',by:uid,at:serverTimestamp(),...tx,...visX()})
   }catch(e){await Promise.all(Array.from({length:n},(_,k)=>deleteDoc(doc(cc,'c'+k)).catch(()=>{})));throw e}}
 async function uploadMany(entries){
   if(!entries.length)return;

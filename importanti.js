@@ -7,6 +7,7 @@ import {TG_FILES} from "./telegram-config.js";
 import {decifraBlob} from "./cifra.js";
 import {memoBar} from "./promemoria.js";
 import {stelle} from "./stella.js";
+import {filtra} from "./visibilita.js";
 const stella=stelle();
 import {showPreview,saveBlob,saveZip,guessMime,makeThumb,canThumb,okThumb,thumbWatcher} from "./file-tools.js";
 
@@ -175,7 +176,7 @@ else{
       if(!unsubs.secSub){unsubs.secSub=1;
         const merge=()=>{items=SECS.flatMap(x=>itemsBy[x].map(i=>({...i,_sec:x})));items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});
           err=denied.size===SECS.length?'Per vedere i file importanti serve il permesso di lettura su Documenti, Video o Foto. Chiedi all’admin.':'';render()};
-        SECS.forEach(x=>unsubs.push(onSnapshot(collection(db,'sections',x,'items'),s=>{denied.delete(x);itemsBy[x]=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);merge()},()=>{denied.add(x);itemsBy[x]=[];merge()})));
+        SECS.forEach(x=>unsubs.push(onSnapshot(collection(db,'sections',x,'items'),s=>{denied.delete(x);itemsBy[x]=filtra(s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl),uid,!!me.admin);merge()},()=>{denied.add(x);itemsBy[x]=[];merge()})));
         unsubs.push(onSnapshot(collection(db,'sections',MINE,'items'),s=>{mine=s.docs.map(d=>({id:d.id,...d.data()}));render()},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();

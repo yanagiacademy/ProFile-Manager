@@ -7,6 +7,7 @@ import {tgErrText} from "./telegram.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,saveBlob,canThumb,makeThumb,okThumb} from "./file-tools.js";
 import {fmtD} from "./scadenze.js";
+import {filtra} from "./visibilita.js";
 import {archiviato,zona,riarchiviaDoc,archiviaScaduti,addMesi,oggiISO,ANNI,tipologia} from "./conservazione.js";
 
 /* Archivio: documenti scaduti o sostituiti e file eliminati da Tessere (tessere e certificati medici), conservati 10 anni (obbligo A.S.D.), divisi per tipologia.
@@ -121,12 +122,12 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(!unsubs.colSub){unsubs.colSub=1;
-        unsubs.push(onSnapshot(col,s=>{err='';itemsDoc=s.docs.map(d=>({id:d.id,...d.data()}));merge();if(level(SEC)==='w')archiviaScaduti(db,itemsDoc);render()},()=>{err='Per vedere l’archivio serve il permesso di lettura su Documenti. Chiedi all’admin.';itemsDoc=[];merge();render()}));
+        unsubs.push(onSnapshot(col,s=>{err='';itemsDoc=filtra(s.docs.map(d=>({id:d.id,...d.data()})),uid,!!me.admin);merge();if(level(SEC)==='w')archiviaScaduti(db,itemsDoc);render()},()=>{err='Per vedere l’archivio serve il permesso di lettura su Documenti. Chiedi all’admin.';itemsDoc=[];merge();render()}));
         /* tessere e certificati medici eliminati dalla sezione Tessere (se non hai la lettura su Tessere, non compaiono) */
         unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{itemsTes=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsTes=[];merge();render()}));
         /* video e foto archiviati (se non hai la lettura su Video o Foto, non compaiono) */
-        unsubs.push(onSnapshot(collection(db,'sections','video','items'),s=>{itemsVid=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsVid=[];merge();render()}));
-        unsubs.push(onSnapshot(collection(db,'sections','foto','items'),s=>{itemsFot=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsFot=[];merge();render()}));
+        unsubs.push(onSnapshot(collection(db,'sections','video','items'),s=>{itemsVid=filtra(s.docs.map(d=>({id:d.id,...d.data()})),uid,!!me.admin);merge();render()},()=>{itemsVid=[];merge();render()}));
+        unsubs.push(onSnapshot(collection(db,'sections','foto','items'),s=>{itemsFot=filtra(s.docs.map(d=>({id:d.id,...d.data()})),uid,!!me.admin);merge();render()},()=>{itemsFot=[];merge();render()}));
         /* ricevute dei pagamenti tolte dall'elenco o sostituite: 10 anni (se non hai la lettura su Ricevute, non compaiono) */
         unsubs.push(onSnapshot(collection(db,'sections','ricevute','items'),s=>{itemsRic=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsRic=[];merge();render()}))}
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();

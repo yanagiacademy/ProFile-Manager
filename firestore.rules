@@ -53,19 +53,24 @@ service cloud.firestore {
     /* Eventi: iscrizioni e bonifici degli atleti stanno qui (non su Telegram), così funzionano anche per chi non ha Telegram.
        Ogni atleta crea e modifica solo la propria iscrizione (id = idEvento_uidAtleta) e legge solo la propria; l'admin le legge e le modifica tutte.
        Solo l'admin può segnare il pagamento come verificato (campo pagatoOk) ed eliminare. */
-    function eventiOk() { return hasAccount() && level('eventi') in ['r', 'w']; }
+    function eventiOk() { return hasAccount() && level('eventi') in ['u', 'r', 'w']; }
+    function eventiTutti() { return isAdmin() || level('eventi') in ['r', 'w']; }
+    /* «Solo dati utente»: vede gli eventi e solo le proprie iscrizioni. Lettura: legge tutte le iscrizioni. Scrittura: le modifica tutte (non il pagamento verificato). */
+    match /sections/eventi/items/{id} { allow read: if hasAccount() && level('eventi') == 'u'; }
+    match /sections/eventi/items/{id}/chunks/{n} { allow read: if hasAccount() && level('eventi') == 'u'; }
     match /iscrizioni/{id} {
-      allow read: if eventiOk() && (isAdmin() || resource.data.uid == request.auth.uid);
+      allow read: if eventiOk() && (eventiTutti() || resource.data.uid == request.auth.uid);
       allow create: if eventiOk() && request.resource.data.uid == request.auth.uid
         && id == request.resource.data.evento + '_' + request.auth.uid
         && request.resource.data.get('pagatoOk', false) == false;
       allow update: if eventiOk() && (isAdmin()
+        || (level('eventi') == 'w' && request.resource.data.get('pagatoOk', false) == resource.data.get('pagatoOk', false))
         || (resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid
             && request.resource.data.get('pagatoOk', false) == resource.data.get('pagatoOk', false)));
       allow delete: if isAdmin();
       match /chunks/{c} {
         allow read, write: if eventiOk()
-          && (isAdmin() || get(/databases/$(database)/documents/iscrizioni/$(id)).data.uid == request.auth.uid);
+          && (eventiTutti() || get(/databases/$(database)/documents/iscrizioni/$(id)).data.uid == request.auth.uid);
       }
     }
 
@@ -204,14 +209,24 @@ service cloud.firestore {
     function esamiAtl() { return signedIn() && exists(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())); }
     function esamiLiv() { return get(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower())).data.get('liv', 0); }
     function esamiVede(d) {
-      return hasAccount() && (level('esami') == 'w'
-        || (level('esami') == 'r' && (!esamiAtl() || d.get('liv', 99) <= esamiLiv())));
+      return hasAccount() && (level('esami') in ['r', 'w']
+        || (level('esami') == 'u' && esamiAtl() && d.get('liv', 99) <= esamiLiv()));
     }
     match /sections/esami/items/{id} {
       allow read: if esamiVede(resource.data);
     }
     match /sections/esami/items/{id}/chunks/{n} {
       allow read: if esamiVede(get(/databases/$(database)/documents/sections/esami/items/$(id)).data);
+    }
+
+    /* Documenti, Video, Foto: con «Solo dati utente» si leggono SOLO i file in cui compare il proprio uid (campo soloPer, scelto da chi carica) e hanno la copia su Firebase.
+       Chi ha la lettura o la scrittura segue le regole generiche qui sotto. */
+    match /sections/{sec}/items/{id} {
+      allow read: if sec in ['documenti', 'video', 'foto'] && hasAccount() && level(sec) == 'u' && request.auth.uid in resource.data.soloPer;
+    }
+    match /sections/{sec}/items/{id}/chunks/{n} {
+      allow read: if sec in ['documenti', 'video', 'foto'] && hasAccount() && level(sec) == 'u'
+        && request.auth.uid in get(/databases/$(database)/documents/sections/$(sec)/items/$(id)).data.soloPer;
     }
 
     match /sections/{sec}/items/{id} {
