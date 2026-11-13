@@ -183,7 +183,7 @@ service cloud.firestore {
 
     /* Ricevute dei pagamenti (sections/ricevute, una ricevuta = un file con ricAtl = id dell'atleta). Chi ha Ricevute in lettura/scrittura (admin, commercialista)
        usa le regole generiche qui sotto; chi scrive carica, modifica ed elimina. L'atleta collegato alla sua email legge SOLO le ricevute con ricAtl uguale a una
-       sua scheda (e i blocchi del relativo file) e non scrive mai: deve interrogare con where('ricAtl', '==', suo id). L'account di un atleta deve avere «Nessuno» su Ricevute. */
+       sua scheda (e i blocchi del relativo file) e non scrive mai: deve interrogare con where('ricAtl', '==', suo id). L'account di un atleta non deve avere la spunta su Ricevute (nessun accesso). */
     match /sections/ricevute/items/{id} {
       allow read: if mioAtleta(resource.data.ricAtl);
     }

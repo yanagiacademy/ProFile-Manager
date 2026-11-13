@@ -345,7 +345,7 @@ function caricaLegati(){if(legati)return;legati=new Set();getDocs(collection(db,
 const warnAcc=a=>{
   if(a.admin||!a.email||!legati||!legati.has(a.email.toLowerCase()))return '';
   const l=Object.keys(SENS).filter(k=>['r','w'].includes((a.perms||{})[k])).map(k=>SENS[k]+' ('+((a.perms||{})[k]==='w'?'scrittura':'lettura')+')');
-  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta ma con accesso a: ${esc(l.join(', '))}. Un atleta dovrebbe avere «Nessuno» su queste schede (su Atleti «Solo dati utente»), altrimenti vede i dati di tutti.</div>`:''};
+  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta ma con accesso a: ${esc(l.join(', '))}. Un atleta dovrebbe avere queste schede senza spunta (su Atleti «Solo dati utente»), altrimenti vede i dati di tutti.</div>`:''};
 function adminView(){
   caricaLegati();
   const adminsLeft=accounts.filter(a=>a.admin).length;
