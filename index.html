@@ -297,8 +297,17 @@ function tile(s){
 /* Gestione account: per ogni account due menu a tendina.
    "Schede visibili" = quali sezioni vede (casella spuntata = visibile, altrimenti perms[sezione]='n');
    "Permessi" = per ogni scheda visibile, Lettura o Scrittura (perms[sezione]='r'|'w'). Le regole Firestore non cambiano. */
-const openDet=new Set();let newPerms={};
-function editorHtml(id,perms,dis){
+const openDet=new Set();let newPerms={},newMemo={};
+/* Promemoria: chi li vede e con quali permessi (users/<uid>.memo = {page, all}) */
+const MEMO_P=[['auto','Come la scheda'],['n','Nessuno'],['r','Solo lettura'],['w','Lettura e scrittura']],MEMO_A=[['n','Nessuno'],['r','Solo lettura'],['w','Lettura e scrittura']];
+const memoLab=(l,v)=>((l.find(x=>x[0]===v)||[])[1]||'').toLowerCase();
+function memoHtml(id,dis,memo,od){
+  const p=memo.page||'auto',a=memo.all||'r',op=l=>l.map(([v,t])=>`<option value="${v}" ${(l===MEMO_P?p:a)===v?'selected':''}>${t}</option>`).join('');
+  return `<details data-d="${esc(id)}|m"${od('m')}><summary>Promemoria&nbsp;<span class="mu">(${dis?'tutti, in scrittura':'pagine: '+esc(memoLab(MEMO_P,p))+' · generale: '+esc(memoLab(MEMO_A,a))})</span></summary>
+    ${dis?'<p class="mu" style="margin:0 0 8px">Gli admin vedono e modificano tutti i promemoria.</p>':`<div class="pr"><span>Promemoria delle pagine</span><select data-pm="page" data-sc="${esc(id)}" aria-label="Promemoria delle pagine">${op(MEMO_P)}</select></div>
+    <div class="pr"><span>Promemoria «Tutte le pagine»</span><select data-pm="all" data-sc="${esc(id)}" aria-label="Promemoria generale, per tutte le pagine">${op(MEMO_A)}</select></div>
+    <p class="mu" style="margin:6px 0 0;font-size:.85rem">«Come la scheda»: vede chi ha Lettura e modifica chi ha Scrittura su quella pagina. I promemoria valgono solo nelle pagine a cui l’account ha accesso con Lettura o Scrittura (non con «Solo dati utente»).</p>`}</details>`}
+function editorHtml(id,perms,dis,memo){
   const lvl=s=>dis?'w':((perms||{})[key(s)]||'n'),vis=s=>lvl(s)!=='n',sv=SEC.filter(vis);
   const od=w=>openDet.has(id+'|'+w)?' open':'';
   return `<details data-d="${esc(id)}|v"${od('v')}><summary>Schede visibili&nbsp;<span class="mu">(${sv.length}/${SEC.length})</span></summary>
@@ -306,18 +315,23 @@ function editorHtml(id,perms,dis){
     ${GROUPS.map(g=>`<div class="gt2">${esc(g[0])}</div>${g[1].map(s=>`<label class="ck"><input type="checkbox" data-pk="${esc(key(s))}" data-sc="${esc(id)}" ${vis(s)?'checked':''} ${dis?'disabled':''}> ${esc(s)}</label>`).join('')}`).join('')}</details>
   <details data-d="${esc(id)}|p"${od('p')}><summary>Permessi</summary>
     ${dis?'<p class="mu" style="margin:0 0 8px">Gli admin hanno sempre scrittura su tutte le schede.</p>':''}
-    ${sv.length?sv.map(s=>`<div class="pr"><span>${esc(s)}</span><select data-pl="${esc(key(s))}" data-sc="${esc(id)}" aria-label="Permesso ${esc(s)}" ${dis?'disabled':''}>${(SOLO_U.includes(key(s))?[['u','Solo dati utente'],['r','Lettura'],['w','Scrittura']]:[['r','Lettura'],['w','Scrittura']]).map(([v,l])=>`<option value="${v}" ${lvl(s)===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join(''):'<p class="mu">Nessuna scheda visibile: attivane almeno una in “Schede visibili”.</p>'}</details>`}
+    ${sv.length?sv.map(s=>`<div class="pr"><span>${esc(s)}</span><select data-pl="${esc(key(s))}" data-sc="${esc(id)}" aria-label="Permesso ${esc(s)}" ${dis?'disabled':''}>${(SOLO_U.includes(key(s))?[['u','Solo dati utente'],['r','Lettura'],['w','Scrittura']]:[['r','Lettura'],['w','Scrittura']]).map(([v,l])=>`<option value="${v}" ${lvl(s)===v?'selected':''}>${l}</option>`).join('')}</select></div>`).join(''):'<p class="mu">Nessuna scheda visibile: attivane almeno una in “Schede visibili”.</p>'}</details>
+  ${memoHtml(id,dis,memo||{},od)}`}
 function bindEd(root){
   root.querySelectorAll('details[data-d]').forEach(d=>d.ontoggle=()=>{d.open?openDet.add(d.dataset.d):openDet.delete(d.dataset.d)});
   root.querySelectorAll('input[data-pk]').forEach(c=>c.onchange=()=>setPerm(c.dataset.sc,c.dataset.pk,c.checked?'r':'n'));
-  root.querySelectorAll('select[data-pl]').forEach(x=>x.onchange=()=>setPerm(x.dataset.sc,x.dataset.pl,x.value))}
+  root.querySelectorAll('select[data-pl]').forEach(x=>x.onchange=()=>setPerm(x.dataset.sc,x.dataset.pl,x.value));
+  root.querySelectorAll('select[data-pm]').forEach(x=>x.onchange=()=>setMemo(x.dataset.sc,x.dataset.pm,x.value))}
+function setMemo(sc,f,v){
+  if(sc==='new'){newMemo[f]=v;return}
+  updateDoc(doc(db,'users',sc),{['memo.'+f]:v}).then(()=>logEvento('account','',sc,nomeAcc(sc),'promemoria '+(f==='all'?'generale':'delle pagine')+': '+memoLab(f==='all'?MEMO_A:MEMO_P,v))).catch(()=>{const e=$('#er2');if(e)e.textContent='Modifica non riuscita. Riprova.'})}
 function setPerm(sc,k,v){
   if(sc==='new'){if(v==='n')delete newPerms[k];else newPerms[k]=v;paintNew();return}
   updateDoc(doc(db,'users',sc),{['perms.'+k]:v}).then(()=>logEvento('account','',sc,nomeAcc(sc),'permesso '+k+': '+(v==='w'?'lettura e scrittura':v==='r'?'sola lettura':'nessun accesso'))).catch(()=>{const e=$('#er2');if(e)e.textContent='Modifica non riuscita. Riprova.'})}
 /* ---------- elenco account su Telegram (sezione cifrata «account», argomento «Account») ---------- */
 const permsN=p=>JSON.stringify(Object.entries(p||{}).filter(([,v])=>v&&v!=='n').sort());
-const schedaReg=(a,stato)=>({kind:'account',title:a.name||a.email||a.id,name:a.name||'',email:a.email||'',admin:!!a.admin,perms:{...(a.perms||{})},stato,agg:Date.now()});
-const firmaReg=r=>[r.name||'',r.email||'',!!r.admin,permsN(r.perms),r.stato].join('|');
+const schedaReg=(a,stato)=>({kind:'account',title:a.name||a.email||a.id,name:a.name||'',email:a.email||'',admin:!!a.admin,perms:{...(a.perms||{})},memo:{...(a.memo||{})},stato,agg:Date.now()});
+const firmaReg=r=>[r.name||'',r.email||'',!!r.admin,permsN(r.perms),JSON.stringify(r.memo||{}),r.stato].join('|');
 function pianificaAllinea(){clearTimeout(allineaT);allineaT=setTimeout(allinea,1500)}
 async function allinea(){      /* tiene l'elenco allineato agli account veri: crea, aggiorna, segna come rimossi */
   if(!me||!me.admin||!accRegOk||!accounts.length)return;
@@ -339,7 +353,7 @@ async function inviaResetA(email){      /* restituisce il messaggio da mostrare 
 const mAcc=t=>{msgAcc=t;const e=$('#er2');if(e)e.textContent=t};
 function mNew(html,mail,extra){msgNew=html;newMail=mail||'';newExtra=extra||'';const e=$('#er');if(e){e.innerHTML=html;bindRst()}}
 function bindRst(){const b=$('#rst');if(b)b.onclick=async()=>{const r=await inviaResetA(newMail);mNew(esc(r.t)+(r.ok&&newExtra?' '+esc(newExtra):''),newMail,newExtra)}}
-function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked);bindEd(n)}
+function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked,newMemo);bindEd(n)}
 /* Account collegati a un atleta (email in Atleti) che hanno anche accesso a schede con i dati di tutti: li segnala nella Gestione account */
 const SENS={atleti:'Atleti',tecnici:'Tecnici',tessere:'Tessere',ricevute:'Ricevute',ordini:'Ordini',esami:'Esami',eventi:'Eventi',commercialista:'Commercialista',mail:'Mail',archivio:'Archivio',cestino:'Cestino'};
 let legati=null;
@@ -357,7 +371,7 @@ function adminView(){
   const keep=['#nn2','#ne','#np'].map(i=>$(i)?$(i).value:''),keepA=$('#na')?$('#na').checked:false;
   app.innerHTML=topbar()+`<div class="wrap"><div class="bar"><button class="btn ghost sm" id="bk">Indietro</button><h2>Gestione account</h2></div>
   <div class="card"><h2 style="margin:0">Account (${accounts.length})</h2>
-  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin)}</div>`).join('')}
+  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin,a.memo)}</div>`).join('')}
   <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso ma il login resta: per riattivare la stessa email basta crearla di nuovo (se non ricordi la sua password, l’app ti offre di inviare il link per sceglierne una nuova). Per cancellare del tutto il login apri <a href="https://console.firebase.google.com/project/yanagi-academy-profile-manager/authentication/users" target="_blank" rel="noopener">Authentication nella console Firebase</a>, cerca l’email e scegli «Elimina utente».</p></div>
   ${rimossiHtml()}
   <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label class="ck" style="margin-top:8px"><input type="checkbox" id="na"> Admin</label><div id="ned" style="margin-top:4px"></div><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
@@ -382,9 +396,9 @@ function adminView(){
     const rim=rimossi().find(([,r])=>String(r.email||'').toLowerCase()===e.toLowerCase());
     if(!n||!e||(!rim&&p.length<6)){er.textContent='Inserisci nome, email e una password di almeno 6 caratteri.';return}
     const registra=async(uid,msg)=>{
-      await setDoc(doc(db,'users',uid),{name:n,email:e,admin:$('#na').checked,perms:$('#na').checked?{}:{...newPerms}});
+      await setDoc(doc(db,'users',uid),{name:n,email:e,admin:$('#na').checked,perms:$('#na').checked?{}:{...newPerms},memo:$('#na').checked?{}:{...newMemo}});
       logEvento('account','',uid,n,msg+($('#na').checked?' (admin)':''));
-      $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;newPerms={};paintNew()};
+      $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;newPerms={};newMemo={};paintNew()};
     if(rim){try{await registra(rim[0],'account riattivato');mNew('Esisteva già un account rimosso con questa email: è stato <b>riattivato</b> con nome e permessi che hai scelto. Entra con la sua vecchia password; se non la ricorda, <button class="btn ghost sm" id="rst" type="button">invia il link per sceglierne una nuova</button>.',e)}catch(x){console.error(x);er.textContent='Riattivazione non riuscita. Riprova.'}return}
     try{const sec=initializeApp(firebaseConfig,'sec'+Date.now()),sa=getAuth(sec);
       const c=await createUserWithEmailAndPassword(sa,e,p);const nid=c.user.uid;await signOut(sa);

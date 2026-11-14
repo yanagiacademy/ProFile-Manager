@@ -31,13 +31,21 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();
     }
+    /* Promemoria: chi li vede e chi li modifica lo sceglie l'admin in Gestione account (users/<uid>.memo = {page, all}).
+       page: 'auto' (default: come la scheda), 'n', 'r', 'w' - vale solo nelle pagine in cui l'account ha Lettura o Scrittura. all (testo di app/promemoria): 'n', 'r' (default), 'w'. */
+    function memoPag(sec) { let m = me().get('memo', {}).get('page', 'auto'); return m == 'auto' ? level(sec) : m; }
+    function memoAll() { return me().get('memo', {}).get('all', 'r'); }
     match /app/{id} {
-      allow read: if hasAccount();
-      allow write: if isAdmin();
+      allow read: if hasAccount() && (id != 'promemoria' || isAdmin() || memoAll() in ['r', 'w']);
+      allow write: if isAdmin() || (id == 'promemoria' && hasAccount() && memoAll() == 'w');
     }
     match /sections/{sec}/meta/{id} {
-      allow read: if hasAccount() && level(sec) in ['r', 'w'];
-      allow write: if hasAccount() && level(sec) == 'w';
+      allow read: if hasAccount() && (id == 'promemoria'
+        ? (isAdmin() || (level(sec) in ['r', 'w'] && memoPag(sec) in ['r', 'w']))
+        : level(sec) in ['r', 'w']);
+      allow write: if hasAccount() && (id == 'promemoria'
+        ? (isAdmin() || (level(sec) in ['r', 'w'] && memoPag(sec) == 'w'))
+        : level(sec) == 'w');
     }
     /* Conservazione 10 anni (Archivio): un documento con conservaFinoTs nel futuro non si può eliminare,
        né si può accorciare o togliere il periodo di conservazione. */
