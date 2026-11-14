@@ -333,8 +333,8 @@ function setPerm(sc,k,v){
   updateDoc(doc(db,'users',sc),{['perms.'+k]:v}).then(()=>logEvento('account','',sc,nomeAcc(sc),'permesso '+k+': '+(v==='w'?'lettura e scrittura':v==='r'?'sola lettura':'nessun accesso'))).catch(()=>{const e=$('#er2');if(e)e.textContent='Modifica non riuscita. Riprova.'})}
 /* ---------- elenco account su Telegram (sezione cifrata «account», argomento «Account») ---------- */
 const permsN=p=>JSON.stringify(Object.entries(p||{}).filter(([,v])=>v&&v!=='n').sort());
-const schedaReg=(a,stato)=>({kind:'account',title:a.name||a.email||a.id,name:a.name||'',email:a.email||'',admin:!!a.admin,perms:{...(a.perms||{})},memo:{...(a.memo||{})},stato,agg:Date.now()});
-const firmaReg=r=>[r.name||'',r.email||'',!!r.admin,permsN(r.perms),JSON.stringify(r.memo||{}),r.stato].join('|');
+const schedaReg=(a,stato)=>({kind:'account',title:a.name||a.email||a.id,name:a.name||'',email:a.email||'',admin:!!a.admin,perms:{...(a.perms||{})},memo:{...(a.memo||{})},comeAtleta:!!a.comeAtleta,stato,agg:Date.now()});
+const firmaReg=r=>[r.name||'',r.email||'',!!r.admin,permsN(r.perms),JSON.stringify(r.memo||{}),!!r.comeAtleta,r.stato].join('|');
 function pianificaAllinea(){clearTimeout(allineaT);allineaT=setTimeout(allinea,1500)}
 async function allinea(){      /* tiene l'elenco allineato agli account veri: crea, aggiorna, segna come rimossi */
   if(!me||!me.admin||!accRegOk||!accounts.length)return;
@@ -354,6 +354,11 @@ async function inviaResetA(email){      /* restituisce il messaggio da mostrare 
   try{await sendPasswordResetEmail(getAuth(initializeApp(firebaseConfig,'rst'+Date.now())),email);return {ok:true,t:'Link inviato a '+email+': l’utente sceglie la nuova password dal messaggio che riceve.'}}
   catch(z){return {ok:false,t:'Invio non riuscito: controlla che l’email sia scritta bene e riprova.'}}}
 const mAcc=t=>{msgAcc=t;const e=$('#er2');if(e)e.textContent=t};
+/* «Come atleta»: comeAtleta/<uid> = {nome} è l'elenco minimo che Eventi e Lezioni leggono per proporre l'account tra gli atleti (id «u:<uid>»); lo scrive solo l'admin */
+const scriviCA=(uid,nome,on)=>on?setDoc(doc(db,'comeAtleta',uid),{nome:nome||''}):deleteDoc(doc(db,'comeAtleta',uid)).catch(()=>{});
+const sigCA=new Map();
+function sincCA(){      /* tiene allineati i nomi (e toglie le voci di account rimossi) */
+  accounts.filter(a=>a.comeAtleta).forEach(a=>{const s=a.name||a.email||'';if(sigCA.get(a.id)===s)return;sigCA.set(a.id,s);scriviCA(a.id,s,true).catch(()=>sigCA.delete(a.id))})}
 function mNew(html,mail,extra){msgNew=html;newMail=mail||'';newExtra=extra||'';const e=$('#er');if(e){e.innerHTML=html;bindRst()}}
 function bindRst(){const b=$('#rst');if(b)b.onclick=async()=>{const r=await inviaResetA(newMail);mNew(esc(r.t)+(r.ok&&newExtra?' '+esc(newExtra):''),newMail,newExtra)}}
 function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',newPerms,$('#na')&&$('#na').checked,newMemo);bindEd(n)}
@@ -374,22 +379,32 @@ function adminView(){
   const keep=['#nn2','#ne','#np'].map(i=>$(i)?$(i).value:''),keepA=$('#na')?$('#na').checked:false;
   app.innerHTML=topbar()+`<div class="wrap"><div class="bar"><button class="btn ghost sm" id="bk">Indietro</button><h2>Gestione account</h2></div>
   <div class="card"><h2 style="margin:0">Account (${accounts.length})</h2>
-  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin,a.memo)}</div>`).join('')}
+  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><label class="ck" title="Compare tra gli atleti selezionabili in Eventi (destinatari) e in Lezioni (presenti)"><input type="checkbox" data-ca="${esc(a.id)}" ${a.comeAtleta?'checked':''}> Come atleta</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin,a.memo)}</div>`).join('')}
   <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso ma il login resta: per riattivare la stessa email basta crearla di nuovo (se non ricordi la sua password, l’app ti offre di inviare il link per sceglierne una nuova). Per cancellare del tutto il login apri <a href="https://console.firebase.google.com/project/yanagi-academy-profile-manager/authentication/users" target="_blank" rel="noopener">Authentication nella console Firebase</a>, cerca l’email e scegli «Elimina utente».</p></div>
   ${rimossiHtml()}
-  <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label class="ck" style="margin-top:8px"><input type="checkbox" id="na"> Admin</label><div id="ned" style="margin-top:4px"></div><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
+  <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label class="ck" style="margin-top:8px"><input type="checkbox" id="na"> Admin</label><label class="ck"><input type="checkbox" id="nca"> Come atleta <span class="mu">(selezionabile in Eventi e Lezioni)</span></label><div id="ned" style="margin-top:4px"></div><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
   $('#nn2').value=keep[0];$('#ne').value=keep[1];$('#np').value=keep[2];$('#na').checked=keepA;
   if(msgAcc)$('#er2').textContent=msgAcc;if(msgNew){$('#er').innerHTML=msgNew;bindRst()}
   paintNew();bindEd(app);$('#na').onchange=paintNew;
   bindTop();$('#bk').onclick=()=>{view='home';render()};
   document.querySelectorAll('[data-a]').forEach(c=>c.onchange=()=>{if(!c.checked&&adminsLeft<2){c.checked=true;$('#er2').textContent='Deve restare almeno un admin.';return}updateDoc(doc(db,'users',c.dataset.a),{admin:c.checked}).then(()=>logEvento('account','',c.dataset.a,nomeAcc(c.dataset.a),c.checked?'reso admin':'tolto il ruolo admin')).catch(()=>{})});
+  document.querySelectorAll('[data-ca]').forEach(c=>c.onchange=async()=>{
+    const a=accounts.find(z=>z.id===c.dataset.ca);if(!a)return;
+    try{
+      const ch={comeAtleta:c.checked};let extra='';
+      if(c.checked&&!a.admin&&((a.perms||{}).eventi||'n')==='n'){ch['perms.eventi']='u';extra=' Gli ho dato anche «Solo dati utente» su Eventi, così vede gli eventi a cui lo inviti (puoi cambiarlo in Modifica).'}
+      await updateDoc(doc(db,'users',a.id),ch);await scriviCA(a.id,a.name||a.email||'',c.checked);
+      logEvento('account','',a.id,nomeAcc(a.id),c.checked?'selezionabile come atleta':'non più selezionabile come atleta');
+      mAcc(c.checked?'«'+(a.name||a.email)+'» ora si può scegliere come atleta in Eventi e Lezioni.'+extra:'«'+(a.name||a.email)+'» non è più selezionabile come atleta (le lezioni già registrate restano com’erano).')}
+    catch(x){console.error(x);c.checked=!c.checked;mAcc('Modifica non riuscita. Riprova.')}});
+  sincCA();
   document.querySelectorAll('[data-pw]').forEach(b=>b.onclick=async()=>{const a=accounts.find(z=>z.id===b.dataset.pw);if(!a||!a.email)return;if(confirm('Inviare a '+a.email+' il link per scegliere una nuova password?'))mAcc((await inviaResetA(a.email)).t)});
   document.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.ed);if(a)modificaAccount(a)});
   document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{const a=accounts.find(z=>z.id===b.dataset.x);if(a.admin&&adminsLeft<2){$('#er2').textContent='Non puoi rimuovere l’ultimo admin.';return}if(!confirm('Revocare l’accesso a '+(a.name||a.email)+'? Potrai riattivarlo dall’elenco «Account rimossi».'))return;(async()=>{try{await setDoc(doc(db,'sections','account','items',a.id),{...schedaReg(a,'rimosso'),rimossoIl:Date.now()})}catch(e){console.warn('Elenco account:',e&&e.message)}
     deleteDoc(doc(db,'users',a.id)).then(()=>logEvento('account','',a.id,a.name||a.email||a.id,'accesso revocato')).catch(()=>{})})()});
   document.querySelectorAll('[data-ri]').forEach(b=>b.onclick=async()=>{const r=accReg[b.dataset.ri];if(!r)return;
     if(!confirm('Riattivare '+(r.name||r.email)+(r.admin?' (era admin)':'')+' con i permessi che aveva?'))return;
-    try{await setDoc(doc(db,'users',b.dataset.ri),{name:r.name||'',email:r.email||'',admin:!!r.admin,perms:{...(r.perms||{})}});logEvento('account','',b.dataset.ri,r.name||r.email,'account riattivato');mAcc('Account riattivato: entra con la sua vecchia password. Se non la ricorda, usa «Password» accanto al suo nome per inviargli il link.')}
+    try{await setDoc(doc(db,'users',b.dataset.ri),{name:r.name||'',email:r.email||'',admin:!!r.admin,comeAtleta:!!r.comeAtleta,perms:{...(r.perms||{})}});await scriviCA(b.dataset.ri,r.name||r.email||'',!!r.comeAtleta);logEvento('account','',b.dataset.ri,r.name||r.email,'account riattivato');mAcc('Account riattivato: entra con la sua vecchia password. Se non la ricorda, usa «Password» accanto al suo nome per inviargli il link.')}
     catch(x){console.error(x);mAcc('Riattivazione non riuscita. Riprova.')}});
   document.querySelectorAll('[data-lk]').forEach(b=>b.onclick=async()=>{const r=accReg[b.dataset.lk];if(r)mAcc((await inviaResetA(r.email)).t)});
   document.querySelectorAll('[data-df]').forEach(b=>b.onclick=async()=>{const r=accReg[b.dataset.df];if(!r)return;
@@ -399,9 +414,11 @@ function adminView(){
     const rim=rimossi().find(([,r])=>String(r.email||'').toLowerCase()===e.toLowerCase());
     if(!n||!e||(!rim&&p.length<6)){er.textContent='Inserisci nome, email e una password di almeno 6 caratteri.';return}
     const registra=async(uid,msg)=>{
-      await setDoc(doc(db,'users',uid),{name:n,email:e,admin:$('#na').checked,perms:$('#na').checked?{}:{...newPerms},memo:$('#na').checked?{}:{...newMemo}});
+      const ca=$('#nca').checked,pr=$('#na').checked?{}:{...newPerms};if(ca&&!$('#na').checked&&(!pr.eventi||pr.eventi==='n'))pr.eventi='u';      /* per vedere gli eventi a lui destinati serve almeno «Solo dati utente» su Eventi */
+      await setDoc(doc(db,'users',uid),{name:n,email:e,admin:$('#na').checked,comeAtleta:ca,perms:pr,memo:$('#na').checked?{}:{...newMemo}});
+      await scriviCA(uid,n,ca);
       logEvento('account','',uid,n,msg+($('#na').checked?' (admin)':''));
-      $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;newPerms={};newMemo={};paintNew()};
+      $('#nn2').value=$('#ne').value=$('#np').value='';$('#na').checked=false;$('#nca').checked=false;newPerms={};newMemo={};paintNew()};
     if(rim){try{await registra(rim[0],'account riattivato');mNew('Esisteva già un account rimosso con questa email: è stato <b>riattivato</b> con nome e permessi che hai scelto. Entra con la sua vecchia password; se non la ricorda, <button class="btn ghost sm" id="rst" type="button">invia il link per sceglierne una nuova</button>.',e)}catch(x){console.error(x);er.textContent='Riattivazione non riuscita. Riprova.'}return}
     try{const sec=initializeApp(firebaseConfig,'sec'+Date.now()),sa=getAuth(sec);
       const c=await createUserWithEmailAndPassword(sa,e,p);const nid=c.user.uid;await signOut(sa);

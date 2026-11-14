@@ -59,12 +59,16 @@ function dlWarn(d){
    (gli account degli atleti scelti, riconosciuti dall'email in Atleti): gli account «Solo dati utente» leggono solo gli eventi con destTutti o con il proprio uid in destUid. */
 const nomeAt=a=>[a.cognome,a.nome].filter(Boolean).join(' ')||a.title||'Atleta';
 const emailsOf=ids=>ids.map(id=>String((mails[id]&&mails[id].email)||'').trim().toLowerCase()).filter(Boolean);
-const accOfAt=id=>{const e=emailsOf([id])[0];return e?users.filter(u=>!u.admin&&String(u.email||'').toLowerCase()===e):[]};
-const uidsOf=ids=>{const em=emailsOf(ids);return users.filter(u=>!u.admin&&u.email&&em.includes(String(u.email).toLowerCase())).map(u=>u.id)};
+/* account segnati «Come atleta» in Gestione account (es. commercialista, tecnico): si scelgono come gli atleti, con id «u:<uid>» */
+const persAcc=()=>users.filter(u=>u.comeAtleta).map(u=>({id:'u:'+u.id,title:u.name||u.email||'Account',acc:true}));
+const tuttiAt=()=>[...atl,...persAcc()];
+const isAcc=id=>String(id).startsWith('u:');
+const accOfAt=id=>{if(isAcc(id))return users.filter(u=>u.id===String(id).slice(2));const e=emailsOf([id])[0];return e?users.filter(u=>!u.admin&&String(u.email||'').toLowerCase()===e):[]};
+const uidsOf=ids=>{const em=emailsOf(ids.filter(i=>!isAcc(i))),dir=ids.filter(isAcc).map(i=>String(i).slice(2));return [...new Set([...users.filter(u=>!u.admin&&u.email&&em.includes(String(u.email).toLowerCase())).map(u=>u.id),...dir.filter(id=>users.some(u=>u.id===id))])]};
 const destCampi=ids=>ids&&ids.length?{dest:ids,destTutti:false,destUid:uidsOf(ids)}:{dest:[],destTutti:true,destUid:[]};
 const ristretto=ev=>Array.isArray(ev.dest)&&ev.dest.length>0;
-const nomiDest=ev=>(ev.dest||[]).map(id=>{const a=atl.find(x=>x.id===id);return a?nomeAt(a):'(atleta eliminato)'});
-const visibili=()=>{const t=dq.trim().toLowerCase();return atl.filter(a=>!t||nomeAt(a).toLowerCase().includes(t)).sort((a,b)=>nomeAt(a).localeCompare(nomeAt(b),'it'))};
+const nomiDest=ev=>(ev.dest||[]).map(id=>{const a=tuttiAt().find(x=>x.id===id);return a?nomeAt(a):'(atleta eliminato)'});
+const visibili=()=>{const t=dq.trim().toLowerCase();return tuttiAt().filter(a=>!t||nomeAt(a).toLowerCase().includes(t)).sort((a,b)=>nomeAt(a).localeCompare(nomeAt(b),'it'))};
 const contaSel=()=>sel.size?sel.size+(sel.size===1?' atleta scelto':' atleti scelti'):'Nessun atleta scelto';
 function setModo(m){document.querySelectorAll('input[name=dm]').forEach(r=>r.checked=r.value===m);paintDest()}
 function paintDest(){
@@ -74,8 +78,8 @@ function paintDest(){
 function renderDest(){
   const l=$('#dls');if(!l||$('#dsel').hidden)return;
   const v=visibili();
-  l.innerHTML=v.length?v.map(a=>`<label class="ck"><input type="checkbox" data-d="${esc(a.id)}" ${sel.has(a.id)?'checked':''}> <span>${esc(nomeAt(a))}${accOfAt(a.id).length?'':' <span class="mu">· senza account collegato</span>'}</span></label>`).join('')
-    :`<div class="mu" style="padding:8px 0">${atl.length?'Nessun atleta trovato.':'Elenco atleti non disponibile: apri una volta la sezione Atleti e riprova.'}</div>`;
+  l.innerHTML=v.length?v.map(a=>`<label class="ck"><input type="checkbox" data-d="${esc(a.id)}" ${sel.has(a.id)?'checked':''}> <span>${esc(nomeAt(a))}${a.acc?' <span class="mu">· account</span>':accOfAt(a.id).length?'':' <span class="mu">· senza account collegato</span>'}</span></label>`).join('')
+    :`<div class="mu" style="padding:8px 0">${tuttiAt().length?'Nessun atleta trovato.':'Elenco atleti non disponibile: apri una volta la sezione Atleti e riprova.'}</div>`;
   $('#dn').textContent=contaSel()}
 /* garantisce di avere elenco account e email degli atleti aggiornati prima di salvare i destinatari */
 async function collegamenti(){
@@ -385,7 +389,7 @@ function renderList(){
 /* elenco degli account, per sapere chi non ha ancora risposto (lo può leggere solo l'admin) */
 async function loadUsers(){
   if(!isAdmin()||users.length)return;
-  try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));renderList();riallineaDest()}catch(e){console.error(e)}}
+  try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));renderList();renderDest();riallineaDest()}catch(e){console.error(e)}}
 
 /* iscrizioni: admin e chi ha Lettura/Scrittura le leggono tutte; con «Solo dati utente» solo le proprie */
 function listenIscr(){

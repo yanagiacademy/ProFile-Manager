@@ -218,6 +218,11 @@ service cloud.firestore {
 
     /* Elenco minimo per chi carica le ricevute: solo nome e cognome degli atleti (la scrive l'admin dalla scheda Atleti o chi ha la scrittura su Atleti).
        Così la commercialista sceglie l'atleta senza avere la lettura su Atleti. */
+    /* Account selezionabili «come atleta» in Eventi e Lezioni (Gestione account): solo il nome, lo scrive l'admin, lo legge chi ha un account */
+    match /comeAtleta/{id} {
+      allow read: if hasAccount();
+      allow write: if isAdmin();
+    }
     match /ricevuteAtleti/{id} {
       allow read: if isAdmin() || (hasAccount() && level('ricevute') in ['r', 'w']);
       allow write: if isAdmin() || (hasAccount() && level('atleti') == 'w');

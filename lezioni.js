@@ -13,7 +13,10 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='lezioni';
-let atl=[],atlErr=false,atlSub=false,sel=new Set(),selNames=new Map();
+let atl=[],pers=[],atlErr=false,atlSub=false,sel=new Set(),selNames=new Map();
+/* account segnati «Come atleta» in Gestione account (es. tecnico, commercialista): si scelgono come presenti con id «u:<uid>» */
+const persone=()=>pers.map(p=>({id:'u:'+p.id,title:p.nome||'Account',nome:'',cognome:''}));
+const tuttiAtl=()=>[...atl,...persone()];
 let auth,db,col,arch,uid=null,me=null,items=[],q='',unsubs=[],shellFor='',editing=null,pend=[],addTarget=null,memo=null;
 const offs=new Map();
 const nameOf=i=>((i.cognome||'')+' '+(i.nome||'')).trim()||i.title||'';
@@ -79,7 +82,7 @@ function shell(){
   }
 }
 /* ---------- ore di allenamento per atleta: dalle lezioni (ore e atleti presenti), con periodo facoltativo ---------- */
-let oreOpen=new Set();
+let oreOpen=new Set(),persSub=false;
 function oreAtleti(da,a){
   const m=new Map();
   atl.forEach(x=>m.set(x.id,{id:x.id,n:nameOf(x),ore:0,les:[]}));
@@ -102,7 +105,7 @@ function renderOre(){
 
 /* ---------- atleti presenti (menu a tendina con caselle) ---------- */
 function baseAtl(){
-  const base=atl.map(a=>({id:a.id,n:nameOf(a)})),ids=new Set(base.map(x=>x.id));
+  const base=tuttiAtl().map(a=>({id:a.id,n:nameOf(a)})),ids=new Set(base.map(x=>x.id));
   [...sel].filter(id=>!ids.has(id)).forEach(id=>base.push({id,n:selNames.get(id)||'Atleta non più in elenco'}));
   return base.sort((a,b)=>a.n.localeCompare(b.n,'it'))}
 function visAtl(){const t=(($('#prq')||{}).value||'').trim().toLowerCase();return baseAtl().filter(x=>!t||x.n.toLowerCase().includes(t))}
@@ -248,6 +251,7 @@ else{
       if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
       if(!atlSub){atlSub=true;        /* l'elenco atleti serve anche al conteggio ore (chi non ha la lettura su Atleti vede solo chi compare nelle lezioni) */
         unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>(!a.kind||a.kind==='atleta')&&(a.nome||a.cognome||a.title));atlErr=false;renderAtl();renderOre()},()=>{atl=[];atlErr=true;renderAtl();renderOre()}))}
+      if(!persSub){persSub=true;unsubs.push(onSnapshot(collection(db,'comeAtleta'),s=>{pers=s.docs.map(d=>({id:d.id,...d.data()}));renderAtl();renderOre()},()=>{pers=[]}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
