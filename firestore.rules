@@ -65,13 +65,24 @@ service cloud.firestore {
     function eventiOk() { return hasAccount() && level('eventi') in ['u', 'r', 'w']; }
     function eventiTutti() { return isAdmin() || level('eventi') in ['r', 'w']; }
     /* «Solo dati utente»: vede gli eventi e solo le proprie iscrizioni. Lettura: legge tutte le iscrizioni. Scrittura: le modifica tutte (non il pagamento verificato). */
-    match /sections/eventi/items/{id} { allow read: if hasAccount() && level('eventi') == 'u'; }
-    match /sections/eventi/items/{id}/chunks/{n} { allow read: if hasAccount() && level('eventi') == 'u'; }
+    /* Ogni evento (e il suo documento) ha destTutti (true = per tutti gli atleti) e destUid (gli account degli atleti scelti dall'admin).
+       «Solo dati utente» legge solo gli eventi per tutti o con il proprio uid in destUid: eventi.js interroga con where('destTutti','==',true) e where('destUid','array-contains',uid). */
+    match /sections/eventi/items/{id} { allow read: if hasAccount() && level('eventi') == 'u' && (resource.data.destTutti == true || request.auth.uid in resource.data.destUid); }
+    match /sections/eventi/items/{id}/chunks/{n} {
+      allow read: if hasAccount() && level('eventi') == 'u'
+        && (get(/databases/$(database)/documents/sections/eventi/items/$(id)).data.destTutti == true
+            || request.auth.uid in get(/databases/$(database)/documents/sections/eventi/items/$(id)).data.destUid);
+    }
+    function evPerMe(e) {
+      let d = get(/databases/$(database)/documents/sections/eventi/items/$(e)).data;
+      return d.destTutti == true || request.auth.uid in d.destUid;
+    }
     match /iscrizioni/{id} {
       allow read: if eventiOk() && (eventiTutti() || resource.data.uid == request.auth.uid);
       allow create: if eventiOk() && request.resource.data.uid == request.auth.uid
         && id == request.resource.data.evento + '_' + request.auth.uid
-        && request.resource.data.get('pagatoOk', false) == false;
+        && request.resource.data.get('pagatoOk', false) == false
+        && (level('eventi') in ['r', 'w'] || evPerMe(request.resource.data.evento));
       allow update: if eventiOk() && (isAdmin()
         || (level('eventi') == 'w' && request.resource.data.get('pagatoOk', false) == resource.data.get('pagatoOk', false))
         || (resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid

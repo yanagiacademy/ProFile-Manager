@@ -104,7 +104,10 @@ export function costruisci({atleti=[],tessere=[],documenti=[],eventi=[],ricevute
     const peers=[...new Set(Object.values(rubrica).map(hOf).filter(Boolean))];
     for(const e of eventi){
       if(e.kind!=='evento'||e.chiuso||(isD(e.data)&&giorniA(e.data,now)<0))continue;
-      out.push({key:'ev:'+e.id,tipo:'evento',peers,when:null,text:testoEvento(e,url)})}}
+      /* evento rivolto solo ad alcuni atleti (campo dest): il messaggio parte solo a loro */
+      const dst=Array.isArray(e.dest)&&e.dest.length?e.dest:null;
+      const pe=dst?[...new Set(Object.entries(rubrica).filter(([id])=>dst.includes(id)).map(([,v])=>hOf(v)).filter(Boolean))]:peers;
+      out.push({key:'ev:'+e.id,tipo:'evento',peers:pe,when:null,text:testoEvento(e,url)})}}
   /* --- ricevute di pagamento: subito all'atleta (solo se caricate negli ultimi 14 giorni; una ricevuta sostituita non si rinotifica: stessa rcKey) --- */
   if(cfg.ricevute){
     const visti=new Set();

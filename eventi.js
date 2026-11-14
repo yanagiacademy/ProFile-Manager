@@ -18,9 +18,8 @@ tick();setInterval(tick,15000);
 const SEC='eventi',ALERT_GG=10,MAXB=20*1024*1024,CH=900000;
 const CATS={seminario:'Seminari',gara:'Gare',allenamento:'Allenamenti',altro:'Altro'};
 const CAT1={seminario:'Seminario',gara:'Gara',allenamento:'Allenamento',altro:'Altro'};
-const catL=e=>{const b=CAT1[e.cat]||e.cat||'';return e.cat==='altro'&&e.catAltro?b+': '+e.catAltro:b};
 const MOTIVI=['Sold out','Iscrizioni complete','Altro motivo'];
-let auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set();
+let auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set(),atl=[],mails={},mailsOk=false,sel=new Set(),dq='';
 const isAdmin=()=>!!(me&&me.admin);
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const meName=()=>(me&&(me.name||me.email))||'';
@@ -55,6 +54,50 @@ function dlWarn(d){
   const g=giorni(d);
   return g<0?'<span class="chip">chiusa</span>':g<=ALERT_GG?`<span class="chip bad">${dlTxt(g)}</span>`:''}
 
+/* ---------- destinatari: a quali atleti è rivolto l'evento ---------- */
+/* dest = id degli atleti scelti dall'admin (vuoto = tutti). Per le regole di Firestore l'evento (e il suo documento) porta anche destTutti e destUid
+   (gli account degli atleti scelti, riconosciuti dall'email in Atleti): gli account «Solo dati utente» leggono solo gli eventi con destTutti o con il proprio uid in destUid. */
+const nomeAt=a=>[a.cognome,a.nome].filter(Boolean).join(' ')||a.title||'Atleta';
+const emailsOf=ids=>ids.map(id=>String((mails[id]&&mails[id].email)||'').trim().toLowerCase()).filter(Boolean);
+const accOfAt=id=>{const e=emailsOf([id])[0];return e?users.filter(u=>!u.admin&&String(u.email||'').toLowerCase()===e):[]};
+const uidsOf=ids=>{const em=emailsOf(ids);return users.filter(u=>!u.admin&&u.email&&em.includes(String(u.email).toLowerCase())).map(u=>u.id)};
+const destCampi=ids=>ids&&ids.length?{dest:ids,destTutti:false,destUid:uidsOf(ids)}:{dest:[],destTutti:true,destUid:[]};
+const ristretto=ev=>Array.isArray(ev.dest)&&ev.dest.length>0;
+const nomiDest=ev=>(ev.dest||[]).map(id=>{const a=atl.find(x=>x.id===id);return a?nomeAt(a):'(atleta eliminato)'});
+const visibili=()=>{const t=dq.trim().toLowerCase();return atl.filter(a=>!t||nomeAt(a).toLowerCase().includes(t)).sort((a,b)=>nomeAt(a).localeCompare(nomeAt(b),'it'))};
+const contaSel=()=>sel.size?sel.size+(sel.size===1?' atleta scelto':' atleti scelti'):'Nessun atleta scelto';
+function setModo(m){document.querySelectorAll('input[name=dm]').forEach(r=>r.checked=r.value===m);paintDest()}
+function paintDest(){
+  const d=$('#dsel');if(!d)return;
+  const sc=(document.querySelector('input[name=dm]:checked')||{}).value==='scelti';
+  d.hidden=!sc;if(sc)renderDest()}
+function renderDest(){
+  const l=$('#dls');if(!l||$('#dsel').hidden)return;
+  const v=visibili();
+  l.innerHTML=v.length?v.map(a=>`<label class="ck"><input type="checkbox" data-d="${esc(a.id)}" ${sel.has(a.id)?'checked':''}> <span>${esc(nomeAt(a))}${accOfAt(a.id).length?'':' <span class="mu">· senza account collegato</span>'}</span></label>`).join('')
+    :`<div class="mu" style="padding:8px 0">${atl.length?'Nessun atleta trovato.':'Elenco atleti non disponibile: apri una volta la sezione Atleti e riprova.'}</div>`;
+  $('#dn').textContent=contaSel()}
+/* garantisce di avere elenco account e email degli atleti aggiornati prima di salvare i destinatari */
+async function collegamenti(){
+  if(!isAdmin())return;
+  try{
+    if(!users.length){const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}))}
+    const m=await fget(fcol(db,'atletiMail'));mails={};m.docs.forEach(d=>mails[d.id]=d.data());mailsOk=true}
+  catch(e){console.error(e)}}
+/* eventi esistenti (prima dei destinatari) = per tutti; gli account collegati ai destinatari si riallineano quando cambiano email o account */
+const tentati=new Set(),tentDest=new Map();
+function migraDest(){
+  if(!isAdmin())return;
+  items.filter(i=>(i.kind==='evento'||(i.kind==='file'&&i.evento))&&typeof i.destTutti!=='boolean'&&!tentati.has(i.id)).forEach(i=>{
+    tentati.add(i.id);updateDoc(doc(db,'sections',SEC,'items',i.id),{dest:[],destTutti:true,destUid:[]}).catch(e=>{tentati.delete(i.id);console.warn('Destinatari:',e&&e.message)})})}
+function riallineaDest(){
+  if(!isAdmin()||!users.length||!mailsOk)return;
+  for(const ev of evs().filter(ristretto)){
+    const nu=uidsOf(ev.dest).sort(),cur=[...(ev.destUid||[])].sort(),k=JSON.stringify(nu);
+    if(k===JSON.stringify(cur)||tentDest.get(ev.id)===k)continue;
+    tentDest.set(ev.id,k);
+    [ev,...items.filter(x=>x.kind==='file'&&x.evento===ev.id)].forEach(i=>updateDoc(doc(db,'sections',SEC,'items',i.id),{destUid:nu}).catch(()=>tentDest.delete(ev.id)))}}
+
 /* ---------- finestra di dialogo generica ---------- */
 function modal(title,body,{ok='Salva',cancel='Annulla',onSave}={}){
   const o=document.createElement('div');o.className='ov';o.style.zIndex=30;
@@ -86,7 +129,16 @@ function shell(){
     <fieldset><legend>Evento</legend>
       <label for="nm">Nome dell’evento</label><input id="nm" type="text" autocomplete="off">
       <div class="two"><div><label for="ct">Categoria</label><select id="ct">${Object.entries(CAT1).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><div><label for="dt">Data</label><input id="dt" type="date"></div></div>
-      <div id="caw" hidden><label for="ca">Specifica quale (Altro)</label><input id="ca" type="text" maxlength="60" autocomplete="off" placeholder="es. Stage, Esame, Cena sociale"></div>
+    </fieldset>
+    <fieldset><legend>Destinatari</legend>
+      <div class="mu" style="margin-top:8px">Scegli a chi è rivolto l’evento: solo gli atleti scelti lo vedono nell’app e ricevono l’avviso su Telegram.</div>
+      <label class="ck"><input type="radio" name="dm" value="tutti" checked> Tutti gli atleti</label>
+      <label class="ck"><input type="radio" name="dm" value="scelti"> Solo gli atleti che scelgo</label>
+      <div id="dsel" hidden>
+        <input id="dq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off" style="margin-top:6px">
+        <div class="fr"><span class="mu" id="dn" role="status"></span><span><button type="button" class="btn ghost sm" id="dall">Seleziona i visibili</button> <button type="button" class="btn ghost sm" id="dnone">Nessuno</button></span></div>
+        <div id="dls" class="dlst"></div>
+      </div>
     </fieldset>
     <fieldset><legend>Scadenze e quota</legend>
       <div class="two"><div><label for="sr">Scadenza registrazione</label><input id="sr" type="date"></div><div><label for="qt">Quota di partecipazione (€)</label><input id="qt" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 25 oppure 25,50"></div></div>
@@ -111,19 +163,24 @@ function shell(){
     $('#ftg').onclick=()=>resetForm($('#fb').hidden);
     $('#sv').onclick=save;$('#cx').onclick=()=>resetForm(false);
     $('#ht').onchange=()=>{$('#shw').hidden=!$('#ht').checked};
-    $('#ct').onchange=togCa}
+    document.querySelectorAll('input[name=dm]').forEach(r=>r.onchange=paintDest);
+    $('#dq').oninput=e=>{dq=e.target.value;renderDest()};
+    $('#dall').onclick=()=>{visibili().forEach(a=>sel.add(a.id));renderDest()};
+    $('#dnone').onclick=()=>{sel.clear();renderDest()};
+    $('#dls').onchange=e=>{const c=e.target.closest('[data-d]');if(!c)return;c.checked?sel.add(c.dataset.d):sel.delete(c.dataset.d);$('#dn').textContent=contaSel()}}
 }
-const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['nt','nota']];
-function togCa(){const a=$('#ct').value==='altro';$('#caw').hidden=!a;if(!a)$('#ca').value=''}
+const FF=[['nm','nome'],['ct','cat'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['nt','nota']];
 function setForm(o){const b=$('#fb'),t=$('#ftg');if(!b)return;b.hidden=!o;t.setAttribute('aria-expanded',String(o));t.textContent=o?'− Chiudi':'+ Nuovo evento'}
 function resetForm(open){
-  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';togCa();$('#ht').checked=false;$('#shw').hidden=true;
+  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';$('#ht').checked=false;$('#shw').hidden=true;
   $('#fl').value='';$('#cur').textContent='';$('#rml').style.display='none';$('#rmd').checked=false;
+  sel=new Set();dq='';$('#dq').value='';setModo('tutti');
   $('#ft').textContent='Nuovo evento';$('#sv').textContent='Salva evento';$('#er').textContent=''}
 function edit(ev){
-  setForm(true);editing=ev.id;FF.forEach(([e,k])=>$('#'+e).value=ev[k]??'');if(!$('#ct').value)$('#ct').value='altro';togCa();
+  setForm(true);editing=ev.id;FF.forEach(([e,k])=>$('#'+e).value=ev[k]??'');if(!$('#ct').value)$('#ct').value='altro';
   $('#ht').checked=!!ev.hotel;$('#shw').hidden=!ev.hotel;$('#fl').value='';$('#rmd').checked=false;
   const d=docOf(ev);$('#cur').textContent=d?'Documento attuale: '+d.title+'. Scegli un file per sostituirlo.':'';$('#rml').style.display=d?'flex':'none';
+  sel=new Set(ev.dest||[]);dq='';$('#dq').value='';setModo(ristretto(ev)?'scelti':'tutti');
   $('#ft').textContent='Modifica evento';$('#sv').textContent='Salva modifiche';$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 
@@ -136,28 +193,32 @@ function canUpload(){
 
 async function save(){
   const g=id=>$('#'+id).value.trim(),er=$('#er');
-  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',nota:g('nt')};
+  const v={nome:g('nm'),cat:g('ct'),data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',nota:g('nt')};
   if(!v.nome){er.textContent='Inserisci il nome dell’evento.';return}
-  if(v.cat==='altro'&&!v.catAltro){er.textContent='Specifica di che tipo di evento si tratta (Altro).';return}
   if(!isD(v.data)){er.textContent='Indica la data dell’evento.';return}
   if(v.scadReg&&!isD(v.scadReg)){er.textContent='La scadenza della registrazione non è valida.';return}
   if(v.scadReg&&v.scadReg>v.data){er.textContent='La scadenza della registrazione deve essere prima dell’evento.';return}
   if(v.hotel&&v.scadHotel&&!isD(v.scadHotel)){er.textContent='La scadenza dell’hotel non è valida.';return}
   if(v.quota&&!/^\d{1,5}(\.\d{1,2})?$/.test(v.quota)){er.textContent='La quota deve essere un importo (es. 25 o 25,50).';return}
+  const modo=(document.querySelector('input[name=dm]:checked')||{}).value;
+  if(modo==='scelti'&&!sel.size){er.textContent='Scegli almeno un atleta, oppure seleziona «Tutti gli atleti».';return}
   const file=$('#fl').files[0];
   if(file&&file.size>arch.maxBytes()){er.textContent='“'+file.name+'” supera il limite di '+limiteMB()+' MB.';return}
   if(file&&!canUpload())return;
-  /* fb:true = l'evento è copiato anche su Firebase, così lo vedono tutti, anche senza Telegram */
-  const data={...v,fb:true,kind:'evento',title:v.nome,note:[catL(v),fmtD(v.data),money(v.quota),v.nota].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
+  await collegamenti();
+  const D=destCampi(modo==='scelti'?[...sel]:null);
+  /* fb:true = l'evento è copiato anche su Firebase, così lo vedono i destinatari, anche senza Telegram */
+  const data={...v,...D,fb:true,kind:'evento',title:v.nome,note:[CAT1[v.cat],fmtD(v.data),money(v.quota),v.nota].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
     const nuovo=!editing;
     let id=editing,old=null;
-    if(editing){old=docOf(items.find(i=>i.id===editing)||{});await updateDoc(doc(db,'sections',SEC,'items',editing),data)}
+    if(editing){old=docOf(items.find(i=>i.id===editing)||{});await updateDoc(doc(db,'sections',SEC,'items',editing),data);
+      for(const f of items.filter(x=>x.kind==='file'&&x.evento===editing))await updateDoc(doc(db,'sections',SEC,'items',f.id),D)}
     else id=(await addDoc(col,{...data,by:uid,at:serverTimestamp()})).id;
     if(file){
       try{
-        const fid=await arch.save(file,{evento:id,ruolo:'doc',fb:true},p=>{er.textContent='Caricamento del documento '+p+'%'});
+        const fid=await arch.save(file,{evento:id,ruolo:'doc',fb:true,...D},p=>{er.textContent='Caricamento del documento '+p+'%'});
         await updateDoc(doc(db,'sections',SEC,'items',id),{docId:fid});
         if(old)await arch.remove(old).catch(()=>{});
         if(file.size>MAXB)alert('Il documento supera 20 MB: è salvato solo su Telegram e gli atleti senza Telegram non potranno aprirlo.')
@@ -257,7 +318,7 @@ function openDetail(id){
   o.querySelector('[data-a="x"]').focus()}
 
 /* senza risposta = account con accesso a Eventi che non hanno ancora risposto (solo l'admin può leggere l'elenco account) */
-const senzaRisposta=ev=>users.filter(u=>!u.admin&&['r','w'].includes((u.perms||{})[SEC])&&!iscOf(ev.id).some(r=>r.uid===u.id));
+const senzaRisposta=ev=>ristretto(ev)?users.filter(u=>(ev.destUid||[]).includes(u.id)&&!iscOf(ev.id).some(r=>r.uid===u.id)):users.filter(u=>!u.admin&&['r','w'].includes((u.perms||{})[SEC])&&!iscOf(ev.id).some(r=>r.uid===u.id));
 
 function paintDetail(){
   if(!detail||!document.body.contains(detail.o))return;
@@ -267,7 +328,7 @@ function paintDetail(){
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?v:'<span class="mu">—</span>'}</dd>`;
   const d=docOf(ev),my=myIsc(ev.id),mf=bonificiOf(my);
   const sr=isD(ev.scadReg)?esc(fmtD(ev.scadReg))+' '+(ev.chiuso?'':dlWarn(ev.scadReg)):'';
-  const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota)))}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
+  const info=`<dl>${dd('Categoria',esc(CAT1[ev.cat]||ev.cat))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota)))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
   /* parte dell'atleta */
   const si=my&&my.partecipa==='si',no=my&&my.partecipa==='no';
   let mine=`<h3>La tua partecipazione</h3>${closed?`<div class="mu">${esc(motivoChiusura(ev))}.</div>`:''}
@@ -287,7 +348,7 @@ function paintDetail(){
       ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
       ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
-    <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
+    <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(CAT1[ev.cat]||'')}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
     ${info}${mine}${rep}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
@@ -307,7 +368,7 @@ function renderList(){
   const present=Object.keys(CATS).filter(k=>all.some(e=>e.cat===k));
   if(cat!=='all'&&!present.includes(cat))cat='all';
   const tabs=all.length?`<div class="tabs" role="group" aria-label="Categorie">${[['all','Tutti',all.length],...present.map(k=>[k,CATS[k],all.filter(e=>e.cat===k).length])].map(([k,l,n])=>`<button data-tab="${k}" aria-pressed="${cat===k}">${l} (${n})</button>`).join('')}</div>`:'';
-  const hay=e=>[e.nome,catL(e),e.nota,fmtD(e.data),e.quota,e.chiusoMotivo].filter(Boolean).join(' ').toLowerCase();
+  const hay=e=>[e.nome,CAT1[e.cat],e.nota,fmtD(e.data),e.quota,e.chiusoMotivo].filter(Boolean).join(' ').toLowerCase();
   const list=all.filter(e=>(cat==='all'||e.cat===cat)&&(!t||hay(e).includes(t)));
   const up=list.filter(e=>!isPast(e)).sort((a,b)=>(a.data||'').localeCompare(b.data||'')),pa=list.filter(isPast).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   const row=e=>{
@@ -317,14 +378,14 @@ function renderList(){
     else if(my&&my.partecipa==='no')st=`<span class="chip">Non partecipo</span>`;
     else if(!chiusa(e)&&!adm)st='<span class="chip warn">Da rispondere</span>';
     const dl=e.chiuso?`<span class="chip bad">Chiuso${e.chiusoMotivo?': '+esc(e.chiusoMotivo):''}</span>`:isPast(e)?'':dlChip('Iscrizione',e.scadReg)+(e.hotel?dlChip('Hotel',e.scadHotel):'');
-    return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(catL(e))} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
+    return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(CAT1[e.cat]||'')} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm&&ristretto(e)?`<span class="chip">Solo ${e.dest.length} atlet${e.dest.length===1?'a':'i'}</span>`:''}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
   ls.innerHTML=tabs+(list.length?(up.map(row).join('')+(pa.length?`<div class="sep">Passati</div>`+pa.map(row).join(''):'')):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun evento in programma.'+(adm?' Crea il primo con “+ Nuovo evento”.':'')}</div>`);
   paintDetail()}
 
 /* elenco degli account, per sapere chi non ha ancora risposto (lo può leggere solo l'admin) */
 async function loadUsers(){
   if(!isAdmin()||users.length)return;
-  try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));renderList()}catch(e){console.error(e)}}
+  try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));renderList();riallineaDest()}catch(e){console.error(e)}}
 
 /* iscrizioni: admin e chi ha Lettura/Scrittura le leggono tutte; con «Solo dati utente» solo le proprie */
 function listenIscr(){
@@ -347,7 +408,16 @@ else{
       if(shellFor!==perm()+(isAdmin()?'a':''))shell();
       if(!started){
         started=true;
-        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
+        if(perm()==='u'){
+          /* «Solo dati utente»: solo gli eventi per tutti o con il proprio uid (le regole non lasciano leggere gli altri) */
+          const A=new Map(),B=new Map(),base=fcol(db,'sections',SEC,'items'),mk=m=>s=>{m.clear();s.docs.forEach(d=>m.set(d.id,{id:d.id,...d.data()}));items=[...new Map([...A,...B]).values()];renderList()};
+          unsubs.push(fon(query(base,where('destTutti','==',true)),mk(A),e=>console.error('eventi',e)));
+          unsubs.push(fon(query(base,where('destUid','array-contains',uid)),mk(B),e=>console.error('eventi',e)))}
+        else{
+          unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));migraDest();riallineaDest();renderList()},()=>{}));
+          if(isAdmin()){
+            unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>!a.kind||a.kind==='atleta');renderDest()},()=>{}));
+            unsubs.push(fon(fcol(db,'atletiMail'),s=>{mails={};s.docs.forEach(d=>mails[d.id]=d.data());mailsOk=true;renderDest();riallineaDest()},()=>{}))}}
         unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):''},()=>{}));
         listenIscr()}
       loadUsers();renderList();
