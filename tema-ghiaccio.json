@@ -1,0 +1,27 @@
+{
+  "formato": "pfm-tema-1",
+  "nome": "Ghiaccio",
+  "descrizione": "Grigio ghiaccio e nero, minimal e pulito, angoli morbidi. Segue il modo chiaro o scuro del dispositivo.",
+  "modo": "auto",
+  "font": "Inter",
+  "raggio": 14,
+  "chiaro": {
+    "bg": "#E9EDF0",
+    "sf": "#FFFFFF",
+    "tx": "#14181B",
+    "mu": "#5F6A72",
+    "ac": "#14181B",
+    "ac2": "#4A5258",
+    "ln": "#D5DBE0"
+  },
+  "scuro": {
+    "bg": "#0F1214",
+    "sf": "#181C1F",
+    "tx": "#F1F4F6",
+    "mu": "#98A2A9",
+    "ac": "#F1F4F6",
+    "ac2": "#BAC3C9",
+    "ln": "#2A3035"
+  },
+  "css": ".tile{border-left:1px solid var(--ln);padding:20px 16px}.tile:hover{border-color:var(--ac)}.btn{font-weight:500}"
+}
