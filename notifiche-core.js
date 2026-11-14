@@ -48,6 +48,7 @@ export function testoEvento(ev,url){
   if(ev.quota&&!isNaN(Number(ev.quota)))r.push('💶 Quota: '+euro(ev.quota)+(ev.quotaPP?' a persona':''));
   if(ev.hotel&&isD(ev.scadHotel))r.push('🏨 Prenotazione hotel entro il '+fmtD(ev.scadHotel));
   if(ev.hotel&&ev.quotaHotel&&Number(ev.quotaHotel)>0)r.push('🏨 Quota hotel: '+euro(ev.quotaHotel)+(ev.hotelPP?' a persona':''));
+  if(ev.accompEv||(ev.hotel&&ev.accompHotel))r.push('👥 Puoi portare accompagnatori'+(ev.accompEv&&ev.hotel&&ev.accompHotel?' (anche in hotel)':ev.accompEv?'':' (in hotel)'));
   if(ev.nota)r.push(String(ev.nota).slice(0,200));
   r.push('Apri l’app per iscriverti: '+url);
   return r.join('\n')+FIRMA}
