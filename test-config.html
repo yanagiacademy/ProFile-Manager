@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Controllo configurazione</title>
-<style>body{font:15px/1.5 system-ui;margin:16px;max-width:640px}code{background:#eee;padding:1px 5px;border-radius:4px}li{margin:6px 0}.ko{color:#b3261e;font-weight:700}.okk{color:#1b6e2f;font-weight:700}</style></head>
+<style>body{font:15px/1.5 system-ui;margin:16px;max-width:640px}code{background:#eee;padding:1px 5px;border-radius:4px}li{margin:6px 0}.ko{color:#b3261e;font-weight:700}.okk{color:#1b6e2f;font-weight:700}</style><script src="tema.js"></script>
+</head>
 <body><h2>Controllo configurazione Telegram</h2><ul id="o"><li>Controllo in corso…</li></ul>
 <script type="module">
 const o=document.getElementById('o'),add=(t,ok)=>{const l=document.createElement('li');l.innerHTML=(ok===undefined?'':'<span class="'+(ok?'okk':'ko')+'">'+(ok?'OK':'PROBLEMA')+'</span> ')+t;o.append(l)};

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tema – ProFile Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="stile.css">
+<style>
+.hd{display:flex;gap:14px;align-items:center;margin-bottom:14px}
+.lgbox{background:#1B2A4A;border-radius:12px;padding:8px 12px;display:inline-flex;flex:none}
+.lgbox img{height:64px;width:auto;display:block}
+.cd{margin-bottom:12px}
+.sw{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.sw span{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;color:var(--mu)}
+.sw i{width:22px;height:22px;border-radius:6px;border:1px solid var(--ln);display:inline-block}
+.pv{border:1px solid var(--ln);border-radius:10px;padding:14px;margin:8px 0;background:var(--pbg);color:var(--ptx)}
+.pv .pc{background:var(--psf);border:1px solid var(--pln);border-radius:10px;padding:12px}
+.pv .pb{display:inline-block;background:var(--pac);color:var(--pbg);border-radius:8px;padding:6px 12px;font-weight:700;font-size:.85rem}
+.pv .pm{color:var(--pmu);font-size:.85rem}
+.pv .pa{border-left:4px solid var(--pac2);padding-left:8px;margin-top:8px}
+.pv .pe{color:var(--per);font-size:.85rem;margin-top:4px}
+.er-l{color:var(--er);margin:6px 0 0;padding-left:18px;font-size:.9rem}
+.ok-l{color:var(--ac);font-weight:700}
+.dact{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.fl{display:block;width:100%;padding:10px;border:1px dashed var(--ln);border-radius:8px;background:var(--bg)}
+pre{background:var(--bg);border:1px solid var(--ln);border-radius:8px;padding:10px;overflow:auto;font-size:.78rem;margin:8px 0 0}
+details summary{cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center}
+</style>
+<script src="tema.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<div class="clock" id="clock"></div>
+<script type="module" src="tema-pagina.js"></script>
+</body>
+</html>

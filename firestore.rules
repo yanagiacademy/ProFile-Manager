@@ -36,7 +36,8 @@ service cloud.firestore {
     function memoPag(sec) { let m = me().get('memo', {}).get('page', 'auto'); return m == 'auto' ? level(sec) : m; }
     function memoAll() { return me().get('memo', {}).get('all', 'r'); }
     match /app/{id} {
-      allow read: if hasAccount() && (id != 'promemoria' || isAdmin() || memoAll() in ['r', 'w']);
+      /* app/tema = tema grafico installato dall'admin (pagina Tema): lettura PUBBLICA (solo colori, font e logo), così si applica anche alla schermata di accesso */
+      allow read: if id == 'tema' || (hasAccount() && (id != 'promemoria' || isAdmin() || memoAll() in ['r', 'w']));
       allow write: if isAdmin() || (id == 'promemoria' && hasAccount() && memoAll() == 'w');
     }
     match /sections/{sec}/meta/{id} {
