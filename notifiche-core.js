@@ -45,8 +45,9 @@ const gOf=v=>!!(v&&typeof v==='object'&&v.g);
 export function testoEvento(ev,url){
   const r=['🏆 Nuovo evento: '+(ev.nome||ev.title||'senza nome'),'📅 '+fmtD(ev.data)+(ev.cat&&ev.cat!=='altro'?'':'')];
   if(isD(ev.scadReg))r.push('📝 Iscrizioni entro il '+fmtD(ev.scadReg));
-  if(ev.quota&&!isNaN(Number(ev.quota)))r.push('💶 Quota: '+euro(ev.quota));
+  if(ev.quota&&!isNaN(Number(ev.quota)))r.push('💶 Quota: '+euro(ev.quota)+(ev.quotaPP?' a persona':''));
   if(ev.hotel&&isD(ev.scadHotel))r.push('🏨 Prenotazione hotel entro il '+fmtD(ev.scadHotel));
+  if(ev.hotel&&ev.quotaHotel&&Number(ev.quotaHotel)>0)r.push('🏨 Quota hotel: '+euro(ev.quotaHotel)+(ev.hotelPP?' a persona':''));
   if(ev.nota)r.push(String(ev.nota).slice(0,200));
   r.push('Apri l’app per iscriverti: '+url);
   return r.join('\n')+FIRMA}

@@ -42,6 +42,13 @@ const chiusa=ev=>!!ev.chiuso||isPast(ev)||scadPass(ev);
 const motivoChiusura=ev=>ev.chiuso?'Iscrizioni chiuse'+(ev.chiusoMotivo?' ('+ev.chiusoMotivo+')':''):isPast(ev)?'Evento concluso':scadPass(ev)?'Iscrizioni chiuse dal '+fmtD(ev.scadReg):'';
 /* in rosso quando mancano ALERT_GG giorni o meno alla scadenza (iscrizione o hotel) */
 const urgD=d=>{if(!isD(d))return false;const g=giorni(d);return g>=0&&g<=ALERT_GG};
+const num=v=>{const n=parseFloat(String(v??'').replace(',','.'));return isFinite(n)&&n>0?n:0};
+/* persone: all'evento (atleta compreso, minimo 1) e in hotel (atleta compreso, 0 = nessuno); senza dato = 1 e 0 */
+const persE=r=>Math.min(20,Math.max(1,parseInt(r&&r.persEvento,10)||1));
+const persH=r=>Math.min(20,Math.max(0,parseInt(r&&r.persHotel,10)||0));
+const hotelChiuso=ev=>!ev.hotel||chiusa(ev)||(isD(ev.scadHotel)&&giorni(ev.scadHotel)<0);
+/* importo atteso: quota evento (×persone se «per persona») + quota hotel (×persone in hotel se «per persona», una volta sola se c'è almeno una persona) */
+const dovuto=(ev,r)=>{const e=num(ev.quota)*(ev.quotaPP?persE(r):1),h=ev.hotel?num(ev.quotaHotel)*(ev.hotelPP?persH(r):(persH(r)>0?1:0)):0;return{e,h,tot:e+h}};
 const urgente=ev=>!ev.chiuso&&!isPast(ev)&&(urgD(ev.scadReg)||(ev.hotel&&urgD(ev.scadHotel)));
 
 /* chip di una scadenza: rosso a 10 giorni o meno, neutro se è già passata */
@@ -148,8 +155,11 @@ function shell(){
     </fieldset>
     <fieldset><legend>Scadenze e quota</legend>
       <div class="two"><div><label for="sr">Scadenza registrazione</label><input id="sr" type="date"></div><div><label for="qt">Quota di partecipazione (€)</label><input id="qt" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 25 oppure 25,50"></div></div>
+      <label class="ck"><input type="checkbox" id="qpp"> Quota per persona (si moltiplica per le persone all’evento)</label>
       <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="ht" style="width:auto;min-height:0"> È previsto un hotel</label>
-      <div id="shw" hidden><label for="sh">Scadenza registrazione hotel</label><input id="sh" type="date"></div>
+      <div id="shw" hidden><label for="sh">Scadenza registrazione hotel</label><input id="sh" type="date">
+        <label for="qh">Quota hotel (€, facoltativa)</label><input id="qh" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 80 oppure 80,50">
+        <label class="ck"><input type="checkbox" id="hpp"> Quota hotel per persona (si moltiplica per le persone in hotel)</label></div>
     </fieldset>
     <fieldset><legend>Documento e nota per gli atleti</legend>
       <label for="fl">Documento (se c’è)</label><input id="fl" type="file"><div class="mu" id="cur" style="margin-top:4px"></div>
@@ -176,17 +186,17 @@ function shell(){
     $('#dnone').onclick=()=>{sel.clear();renderDest()};
     $('#dls').onchange=e=>{const c=e.target.closest('[data-d]');if(!c)return;c.checked?sel.add(c.dataset.d):sel.delete(c.dataset.d);$('#dn').textContent=contaSel()}}
 }
-const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['nt','nota']];
+const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['qh','quotaHotel'],['nt','nota']];
 function togCa(){const a=$('#ct').value==='altro';$('#caw').hidden=!a;if(!a)$('#ca').value=''}
 function setForm(o){const b=$('#fb'),t=$('#ftg');if(!b)return;b.hidden=!o;t.setAttribute('aria-expanded',String(o));t.textContent=o?'− Chiudi':'+ Nuovo evento'}
 function resetForm(open){
-  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';togCa();$('#ht').checked=false;$('#shw').hidden=true;
+  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';togCa();$('#ht').checked=false;$('#qpp').checked=false;$('#hpp').checked=false;$('#shw').hidden=true;
   $('#fl').value='';$('#cur').textContent='';$('#rml').style.display='none';$('#rmd').checked=false;
   sel=new Set();dq='';$('#dq').value='';setModo('tutti');
   $('#ft').textContent='Nuovo evento';$('#sv').textContent='Salva evento';$('#er').textContent=''}
 function edit(ev){
   setForm(true);editing=ev.id;FF.forEach(([e,k])=>$('#'+e).value=ev[k]??'');if(!$('#ct').value)$('#ct').value='altro';togCa();
-  $('#ht').checked=!!ev.hotel;$('#shw').hidden=!ev.hotel;$('#fl').value='';$('#rmd').checked=false;
+  $('#ht').checked=!!ev.hotel;$('#qpp').checked=!!ev.quotaPP;$('#hpp').checked=!!ev.hotelPP;$('#shw').hidden=!ev.hotel;$('#fl').value='';$('#rmd').checked=false;
   const d=docOf(ev);$('#cur').textContent=d?'Documento attuale: '+d.title+'. Scegli un file per sostituirlo.':'';$('#rml').style.display=d?'flex':'none';
   sel=new Set(ev.dest||[]);dq='';$('#dq').value='';setModo(ristretto(ev)?'scelti':'tutti');
   $('#ft').textContent='Modifica evento';$('#sv').textContent='Salva modifiche';$('#er').textContent='';
@@ -201,7 +211,7 @@ function canUpload(){
 
 async function save(){
   const g=id=>$('#'+id).value.trim(),er=$('#er');
-  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',nota:g('nt')};
+  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',quotaPP:$('#qpp').checked,quotaHotel:$('#ht').checked?g('qh').replace(',','.'):'',hotelPP:$('#ht').checked&&$('#hpp').checked,nota:g('nt')};
   if(!v.nome){er.textContent='Inserisci il nome dell’evento.';return}
   if(v.cat==='altro'&&!v.catAltro){er.textContent='Specifica di che tipo di evento si tratta (Altro).';return}
   if(!isD(v.data)){er.textContent='Indica la data dell’evento.';return}
@@ -209,6 +219,7 @@ async function save(){
   if(v.scadReg&&v.scadReg>v.data){er.textContent='La scadenza della registrazione deve essere prima dell’evento.';return}
   if(v.hotel&&v.scadHotel&&!isD(v.scadHotel)){er.textContent='La scadenza dell’hotel non è valida.';return}
   if(v.quota&&!/^\d{1,5}(\.\d{1,2})?$/.test(v.quota)){er.textContent='La quota deve essere un importo (es. 25 o 25,50).';return}
+  if(v.quotaHotel&&!/^\d{1,5}(\.\d{1,2})?$/.test(v.quotaHotel)){er.textContent='La quota dell’hotel deve essere un importo (es. 80 o 80,50).';return}
   const modo=(document.querySelector('input[name=dm]:checked')||{}).value;
   if(modo==='scelti'&&!sel.size){er.textContent='Scegli almeno un atleta, oppure seleziona «Tutti gli atleti».';return}
   const file=$('#fl').files[0];
@@ -307,6 +318,15 @@ function openDetail(id){
         const v=(o.querySelector('#pw').value||'').trim().replace(',','.');
         if(!/^\d{2,3}(\.\d{1,2})?$/.test(v)){alert('Indica il peso in chilogrammi (es. 66 oppure 66,5).');return}
         if(!chiusa(ev))await patchIsc(ev,{peso:v})}
+      else if(a==='pe'){
+        const rd=k=>{const x=o.querySelector('#'+k);return x?parseInt(x.value,10):NaN},pe=rd('pe'),ph=rd('ph'),pp={};
+        if(!chiusa(ev)){
+          if(!(pe>=1&&pe<=20)){alert('Indica da 1 a 20 persone all’evento (te compreso).');return}
+          pp.persEvento=pe;
+          if(o.querySelector('#ph')&&!hotelChiuso(ev)){
+            if(!(ph>=0&&ph<=20)){alert('Indica da 0 a 20 persone in hotel (0 = nessuna).');return}
+            pp.persHotel=ph}
+          await patchIsc(ev,pp)}}
       else if(a==='ob'){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openBon(r,f)}
       else if(a==='rmf'){
         const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);
@@ -335,25 +355,27 @@ function paintDetail(){
   if(!ev||ev.kind!=='evento'){detail.o.remove();detail=null;return}
   const c=detail.o.firstElementChild,adm=isAdmin(),gara=ev.cat==='gara',closed=chiusa(ev),past=isPast(ev);
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?v:'<span class="mu">—</span>'}</dd>`;
-  const d=docOf(ev),my=myIsc(ev.id),mf=bonificiOf(my);
+  const d=docOf(ev),my=myIsc(ev.id),mf=bonificiOf(my),hasQ=num(ev.quota)>0||num(ev.quotaHotel)>0,dv=dovuto(ev,my);
   const sr=isD(ev.scadReg)?esc(fmtD(ev.scadReg))+' '+(ev.chiuso?'':dlWarn(ev.scadReg)):'';
-  const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota)))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
+  const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota))+(ev.quota&&ev.quotaPP?' <span class="chip">a persona</span>':''))}${ev.hotel&&num(ev.quotaHotel)?dd('Quota hotel',esc(money(ev.quotaHotel))+(ev.hotelPP?' <span class="chip">a persona</span>':'')):''}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
   /* parte dell'atleta */
   const si=my&&my.partecipa==='si',no=my&&my.partecipa==='no';
   let mine=`<h3>La tua partecipazione</h3>${closed?`<div class="mu">${esc(motivoChiusura(ev))}.</div>`:''}
     <div class="sel"><button class="btn ${si?'':'ghost'}" data-a="si" aria-pressed="${!!si}" ${closed?'disabled':''}>Partecipo</button><button class="btn ${no?'':'ghost'}" data-a="no" aria-pressed="${!!no}" ${closed?'disabled':''}>Non partecipo</button></div>`;
   if(gara&&si)mine+=`<label for="pw">Peso previsto per la gara (kg)</label><div class="fr"><input id="pw" type="text" inputmode="decimal" autocomplete="off" value="${esc(my.peso||'')}" ${closed?'disabled':''}><button class="btn sm" data-a="pw" ${closed?'disabled':''}>Salva peso</button></div>${my.peso?'':'<div class="err">Manca il peso previsto.</div>'}`;
-  if(si)mine+=`<h3>Pagamento${money(ev.quota)?' · '+esc(money(ev.quota)):''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>
+  if(si){const ph=ev.hotel,hc=hotelChiuso(ev);mine+=`<h3>Persone</h3><div class="mu" style="margin-bottom:4px">Quante persone vengono, te compreso (es. atleta + un genitore = 2).</div><div class="two"><div><label for="pe">Persone all’evento</label><input id="pe" type="number" min="1" max="20" inputmode="numeric" value="${persE(my)}" ${closed?'disabled':''}></div>${ph?`<div><label for="ph">Persone in hotel (0 = nessuna)</label><input id="ph" type="number" min="0" max="20" inputmode="numeric" value="${persH(my)}" ${hc?'disabled':''}></div>`:''}</div>${ph&&hc&&!closed?'<div class="mu">Registrazione hotel chiusa: il numero in hotel non si può più cambiare.</div>':''}<div class="acts" style="margin-top:6px"><button class="btn sm" data-a="pe" ${closed?'disabled':''}>Salva persone</button></div>`}
+  const brk=dv.tot>0&&(ev.quotaPP||ev.hotelPP||dv.h>0)?`<div class="mu" style="margin:2px 0 6px">${[dv.e>0?'Evento: '+money(dv.e):'',dv.h>0?'Hotel: '+money(dv.h):''].filter(Boolean).join(' + ')}</div>`:'';
+  if(si)mine+=`<h3>Pagamento${dv.tot>0?' · '+esc(money(dv.tot)):''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>${brk}
     ${mf.length?mf.map(f=>`<div class="fr"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(my.id)}">${esc(f.nome)}</button>${my.pagatoOk?'<span class="chip ok">verificato</span>':`<button class="xb" data-a="rmf" data-i="${esc(f.id)}" aria-label="Togli questa copia">✕</button>`}</div>`).join(''):'<div class="mu">Nessuna copia del bonifico caricata.</div>'}
     <label for="bf">Carica la copia del bonifico (immagine o PDF, max 20 MB)</label><input id="bf" type="file" accept="image/*,application/pdf"><div class="mu" id="upm" style="margin-top:4px">${esc(upMsg)}</div>`;
   /* resoconto per l'admin */
   let rep='';
   if(adm){
     const all=iscOf(ev.id).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it')),yes=all.filter(r=>r.partecipa==='si'),nos=all.filter(r=>r.partecipa==='no'),sen=senzaRisposta(ev);
-    const paid=yes.filter(r=>bonificiOf(r).length).length,ok=yes.filter(r=>r.pagatoOk).length,att=parseFloat(ev.quota)>0?money(parseFloat(ev.quota)*yes.length):'';
+    const paid=yes.filter(r=>bonificiOf(r).length).length,ok=yes.filter(r=>r.pagatoOk).length,tp=yes.reduce((t,r)=>t+persE(r),0),th=yes.reduce((t,r)=>t+persH(r),0),att=money(yes.reduce((t,r)=>t+dovuto(ev,r).tot,0));
     rep=`<h3>Resoconto iscritti<button class="btn ghost sm" data-a="csv">Scarica CSV</button></h3>
-      <div class="kpi"><span>✔ Partecipano: <b>${yes.length}</b></span><span>✖ Non partecipano: <b>${nos.length}</b></span>${users.length?`<span>… Senza risposta: <b>${sen.length}</b></span>`:''}${ev.quota?`<span>Bonifici caricati: <b>${paid}/${yes.length}</b></span><span>Verificati: <b>${ok}/${yes.length}</b></span>`:''}${att?`<span>Quota attesa: <b>${esc(att)}</b></span>`:''}</div>
-      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(ev.quota?'<span class="chip warn">nessun bonifico</span>':'')}${ev.quota?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${ev.quota&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(ev.quota)}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
+      <div class="kpi"><span>✔ Partecipano: <b>${yes.length}</b></span><span>👥 Persone all’evento: <b>${tp}</b></span>${ev.hotel?`<span>🏨 Persone in hotel: <b>${th}</b></span>`:''}<span>✖ Non partecipano: <b>${nos.length}</b></span>${users.length?`<span>… Senza risposta: <b>${sen.length}</b></span>`:''}${hasQ?`<span>Bonifici caricati: <b>${paid}/${yes.length}</b></span><span>Verificati: <b>${ok}/${yes.length}</b></span>`:''}${att?`<span>Quota attesa: <b>${esc(att)}</b></span>`:''}</div>
+      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${persE(r)>1?`<span class="chip">👥 ${persE(r)} all’evento</span>`:''}${persH(r)>0?`<span class="chip">🏨 ${persH(r)} hotel</span>`:''}${hasQ?`<span class="chip">${esc(money(dovuto(ev,r).tot))}</span>`:''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(hasQ?'<span class="chip warn">nessun bonifico</span>':'')}${hasQ?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${hasQ&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(dovuto(ev,r).tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
       ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
       ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
@@ -363,9 +385,9 @@ function paintDetail(){
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
 
 function csv(ev){
-  const rows=[['Nome','Partecipa','Peso previsto (kg)','Bonifico caricato','Pagamento verificato']];
-  iscOf(ev.id).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it')).forEach(r=>rows.push([r.nome||'',r.partecipa==='si'?'Sì':r.partecipa==='no'?'No':'',r.peso||'',bonificiOf(r).length?'Sì':'No',r.pagatoOk?'Sì':'No']));
-  senzaRisposta(ev).forEach(u=>rows.push([u.name||u.email||'','Senza risposta','','','']));
+  const rows=[['Nome','Partecipa','Peso previsto (kg)','Persone all’evento','Persone in hotel','Quota attesa (€)','Bonifico caricato','Pagamento verificato']];
+  iscOf(ev.id).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it')).forEach(r=>rows.push([r.nome||'',r.partecipa==='si'?'Sì':r.partecipa==='no'?'No':'',r.peso||'',r.partecipa==='si'?persE(r):'',r.partecipa==='si'?persH(r):'',r.partecipa==='si'?dovuto(ev,r).tot.toFixed(2).replace('.',','):'',bonificiOf(r).length?'Sì':'No',r.pagatoOk?'Sì':'No']));
+  senzaRisposta(ev).forEach(u=>rows.push([u.name||u.email||'','Senza risposta','','','','','','']));
   const t='\ufeff'+rows.map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')).join('\r\n');
   saveBlob(new Blob([t],{type:'text/csv;charset=utf-8'}),'Iscritti - '+ev.nome.replace(/[\\/:*?"<>|]/g,' ')+'.csv')}
 

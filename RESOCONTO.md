@@ -380,6 +380,13 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Promemoria: modulo condiviso promemoria.js, presente in tutte le sezioni.
 - Home: il conteggio di File importanti conta i documenti con la stella (+ voci a mano); quello di Lezioni non conta i file allegati.
 
+## NOVITÀ (14/11) – PERSONE ALL'EVENTO E IN HOTEL, QUOTE PER PERSONA
+- Da un solo account l'atleta che ha risposto "Partecipo" indica, nella scheda dell'evento (blocco "Persone"): quante persone vengono all'evento (atleta compreso, minimo 1, es. atleta + genitore a pranzo = 2) e, se l'evento ha l'hotel, quante persone dormono in hotel (atleta compreso, 0 = nessuna, es. atleta + ragazza = 2). Si salva con "Salva persone". Il numero all'evento si blocca con la chiusura delle iscrizioni; quello in hotel anche alla scadenza hotel.
+- Alla creazione/modifica dell'evento l'admin ha: flag "Quota per persona" (quota evento x persone all'evento) e, con l'hotel, "Quota hotel (€, facoltativa)" + flag "Quota hotel per persona" (x persone in hotel; senza flag la quota hotel vale una volta sola se c'è almeno una persona in hotel).
+- L'atleta vede il totale da pagare (con dettaglio Evento + Hotel); l'admin vede nel resoconto le persone totali all'evento e in hotel, per ogni atleta i chip persone e importo, la quota attesa totale; il CSV ha le colonne Persone all'evento, Persone in hotel, Quota attesa. "Crea ricevuta" precompila l'importo totale dell'atleta.
+- Dati: evento + quotaPP, quotaHotel, hotelPP; iscrizione + persEvento, persHotel (senza dato: 1 e 0, quindi le iscrizioni già fatte non cambiano). Il messaggio Telegram del nuovo evento indica "a persona" e la quota hotel.
+- Firestore: nessuna modifica alle regole (l'atleta modifica già la propria iscrizione).
+
 ## MODELLO DEI DATI (Firestore)
 - users/<UID>: name, email, admin, perms{ sezione: 'n'|'r'|'w' }
 - sections/<sezione>/items/<id>: elementi della sezione. Documenti: kind folder|file|text, parent, size, mime, tg o chunks, note, star, thumb, thumbTry. Lezioni: date, day, master, type, report, title, note; i file allegati sono elementi con kind:'file' e lesson:<id lezione>.
