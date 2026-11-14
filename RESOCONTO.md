@@ -1,4 +1,4 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 13/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 14/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
@@ -32,6 +32,13 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - NON FATTO (sicurezza): cambio della chiave di cifratura di una sezione dopo la revoca di un operatore: richiederebbe di ricifrare tutti i messaggi e i file già su Telegram. Per ora chi perde il permesso conserva la chiave già letta; se serve escluderlo davvero, il sistema più semplice è non dargli più materiale nuovo in quella sezione e, per dati molto sensibili, spostarli in una sezione nuova (nuova chiave).
 - REGOLE FIRESTORE: ripubblicare firestore.rules (nuovo blocco ricevuteAtleti).
 - File modificati: notifiche-core.js, notifiche-motore.js, notifiche.js, richieste-pagina.js, atleti.js, eventi.js, index.html, archivio-pagina.js, ricevute.js, firestore.rules, RESOCONTO.md. Numeri di versione NON aggiornati. Provato in Node solo il calcolo dei messaggi (ricevute ed esiti, doppioni, registro, interruttori); il resto non è provato in un browser.
+
+## NOVITÀ (14/11 sexies) – EVENTI: CATEGORIA «ALTRO» CON SPECIFICA (eventi.js)
+- Nel modulo «Nuovo evento / Modifica evento», scegliendo la categoria «Altro» compare il campo «Specifica quale (Altro)» (testo libero, max 60 caratteri, es. «Stage», «Esame», «Cena sociale»). È OBBLIGATORIO: senza, il salvataggio si ferma con «Specifica di che tipo di evento si tratta (Altro).». Cambiando categoria il campo si nasconde e si svuota.
+- Dati: nuovo campo catAltro sull'evento (sections/eventi/items), valorizzato solo se cat = 'altro', altrimenti ''. Nessuna modifica a firestore.rules.
+- Dove si vede: etichetta unica catL(ev) = «Altro: <specifica>» nell'elenco, nella scheda (riga Categoria), nel chip sotto il titolo, nella ricerca e nella nota dell'evento. Le schede in cima all'elenco restano raggruppate sotto «Altro». Le notifiche Telegram dei nuovi eventi non mostrano la categoria, quindi non cambiano.
+- Eventi già esistenti con categoria Altro: restano validi e si vedono come «Altro»; la specifica si aggiunge da Modifica (da quel momento il campo è obbligatorio anche per loro).
+- File modificati: eventi.js, RESOCONTO.md. Numeri di versione NON aggiornati. Controllata solo la sintassi con Node; non provato in un browser.
 
 ## NOVITÀ (14/11 quinquies) – «COME ATLETA»: ACCOUNT SELEZIONABILI IN EVENTI E LEZIONI (index.html, eventi.js, lezioni.js, firestore.rules)
 - In Gestione account, accanto a «Admin», nuova casella «Come atleta» (anche nel modulo «Nuovo account»): users/<uid>.comeAtleta. Un account così (es. la commercialista a un pranzo, un tecnico che fa un allenamento) compare tra gli atleti selezionabili.
@@ -303,7 +310,7 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 
 ## NOVITÀ (01/11) – EVENTI
 - Sezione Eventi (eventi.html + eventi.js). Solo l'ADMIN crea, modifica ed elimina gli eventi (pulsante "+ Nuovo evento"); tutti gli account con accesso a Eventi li vedono.
-- Evento: nome, categoria (Seminario, Gara, Allenamento, Altro), data, scadenza registrazione, "è previsto un hotel" + scadenza registrazione hotel, quota di partecipazione (€), documento (file, su Telegram come nelle altre sezioni), nota per gli atleti.
+- Evento: nome, categoria (Seminario, Gara, Allenamento, Altro: con «Altro» si specifica quale, vedi 14/11 sexies), data, scadenza registrazione, "è previsto un hotel" + scadenza registrazione hotel, quota di partecipazione (€), documento (file, su Telegram come nelle altre sezioni), nota per gli atleti.
 - Elenco: schede Tutti / Seminari / Gare / Allenamenti / Altro, mostrate SOLO se hanno eventi. Prossimi in ordine di data, poi "Passati". Su ogni evento: stato dell'atleta (Partecipo / Non partecipo / Da rispondere), avviso quando la scadenza di iscrizione è entro 7 giorni o già chiusa; per l'admin il numero di iscritti.
 - Atleta (qualsiasi account con accesso a Eventi): in scheda sceglie "Partecipo" / "Non partecipo" (bloccato dopo la scadenza di registrazione, a evento concluso o se l'admin ha chiuso l'evento); se è una GARA e partecipa indica il peso previsto; se partecipa carica la copia del bonifico (immagine o PDF, max 20 MB). Finché non è verificata può togliere la copia. NON serve Telegram.
 - Firebase per chi non ha Telegram: l'evento e il suo documento sono salvati su Telegram e in copia su Firebase (fb:true; documenti oltre 20 MB solo su Telegram); la modalità di pagamento ha la stessa copia; iscrizioni e bonifici stanno SOLO su Firebase (raccolta iscrizioni, documento <idEvento>_<uidAtleta>, bonifici a blocchi in iscrizioni/<id>/chunks, elenco in bonifici[]). Servono le NUOVE regole di firestore.rules (pubblicarle): l'atleta scrive solo la propria iscrizione, solo l'admin può segnare pagatoOk ed eliminare.
@@ -311,7 +318,7 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chiudi iscrizioni (admin): senza eliminare l'evento, con motivo (Sold out, Iscrizioni complete, Altro motivo + dettaglio). L'evento resta in elenco con chip "Chiuso", i dati restano, gli atleti non possono più iscriversi né cambiare risposta; "Riapri iscrizioni" lo ripristina (campi chiuso, chiusoMotivo).
 - Resoconto iscritti (solo admin, dentro la scheda dell'evento): partecipano / non partecipano / senza risposta (account con accesso a Eventi che non hanno risposto), peso previsto per le gare ("peso mancante" se assente), bonifici caricati (apribili), pulsante "Segna come verificato" per ogni atleta, quota attesa (quota x partecipanti), scarico CSV.
 - "Come pagare" (in alto e nella scheda): finestra con le modalità di pagamento; la scrive solo l'admin (sections/eventi/meta/pagamenti), la leggono tutti.
-- Dati (sections/eventi/items): evento = kind:'evento' (nome, cat, data, scadReg, hotel, scadHotel, quota, nota, docId, title, note); iscrizione = documento Firebase iscrizioni/<idEvento>_<uidAtleta> (evento, uid, nome, partecipa si|no, peso, pagatoOk, bonifici[]) - un documento per atleta, così due atleti non si sovrascrivono; documento dell'evento = kind:'file' con evento e ruolo 'doc'.
+- Dati (sections/eventi/items): evento = kind:'evento' (nome, cat, catAltro, data, scadReg, hotel, scadHotel, quota, nota, docId, title, note); iscrizione = documento Firebase iscrizioni/<idEvento>_<uidAtleta> (evento, uid, nome, partecipa si|no, peso, pagatoOk, bonifici[]) - un documento per atleta, così due atleti non si sovrascrivono; documento dell'evento = kind:'file' con evento e ruolo 'doc'.
 - Home: index.html non conta né cerca le iscrizioni e i file degli eventi (conta solo gli eventi). Permessi: agli atleti basta "Lettura" su Eventi (rispondono e caricano il bonifico anche senza Telegram, grazie alle nuove regole).
 - Riservatezza: le iscrizioni stanno su Firebase e le regole fanno vedere a ogni atleta solo le proprie (l'admin vede tutto).
 

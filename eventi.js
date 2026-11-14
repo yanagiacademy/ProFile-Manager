@@ -18,6 +18,7 @@ tick();setInterval(tick,15000);
 const SEC='eventi',ALERT_GG=10,MAXB=20*1024*1024,CH=900000;
 const CATS={seminario:'Seminari',gara:'Gare',allenamento:'Allenamenti',altro:'Altro'};
 const CAT1={seminario:'Seminario',gara:'Gara',allenamento:'Allenamento',altro:'Altro'};
+const catL=e=>{const b=CAT1[e.cat]||e.cat||'';return e.cat==='altro'&&e.catAltro?b+': '+e.catAltro:b};
 const MOTIVI=['Sold out','Iscrizioni complete','Altro motivo'];
 let auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set(),atl=[],mails={},mailsOk=false,sel=new Set(),dq='';
 const isAdmin=()=>!!(me&&me.admin);
@@ -133,6 +134,7 @@ function shell(){
     <fieldset><legend>Evento</legend>
       <label for="nm">Nome dell’evento</label><input id="nm" type="text" autocomplete="off">
       <div class="two"><div><label for="ct">Categoria</label><select id="ct">${Object.entries(CAT1).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div><div><label for="dt">Data</label><input id="dt" type="date"></div></div>
+      <div id="caw" hidden><label for="ca">Specifica quale (Altro)</label><input id="ca" type="text" maxlength="60" autocomplete="off" placeholder="es. Stage, Esame, Cena sociale"></div>
     </fieldset>
     <fieldset><legend>Destinatari</legend>
       <div class="mu" style="margin-top:8px">Scegli a chi è rivolto l’evento: solo gli atleti scelti lo vedono nell’app e ricevono l’avviso su Telegram.</div>
@@ -167,21 +169,23 @@ function shell(){
     $('#ftg').onclick=()=>resetForm($('#fb').hidden);
     $('#sv').onclick=save;$('#cx').onclick=()=>resetForm(false);
     $('#ht').onchange=()=>{$('#shw').hidden=!$('#ht').checked};
+    $('#ct').onchange=togCa;
     document.querySelectorAll('input[name=dm]').forEach(r=>r.onchange=paintDest);
     $('#dq').oninput=e=>{dq=e.target.value;renderDest()};
     $('#dall').onclick=()=>{visibili().forEach(a=>sel.add(a.id));renderDest()};
     $('#dnone').onclick=()=>{sel.clear();renderDest()};
     $('#dls').onchange=e=>{const c=e.target.closest('[data-d]');if(!c)return;c.checked?sel.add(c.dataset.d):sel.delete(c.dataset.d);$('#dn').textContent=contaSel()}}
 }
-const FF=[['nm','nome'],['ct','cat'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['nt','nota']];
+const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['nt','nota']];
+function togCa(){const a=$('#ct').value==='altro';$('#caw').hidden=!a;if(!a)$('#ca').value=''}
 function setForm(o){const b=$('#fb'),t=$('#ftg');if(!b)return;b.hidden=!o;t.setAttribute('aria-expanded',String(o));t.textContent=o?'− Chiudi':'+ Nuovo evento'}
 function resetForm(open){
-  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';$('#ht').checked=false;$('#shw').hidden=true;
+  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';togCa();$('#ht').checked=false;$('#shw').hidden=true;
   $('#fl').value='';$('#cur').textContent='';$('#rml').style.display='none';$('#rmd').checked=false;
   sel=new Set();dq='';$('#dq').value='';setModo('tutti');
   $('#ft').textContent='Nuovo evento';$('#sv').textContent='Salva evento';$('#er').textContent=''}
 function edit(ev){
-  setForm(true);editing=ev.id;FF.forEach(([e,k])=>$('#'+e).value=ev[k]??'');if(!$('#ct').value)$('#ct').value='altro';
+  setForm(true);editing=ev.id;FF.forEach(([e,k])=>$('#'+e).value=ev[k]??'');if(!$('#ct').value)$('#ct').value='altro';togCa();
   $('#ht').checked=!!ev.hotel;$('#shw').hidden=!ev.hotel;$('#fl').value='';$('#rmd').checked=false;
   const d=docOf(ev);$('#cur').textContent=d?'Documento attuale: '+d.title+'. Scegli un file per sostituirlo.':'';$('#rml').style.display=d?'flex':'none';
   sel=new Set(ev.dest||[]);dq='';$('#dq').value='';setModo(ristretto(ev)?'scelti':'tutti');
@@ -197,8 +201,9 @@ function canUpload(){
 
 async function save(){
   const g=id=>$('#'+id).value.trim(),er=$('#er');
-  const v={nome:g('nm'),cat:g('ct'),data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',nota:g('nt')};
+  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',nota:g('nt')};
   if(!v.nome){er.textContent='Inserisci il nome dell’evento.';return}
+  if(v.cat==='altro'&&!v.catAltro){er.textContent='Specifica di che tipo di evento si tratta (Altro).';return}
   if(!isD(v.data)){er.textContent='Indica la data dell’evento.';return}
   if(v.scadReg&&!isD(v.scadReg)){er.textContent='La scadenza della registrazione non è valida.';return}
   if(v.scadReg&&v.scadReg>v.data){er.textContent='La scadenza della registrazione deve essere prima dell’evento.';return}
@@ -212,7 +217,7 @@ async function save(){
   await collegamenti();
   const D=destCampi(modo==='scelti'?[...sel]:null);
   /* fb:true = l'evento è copiato anche su Firebase, così lo vedono i destinatari, anche senza Telegram */
-  const data={...v,...D,fb:true,kind:'evento',title:v.nome,note:[CAT1[v.cat],fmtD(v.data),money(v.quota),v.nota].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
+  const data={...v,...D,fb:true,kind:'evento',title:v.nome,note:[catL(v),fmtD(v.data),money(v.quota),v.nota].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
     const nuovo=!editing;
@@ -332,7 +337,7 @@ function paintDetail(){
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?v:'<span class="mu">—</span>'}</dd>`;
   const d=docOf(ev),my=myIsc(ev.id),mf=bonificiOf(my);
   const sr=isD(ev.scadReg)?esc(fmtD(ev.scadReg))+' '+(ev.chiuso?'':dlWarn(ev.scadReg)):'';
-  const info=`<dl>${dd('Categoria',esc(CAT1[ev.cat]||ev.cat))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota)))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
+  const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota)))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
   /* parte dell'atleta */
   const si=my&&my.partecipa==='si',no=my&&my.partecipa==='no';
   let mine=`<h3>La tua partecipazione</h3>${closed?`<div class="mu">${esc(motivoChiusura(ev))}.</div>`:''}
@@ -352,7 +357,7 @@ function paintDetail(){
       ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
       ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
-    <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(CAT1[ev.cat]||'')}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
+    <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
     ${info}${mine}${rep}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
@@ -372,7 +377,7 @@ function renderList(){
   const present=Object.keys(CATS).filter(k=>all.some(e=>e.cat===k));
   if(cat!=='all'&&!present.includes(cat))cat='all';
   const tabs=all.length?`<div class="tabs" role="group" aria-label="Categorie">${[['all','Tutti',all.length],...present.map(k=>[k,CATS[k],all.filter(e=>e.cat===k).length])].map(([k,l,n])=>`<button data-tab="${k}" aria-pressed="${cat===k}">${l} (${n})</button>`).join('')}</div>`:'';
-  const hay=e=>[e.nome,CAT1[e.cat],e.nota,fmtD(e.data),e.quota,e.chiusoMotivo].filter(Boolean).join(' ').toLowerCase();
+  const hay=e=>[e.nome,catL(e),e.nota,fmtD(e.data),e.quota,e.chiusoMotivo].filter(Boolean).join(' ').toLowerCase();
   const list=all.filter(e=>(cat==='all'||e.cat===cat)&&(!t||hay(e).includes(t)));
   const up=list.filter(e=>!isPast(e)).sort((a,b)=>(a.data||'').localeCompare(b.data||'')),pa=list.filter(isPast).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
   const row=e=>{
@@ -382,7 +387,7 @@ function renderList(){
     else if(my&&my.partecipa==='no')st=`<span class="chip">Non partecipo</span>`;
     else if(!chiusa(e)&&!adm)st='<span class="chip warn">Da rispondere</span>';
     const dl=e.chiuso?`<span class="chip bad">Chiuso${e.chiusoMotivo?': '+esc(e.chiusoMotivo):''}</span>`:isPast(e)?'':dlChip('Iscrizione',e.scadReg)+(e.hotel?dlChip('Hotel',e.scadHotel):'');
-    return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(CAT1[e.cat]||'')} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm&&ristretto(e)?`<span class="chip">Solo ${e.dest.length} atlet${e.dest.length===1?'a':'i'}</span>`:''}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
+    return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(catL(e))} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm&&ristretto(e)?`<span class="chip">Solo ${e.dest.length} atlet${e.dest.length===1?'a':'i'}</span>`:''}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
   ls.innerHTML=tabs+(list.length?(up.map(row).join('')+(pa.length?`<div class="sep">Passati</div>`+pa.map(row).join(''):'')):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun evento in programma.'+(adm?' Crea il primo con “+ Nuovo evento”.':'')}</div>`);
   paintDetail()}
 
