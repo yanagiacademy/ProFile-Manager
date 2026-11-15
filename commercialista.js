@@ -11,6 +11,7 @@ import {archivio} from "./archivio.js";
 import {showPreview} from "./file-tools.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
+import {disegna,righePer,importoInLettere,pdfDaCanvas,prossimaFirma,altraFirma} from "./ricevute-asd.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -31,6 +32,7 @@ const canW=()=>perm()==='w';
 const tabGet=()=>{try{return localStorage.getItem('comm_tab')||'b'}catch(e){return 'b'}};
 let tab=tabGet();
 let editV=null,editN=null;
+let dirAtl=[],archR=null,raFirma=0,raLettMan=false,raAtMan=false,rvT=0;      /* Ricevute ASD */
 let bq='',bTipo='all',bAnno='all',bMese='all',bRic='',rAnno='',rimossi=new Set(),arch=null;
 const now0=new Date();
 let cy=now0.getFullYear(),cm=now0.getMonth(),sel='';
@@ -64,7 +66,7 @@ function shell(){
   <div class="wrap">
   <div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Commercialista</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div></div>
   <div id="al"></div>
-  <div class="tabs"><span class="seg" role="group" aria-label="Strumenti"><button data-t="b">Bilancio</button><button data-t="r">Riepilogo</button><button data-t="c">Calcolatrice</button><button data-t="k">Calendario</button></span></div>
+  <div class="tabs"><span class="seg" role="group" aria-label="Strumenti"><button data-t="b">Bilancio</button><button data-t="r">Riepilogo</button><button data-t="a">Ricevute ASD</button><button data-t="c">Calcolatrice</button><button data-t="k">Calendario</button></span></div>
 
   <section id="pb" hidden>
     ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 id="bft" style="margin:0">Nuovo movimento</h3><button class="btn sm" id="bftg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="bfb" aria-label="Apri il modulo del movimento">+</button></div>
@@ -117,6 +119,30 @@ function shell(){
     </div>
   </section>
 
+  <section id="pa" hidden>
+    ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 style="margin:0">Nuova ricevuta</h3><button class="btn sm" id="ranw" aria-expanded="false" aria-controls="raf">+ Nuova ricevuta</button></div>
+      <div id="raf" hidden>
+        <p class="mu" style="margin:6px 0 10px">Copia <b>verde</b>: resta all’ASD (la trovi sotto, in «Ricevute emesse»). Copia <b>blu</b>: va al cliente; se scegli l’atleta la trova in «Le mie ricevute».</p>
+        <div class="two"><div><label for="ran">N. ricevuta</label><input id="ran" type="text" autocomplete="off" maxlength="20"></div>
+          <div><label for="rad">Data</label><input id="rad" type="date"></div></div>
+        <label for="rada">Ricevuto da</label><input id="rada" type="text" list="radl" autocomplete="off" maxlength="80" placeholder="Scegli dall’elenco atleti o scrivi a mano"><datalist id="radl"></datalist>
+        <label for="radt">Altri dati del cliente (facoltativi: indirizzo, codice fiscale; max 2 righe)</label><textarea id="radt" rows="2" maxlength="160"></textarea>
+        <div class="two"><div><label for="raim">Importo (€)</label><input id="raim" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+          <div><label for="ral">Importo in lettere</label><input id="ral" type="text" autocomplete="off" maxlength="120"></div></div>
+        <label for="rap">Per (causale; entrano 2 righe)</label><textarea id="rap" rows="2" maxlength="200"></textarea>
+        <label for="raat">Copia blu all’atleta</label><select id="raat"></select>
+        <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="rafb" style="width:auto;min-height:0"> Salva anche su Firebase</label>
+        <div class="fh" style="margin-top:12px"><b>Anteprima (copia blu)</b><button class="btn ghost sm" id="rafi">Cambia firma</button></div>
+        <div id="rapvw" style="margin-top:6px"></div>
+        <p class="err" id="raer" role="alert"></p>
+        <div class="acts"><button class="btn" id="rasv">Emetti ricevuta</button><button class="btn ghost" id="racx">Annulla</button></div>
+      </div></div>`:''}
+    <div class="card"><div class="fh"><h3 style="margin:0">Ricevute emesse</h3><span class="mu" id="rasum"></span></div>
+      <div id="raok" class="mu" role="status" style="margin-top:6px"></div>
+      <input id="raq" type="search" autocomplete="off" placeholder="Cerca per numero, nome, causale…" aria-label="Cerca nelle ricevute" style="margin-top:8px">
+      <div id="rals" style="margin-top:8px"></div></div>
+  </section>
+
   <section id="pc" hidden>
     <div class="card calc">
       <input class="disp" id="ce" type="text" inputmode="none" autocomplete="off" aria-label="Calcolo" placeholder="0">
@@ -163,11 +189,11 @@ function shell(){
 
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
-  bindBil();bindRiep();bindCalc();bindCal();setTab(tab);
+  bindBil();bindRiep();bindRic();bindCalc();bindCal();setTab(tab);
 }
 function setTab(t){
   tab=t;store('comm_tab',t);
-  ['b','r','c','k'].forEach(k=>{const p=$('#p'+k);if(p)p.hidden=k!==t});
+  ['b','r','a','c','k'].forEach(k=>{const p=$('#p'+k);if(p)p.hidden=k!==t});
   document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===t)))}
 
 /* =====================================================
@@ -573,6 +599,151 @@ function checkAlerts(){
     if(o){const n=items.find(x=>x.id===o.dataset.ok);if(n){const d=dismissed();d[dismissKey(n)]=1;store('comm_ok',JSON.stringify(d));alSig='';checkAlerts()}}}}
 setInterval(()=>{if(me&&perm()!=='n')checkAlerts()},20000);
 
+/* =====================================================
+   RICEVUTE ASD: ricevuta a modulo, copia VERDE (resta all'ASD) e copia BLU (va al cliente). Il disegno e il PDF sono in ricevute-asd.js.
+   Dati (sections/commercialista/items, kind:'ricasd'): num, data, da (ricevuto da), dett[] (altre 2 righe), cent, lett (importo in lettere), per (causale),
+   firma (0-2: l'ultima usata non si ripete), atlBlu/atlNome/atlCognome (atleta a cui va la copia blu), bluId (id del PDF in sections/ricevute, una volta inviato),
+   verdeId (id del PDF della copia verde, kind:'file' con ricasd = id della ricevuta), fb.
+   La copia blu inviata all'atleta è una normale ricevuta di sections/ricevute (ricAtl): lui la legge in «Le mie ricevute». Gli atleti si scelgono da ricevuteAtleti.
+   ===================================================== */
+const ricasd=()=>items.filter(i=>i.kind==='ricasd');
+const ricArch=()=>archR||(archR=archivio(db,'ricevute',uid));
+const msOf=r=>r.at&&r.at.toMillis?r.at.toMillis():(r.at&&r.at.seconds?r.at.seconds*1000:Date.now());
+const ultimaRic=()=>ricasd().sort((a,b)=>msOf(b)-msOf(a))[0]||null;
+const firmaUlt=()=>{const u=ultimaRic();return u&&Number.isInteger(u.firma)?u.firma:undefined};
+function prossimoNum(){                                   /* in continuità con l'ultima emessa: 12 → 13, 12/2026 → 13/2026 */
+  const u=ultimaRic(),m=u&&/^(\D*)(\d+)(.*)$/.exec(String(u.num||''));
+  return m?m[1]+String(parseInt(m[2],10)+1).padStart(m[2].length,'0')+m[3]:'1'}
+const nrm=s=>String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+const nomeAtl=a=>((a.nome||'')+' '+(a.cognome||'')).trim();
+const trovaAtl=t=>{const k=nrm(t);return k?dirAtl.find(a=>nrm(a.nome+' '+a.cognome)===k||nrm(a.cognome+' '+a.nome)===k)||null:null};
+const nomeFile=(r,suf)=>('Ricevuta n '+r.num+' '+(r.da||'')+(suf?' ('+suf+')':'')).replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim().slice(0,90);
+
+function fillAtl(){
+  const dl=$('#radl'),sel=$('#raat');if(!dl||!sel)return;
+  dl.innerHTML=dirAtl.map(a=>`<option value="${esc(nomeAtl(a))}">`).join('');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">Nessuno: la consegno a mano</option>'+dirAtl.map(a=>`<option value="${esc(a.id)}">${esc(((a.cognome||'')+' '+(a.nome||'')).trim())}</option>`).join('');
+  sel.value=dirAtl.some(a=>a.id===cur)?cur:''}
+const raDati=()=>({num:$('#ran').value.trim(),data:$('#rad').value,da:$('#rada').value.trim(),
+  dett:$('#radt').value.split('\n').map(t=>t.trim()).filter(Boolean).slice(0,2),cent:parseEuro($('#raim').value),
+  lett:$('#ral').value.trim(),per:$('#rap').value.trim(),firma:raFirma});
+function raPrev(){                                        /* anteprima della copia blu, aggiornata mentre scrivi */
+  clearTimeout(rvT);
+  rvT=setTimeout(async()=>{
+    const w=$('#rapvw');if(!w)return;
+    const d=raDati();
+    try{const cv=await disegna({...d,cent:d.cent>0?d.cent:0},'blu');cv.style.cssText='width:100%;max-width:680px;height:auto;border:1px solid var(--ln);border-radius:6px;display:block';cv.setAttribute('aria-label','Anteprima della ricevuta');w.replaceChildren(cv)}
+    catch(e){console.error(e);w.textContent='Anteprima non disponibile ('+(e&&e.message||'errore')+').'}},120)}
+function raReset(){
+  raLettMan=false;raAtMan=false;raFirma=prossimaFirma(firmaUlt());
+  $('#ran').value=prossimoNum();$('#rad').value=todayIso();
+  ['rada','radt','raim','ral','rap'].forEach(i=>$('#'+i).value='');
+  $('#rafb').checked=false;fillAtl();$('#raat').value='';$('#raer').textContent='';raPrev()}
+function setRaForm(o){
+  const b=$('#raf'),t=$('#ranw');if(!b)return;
+  b.hidden=!o;t.textContent=o?'Chiudi':'+ Nuova ricevuta';t.setAttribute('aria-expanded',String(o));
+  if(o)raReset()}
+function bindRic(){
+  $('#raq').oninput=renderRic;
+  $('#rals').onclick=onRicClick;
+  if(!canW())return;
+  $('#ranw').onclick=()=>setRaForm($('#raf').hidden);
+  $('#racx').onclick=()=>setRaForm(false);
+  $('#rasv').onclick=saveRic;
+  const auto=()=>{const c=parseEuro($('#raim').value);$('#ral').value=c>0?importoInLettere(c):''};
+  $('#raim').oninput=()=>{if(!raLettMan)auto();raPrev()};
+  $('#ral').oninput=()=>{raLettMan=!!$('#ral').value.trim();if(!raLettMan)auto();raPrev()};
+  $('#rada').oninput=()=>{if(!raAtMan){const a=trovaAtl($('#rada').value);$('#raat').value=a?a.id:''}raPrev()};
+  $('#raat').onchange=()=>{raAtMan=true};
+  ['ran','rad','radt','rap'].forEach(i=>{$('#'+i).oninput=raPrev});
+  $('#rad').onchange=raPrev;
+  $('#rafi').onclick=()=>{raFirma=altraFirma(raFirma,firmaUlt());raPrev()}}
+
+/* invia la copia blu all'atleta: la crea come ricevuta in sections/ricevute (la legge lui in «Le mie ricevute») */
+async function inviaBlu(r,onP){
+  const pb=await pdfDaCanvas(await disegna(r,'blu')),f=new File([pb],nomeFile(r,'')+'.pdf',{type:'application/pdf'});
+  const cogn=r.atlCognome||'',nome=r.atlNome||'',cau=String(r.per||'').replace(/\s+/g,' ').slice(0,120);
+  const v={ricAtl:r.atlBlu,nome,cognome:cogn,ricData:r.data,importo:r.cent/100,causale:cau,ricNum:String(r.num),metodo:'',asdId:r.id};
+  v.note=[(cogn+' '+nome).trim(),cau,euro(r.cent),'n. '+r.num].filter(Boolean).join(' · ');
+  const bid=await ricArch().save(f,{...v,ricTs:Date.now(),evId:'',ricUid:'',fb:true},onP);
+  await updateDoc(doc(db,'sections',SEC,'items',r.id),{bluId:bid});
+  if(me.admin)import('./notifiche-motore.js').then(m=>m.notificaSubito(db,['ricevuta'])).catch(x=>console.warn('Notifica ricevuta:',x&&x.message));
+  return bid}
+const raOk=t=>{const e=$('#raok');if(e)e.textContent=t||''};
+async function saveRic(){
+  if(!canW())return;
+  const er=$('#raer'),d=raDati();er.textContent='';
+  if(!d.num){er.textContent='Indica il numero della ricevuta.';return}
+  if(!isD(d.data)){er.textContent='Indica la data.';return}
+  if(!d.da){er.textContent='Indica da chi è ricevuta la somma («Ricevuto da»).';return}
+  if(!(d.cent>0)){er.textContent='Indica un importo valido, maggiore di zero (es. 45,00).';return}
+  if(!d.lett){er.textContent='L’importo in lettere è vuoto.';return}
+  if(!d.per){er.textContent='Indica la causale («Per»).';return}
+  if(!righePer(d.per).ok){er.textContent='La causale è troppo lunga: nel modulo entrano due righe. Accorciala.';return}
+  if(ricasd().some(x=>String(x.num)===d.num)&&!confirm('Esiste già una ricevuta con il numero '+d.num+'. Vuoi emetterla lo stesso?'))return;
+  const atId=$('#raat').value,at=atId?dirAtl.find(a=>a.id===atId):null,fb=$('#rafb').checked;
+  if(getArch().needsTelegram()||(at&&ricArch().needsTelegram())){
+    if(confirm('I dati vengono salvati su Telegram (con copia su Firebase): prima devi accedere dalla pagina Chat. Aprire la Chat adesso?'))location.href='chat.html';
+    return}
+  $('#rasv').disabled=true;er.textContent='Preparazione della ricevuta…';
+  let ref=null,rec=null;
+  try{
+    const pv=await pdfDaCanvas(await disegna(d,'verde'));
+    const fV=new File([pv],nomeFile({num:d.num,da:d.da},'copia ASD')+'.pdf',{type:'application/pdf'});
+    ref=doc(col);
+    const verdeId=await getArch().save(fV,{ricasd:ref.id,...(fb?{fb:true}:{})},p=>{er.textContent='Salvataggio della copia ASD: '+p+'%'});
+    rec={kind:'ricasd',num:d.num,data:d.data,da:d.da,dett:d.dett,cent:d.cent,lett:d.lett,per:d.per,firma:d.firma,
+      atlBlu:at?at.id:'',atlNome:at?(at.nome||''):'',atlCognome:at?(at.cognome||''):'',verdeId,fb,
+      title:'Ricevuta n. '+d.num+' · '+d.da,
+      note:['Ricevuta n. '+d.num,d.da,euro(d.cent),fmtD(d.data),d.per].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
+    await setDoc(ref,{...rec,by:uid,at:serverTimestamp()});
+  }catch(e){console.error(e);er.textContent='Salvataggio non riuscito: '+getArch().errText(e)+'.';$('#rasv').disabled=false;return}
+  let msg='Ricevuta n. '+d.num+' emessa: la copia verde è salvata qui sotto.';
+  if(at){
+    er.textContent='Invio della copia blu a '+nomeAtl(at)+'…';
+    try{await inviaBlu({...rec,id:ref.id},p=>{er.textContent='Invio della copia blu: '+p+'%'});msg+=' Copia blu inviata a '+nomeAtl(at)+' (la trova in «Le mie ricevute»).'}
+    catch(e){console.error(e);msg+=' La copia blu NON è arrivata a '+nomeAtl(at)+' ('+ricArch().errText(e)+'; serve il permesso Ricevute in Scrittura). Riprova da «Invia all’atleta» oppure scaricala dalla riga.'}}
+  else msg+=' Per la copia blu usa «Copia blu» nella riga della ricevuta.';
+  $('#rasv').disabled=false;setRaForm(false);raOk(msg);renderRic()}
+
+function apriRic(r,copia){
+  const blu=copia==='blu',f=blu?null:items.find(x=>x.id===r.verdeId);
+  if(f)return apriAllegato(f);                             /* copia verde: il PDF salvato */
+  showPreview({title:'Ricevuta n. '+r.num+(blu?' (copia blu)':' (copia ASD)'),mime:'application/pdf',
+    load:async()=>pdfDaCanvas(await disegna(r,blu?'blu':'verde')),errText:()=>'ricevuta non generata',fileName:nomeFile(r,blu?'copia blu':'copia ASD')+'.pdf'})}
+async function onRicClick(e){
+  const b=e.target.closest('[data-a]');if(!b)return;
+  const r=items.find(x=>x.id===b.dataset.id);if(!r)return;
+  const a=b.dataset.a;
+  if(a==='rv')apriRic(r,'verde');
+  else if(a==='rb')apriRic(r,'blu');
+  else if(a==='rinv'){
+    if(!canW()||!r.atlBlu)return;
+    if(ricArch().needsTelegram()){if(confirm('Prima devi accedere dalla pagina Chat. Aprire la Chat adesso?'))location.href='chat.html';return}
+    b.disabled=true;raOk('Invio della copia blu…');
+    try{await inviaBlu(r);raOk('Copia blu della ricevuta n. '+r.num+' inviata a '+nomeAtl({nome:r.atlNome,cognome:r.atlCognome})+'.')}
+    catch(x){console.error(x);raOk('Invio non riuscito ('+ricArch().errText(x)+'; serve il permesso Ricevute in Scrittura).');b.disabled=false}}
+  else if(a==='rdel'){
+    if(!canW())return;
+    if(!confirm('Eliminare la ricevuta n. '+r.num+' ('+(r.da||'')+')? Va nel Cestino e resta recuperabile per 30 giorni.'+(r.bluId?' La copia blu già inviata all’atleta resta nelle sue ricevute: toglila da Ricevute.':'')))return;
+    try{await deleteDoc(doc(db,'sections',SEC,'items',r.id));const f=items.find(x=>x.id===r.verdeId);if(f)await getArch().remove(f)}
+    catch(x){console.error(x);alert(x&&x.message==='NOPUB'?'Il Cestino non è ancora attivo: l’admin deve aprire la Home una volta.':'Eliminazione non riuscita.')}}}
+function renderRic(){
+  const l=$('#rals');if(!l)return;
+  const w=canW(),q=nrm($('#raq')&&$('#raq').value);
+  const all=ricasd().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))||(parseInt(b.num,10)||0)-(parseInt(a.num,10)||0));
+  const list=all.filter(r=>!q||nrm([r.num,r.da,r.per,fmtD(r.data),euro(r.cent)].join(' ')).includes(q));
+  const tot=list.reduce((t,r)=>t+(r.cent||0),0);
+  $('#rasum').textContent=all.length?(list.length===all.length?all.length+(all.length===1?' ricevuta':' ricevute'):list.length+' di '+all.length)+' · '+euro(tot):'';
+  l.innerHTML=list.length?list.map(r=>{
+    const nm=nomeAtl({nome:r.atlNome,cognome:r.atlCognome});
+    const dest=r.atlBlu?(r.bluId?'🟦 copia blu inviata a '+nm:'🟦 copia blu non ancora inviata a '+nm):'';
+    return `<div class="mv"><div class="dt">${esc(fmtD(r.data))}</div><div class="inf"><div><b>N. ${esc(r.num)} · ${esc(r.da||'—')}</b>${r.fb?' <span class="mu" title="Copia su Firebase">☁</span>':''}</div><div class="mu">${esc(r.per||'')}</div>${dest?`<div class="mu">${esc(dest)}</div>`:''}</div>
+      <div class="am">${euro(r.cent)}</div>
+      <div class="ac"><button class="btn ghost sm" data-a="rv" data-id="${esc(r.id)}">Copia verde</button><button class="btn ghost sm" data-a="rb" data-id="${esc(r.id)}">Copia blu</button>${w&&r.atlBlu&&!r.bluId?`<button class="btn ghost sm" data-a="rinv" data-id="${esc(r.id)}">Invia all’atleta</button>`:''}${w?`<button class="btn ghost sm" data-a="rdel" data-id="${esc(r.id)}">Elimina</button>`:''}</div></div>`}).join('')
+    :`<div class="mu" style="padding:8px 0">${all.length?'Nessuna ricevuta con questa ricerca.':'Nessuna ricevuta emessa.'+(w?' Aprine una con «+ Nuova ricevuta».':'')}</div>`}
+
 /* ---------- avvio ---------- */
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
@@ -586,8 +757,11 @@ else{
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm()){alSig='';shell()}
-      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderBil();renderRiep();renderCal();checkAlerts()},()=>{}));
-      renderBil();renderRiep();renderCal();checkAlerts();
+      if(unsubs.length<2){
+        unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderBil();renderRiep();renderRic();renderCal();checkAlerts()},()=>{}));
+        /* elenco atleti (solo nome e cognome) per «Ricevuto da» e per la copia blu: lo legge chi ha Ricevute in lettura/scrittura; se non c'è, si scrive a mano */
+        unsubs.push(onSnapshot(collection(db,'ricevuteAtleti'),s=>{dirAtl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>a.nome||a.cognome).sort((a,b)=>nomeAtl(a).localeCompare(nomeAtl(b),'it'));fillAtl()},()=>{dirAtl=[];fillAtl()}))}
+      renderBil();renderRiep();renderRic();renderCal();checkAlerts();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
 }
