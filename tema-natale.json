@@ -1,0 +1,31 @@
+{
+  "formato": "pfm-tema-1",
+  "nome": "Natale",
+  "autore": "Yanagi Academy",
+  "descrizione": "Rosso e oro su crema, minimal e pulito, angoli morbidi, con ghirlanda di lucine. Segue il modo chiaro o scuro del dispositivo.",
+  "modo": "auto",
+  "font": "Nunito",
+  "raggio": 16,
+  "chiaro": {
+    "bg": "#FBF3E8",
+    "sf": "#FFFFFF",
+    "tx": "#2B1A17",
+    "mu": "#7A6458",
+    "ac": "#B3202A",
+    "ac2": "#C9A24A",
+    "ln": "#EADBC6",
+    "er": "#A61B1B"
+  },
+  "scuro": {
+    "bg": "#1E1210",
+    "sf": "#2A1A17",
+    "tx": "#F6EBDD",
+    "mu": "#C2A99A",
+    "ac": "#E4606A",
+    "ac2": "#E0B95C",
+    "ln": "#4A322C",
+    "er": "#FF8A80"
+  },
+  "logoSfondo": "#B3202A",
+  "css": "/* Natale – rosso e oro */body{padding-top:22px}body::before{content:\"\";position:fixed;top:0;left:0;right:0;height:22px;z-index:7;pointer-events:none;background:url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPSc5NicgaGVpZ2h0PScyMicgdmlld0JveD0nMCAwIDk2IDIyJz48cGF0aCBkPSdNMCAzIFEyNCAxMiA0OCAzIFE3MiAxMiA5NiAzJyBmaWxsPSdub25lJyBzdHJva2U9JyNDOUEyNEEnIHN0cm9rZS13aWR0aD0nMS42Jy8+PGxpbmUgeDE9JzEyLjAnIHkxPSc2LjQnIHgyPScxMi4wJyB5Mj0nOC45JyBzdHJva2U9JyNDOUEyNEEnIHN0cm9rZS13aWR0aD0nMS4yJy8+PGVsbGlwc2UgY3g9JzEyLjAnIGN5PScxMi40JyByeD0nMy4yJyByeT0nNCcgZmlsbD0nI0M2MjgzMicvPjxsaW5lIHgxPSczNi4wJyB5MT0nNi40JyB4Mj0nMzYuMCcgeTI9JzguOScgc3Ryb2tlPScjQzlBMjRBJyBzdHJva2Utd2lkdGg9JzEuMicvPjxlbGxpcHNlIGN4PSczNi4wJyBjeT0nMTIuNCcgcng9JzMuMicgcnk9JzQnIGZpbGw9JyNENEFGNTUnLz48bGluZSB4MT0nNjAuMCcgeTE9JzYuNCcgeDI9JzYwLjAnIHkyPSc4LjknIHN0cm9rZT0nI0M5QTI0QScgc3Ryb2tlLXdpZHRoPScxLjInLz48ZWxsaXBzZSBjeD0nNjAuMCcgY3k9JzEyLjQnIHJ4PSczLjInIHJ5PSc0JyBmaWxsPScjQzYyODMyJy8+PGxpbmUgeDE9Jzg0LjAnIHkxPSc2LjQnIHgyPSc4NC4wJyB5Mj0nOC45JyBzdHJva2U9JyNDOUEyNEEnIHN0cm9rZS13aWR0aD0nMS4yJy8+PGVsbGlwc2UgY3g9Jzg0LjAnIGN5PScxMi40JyByeD0nMy4yJyByeT0nNCcgZmlsbD0nI0Q0QUY1NScvPjwvc3ZnPg==) repeat-x 0 0/96px 22px;animation:nat-tw 3.4s ease-in-out infinite}@keyframes nat-tw{0%,100%{opacity:1}50%{opacity:.8}}@media (prefers-reduced-motion:reduce){body::before{animation:none}}@media print{body::before{display:none}body{padding-top:0}}.top{top:22px}::selection{background:var(--ac2);color:#2B1A17}.card,.tile,.acc,.dlg{box-shadow:0 2px 10px rgba(43,26,23,.06)}.tile{border-left-width:3px}.tile:nth-child(odd){border-left-color:var(--ac)}.tile:hover{border-color:var(--ac2);transform:translateY(-1px);transition:transform .12s,border-color .12s}.btn{border-radius:999px;font-weight:700;padding-left:16px;padding-right:16px}.btn:hover{filter:brightness(1.08)}.btn.ghost{background:transparent;color:var(--ac);border:1.5px solid var(--ac)}.btn.ghost:hover{background:var(--ac);color:var(--bg)}input[type=text]:focus,input[type=password]:focus,input[type=search]:focus,select:focus,textarea:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px rgba(179,32,42,.2)}th{color:var(--mu);font-weight:700}h1,h2{letter-spacing:-.01em}.clock{border-top:2px solid var(--ac2);border-left:2px solid var(--ac2)}.clock::before{content:\"\\1F384  \"}*{scrollbar-width:thin;scrollbar-color:var(--ac2) transparent}"
+}
