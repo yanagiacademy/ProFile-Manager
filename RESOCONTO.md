@@ -1,4 +1,4 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 14/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 15/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
@@ -18,6 +18,13 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (15/11) – REVISIONE LAYOUT: PULSANTI FUORI SCHERMO E SPESSORI RIDOTTI (stile.css, index.html, chat.html e pagine di sezione)
+- PULSANTI CHE ESCONO: le finestre (.dlg, .dlg2) ora hanno altezza massima legata allo schermo (100dvh) e scorrono all'interno; la riga dei pulsanti di conferma (.dact / .dact2) resta sempre visibile in basso (sticky). In index.html la finestra Account non aveva limite di altezza e usciva dallo schermo.
+- RIGHE CHE NON ANDAVANO A CAPO: .fh (titolo + pulsanti), .hd (logo + titolo), .rw (Backup, Cestino, Notifiche, Storico), .pr e .acc-a in index.html ora vanno a capo invece di sforare. Barra alta (.top): il nome utente si accorcia con i puntini e sotto i 440px sparisce; i pulsanti non si restringono. Le tessere (.grid) usano minmax(min(140px,100%),1fr): a 320px passano da 1 a 2 colonne.
+- SPESSORI: strisce laterali da 4px a 2px (tessere, avvisi, righe in allarme), contorni evidenziati da 2px/3px a 1px/2px (modifiche in giallo, riquadro «Avviso» in Home, banner file), scheda in scadenza da 2px+8px a 1px+3px, giorno corrente del calendario a 1px. Padding di card, pulsanti, righe, tessere e logo ridotti (logo 84→60px, 64→52px); raggi uniformati a 8px (controlli) e 10px (superfici). Il contorno di focus resta 2px (accessibilità da tastiera), con scarto 1px.
+- Blocco comune «Armonizzazione layout» in fondo a stile.css e dentro index.html e chat.html (che non usano stile.css). Spazi del Promemoria e dell'orologio riallineati alle nuove misure.
+- File modificati: stile.css, index.html, chat.html, atleti.html, backup.html, cestino.html, commercialista.html, documenti-in-scadenza.html, eventi.html, lezioni.html, notifiche.html, ordini.html, ricevute.html, richieste.html, storico.html, tecnici.html, telegram-test.html, tema.html, tessere.html, fsx.js, migra.js, RESOCONTO.md. Numeri di versione NON aggiornati. Provato in un browser headless a 320/360/390px con markup di prova (barra alta, finestra alta, tessere); le pagine reali con dati Firebase non sono state provate.
 
 ## NOVITÀ (13/11) – AVVISI TELEGRAM, EVENTI↔RICEVUTE, ARCHIVIO RICEVUTE, ELENCO ATLETI, AVVISO ACCOUNT
 - AVVISI TELEGRAM (notifiche-core.js, notifiche-motore.js, notifiche.js): due nuovi tipi, attivabili nella pagina Notifiche («Ricevute di pagamento», «Esito delle richieste»).

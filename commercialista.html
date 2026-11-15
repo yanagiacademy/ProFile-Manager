@@ -7,10 +7,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="stile.css">
 <style>
-.fh{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.hd{display:flex;gap:14px;align-items:center;margin-bottom:14px}
-.lgbox{background:#1B2A4A;border-radius:12px;padding:8px 12px;display:inline-flex;flex:none}
-.lgbox img{height:64px;width:auto;display:block}
+.fh{display:flex;justify-content:space-between;align-items:center;gap:6px 8px;flex-wrap:wrap}
+.hd{display:flex;gap:6px 12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;min-width:0}
+.lgbox{background:#1B2A4A;border-radius:10px;padding:6px 10px;display:inline-flex;flex:none}
+.lgbox img{height:52px;width:auto;display:block}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 12px}
 @media (max-width:560px){.two,.three{grid-template-columns:1fr}}
@@ -36,7 +36,7 @@ h3.rh{margin:20px 0 6px;font-size:1rem}
 /* Bilancio */
 .sums{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
 @media (max-width:560px){.sums{grid-template-columns:1fr}}
-.sum{background:var(--sf);border:1px solid var(--ln);border-left:4px solid var(--ac2);border-radius:10px;padding:12px 14px}
+.sum{background:var(--sf);border:1px solid var(--ln);border-left:2px solid var(--ac2);border-radius:10px;padding:12px 14px}
 .sum .l{font-size:.8rem;color:var(--mu)}
 .sum .v{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums}
 .sum .s{font-size:.78rem;color:var(--mu)}
@@ -80,7 +80,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .cgrid .wd{text-align:center;font-size:.75rem;color:var(--mu);padding:2px 0}
 .cd{position:relative;min-height:48px;border:1px solid var(--ln);border-radius:8px;background:var(--sf);padding:4px 2px;font-size:.9rem;display:flex;flex-direction:column;align-items:center;gap:2px}
 .cd.out{opacity:.4}
-.cd.today{border-color:var(--ac);border-width:2px;font-weight:700}
+.cd.today{border-color:var(--ac);border-width:1px;background:var(--bg);font-weight:700}
 .cd.sel{background:var(--ac);color:var(--bg)}
 .cd .dots{display:flex;gap:2px;flex-wrap:wrap;justify-content:center}
 .cd .dot{width:6px;height:6px;border-radius:50%;background:var(--ac2)}

@@ -25,7 +25,7 @@ function ui(db){
   <div class="wrap"><div class="bar"><h2>Migrazione su Telegram</h2></div>
   <div class="card"><p>Porta su Telegram, nel gruppo <b>${esc(GRUPPO_DATI)}</b>, tutti i contenuti che oggi sono solo su Firebase (schede, elenchi, note, cartelle e documenti, promemoria). Su Firebase non viene cancellato nulla: i contenuti restano anche lì come copia.</p>
   <p class="mu">Si può interrompere e riavviare: quello che è già su Telegram viene saltato. Tieni aperta la pagina finché non finisce. Per non superare i limiti di Telegram il lavoro è lento (circa un contenuto al secondo).</p>
-  <div class="acts" style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="go">Avvia migrazione</button><button class="btn ghost" id="st" disabled>Interrompi</button></div>
+  <div class="acts" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px"><button class="btn" id="go">Avvia migrazione</button><button class="btn ghost" id="st" disabled>Interrompi</button></div>
   <div id="log" role="log" aria-live="polite">Pronto.</div></div></div>`;
   $('#out').onclick=()=>signOut(getAuth()).then(()=>location.href='index.html');
   $('#st').onclick=()=>{stop=true;log('Interruzione richiesta…')};

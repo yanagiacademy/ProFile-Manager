@@ -89,7 +89,7 @@ function ledCalc(){
 const busyIn=()=>{busyN++;ledCalc()},busyOut=()=>{busyN=Math.max(0,busyN-1);ledCalc()};
 function avviso(html,link){
   if(!warnEl){warnEl=document.createElement('div');warnEl.setAttribute('role','alert');
-    warnEl.style.cssText='position:fixed;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 52px);z-index:60;max-width:560px;margin:0 auto;padding:10px 14px;border-radius:10px;font-size:.85rem;background:var(--sf,#fff);color:var(--tx,#14213D);border:2px solid var(--ac2,#B8A24A);display:flex;gap:10px;align-items:center';document.body.append(warnEl)}
+    warnEl.style.cssText='position:fixed;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 52px);z-index:60;max-width:560px;margin:0 auto;padding:10px 14px;border-radius:10px;font-size:.85rem;background:var(--sf,#fff);color:var(--tx,#14213D);border:1px solid var(--ac2,#B8A24A);display:flex;gap:10px;align-items:center';document.body.append(warnEl)}
   warnEl.innerHTML='';const s=document.createElement('span');s.style.flex='1';s.textContent=html;warnEl.append(s);
   if(link){const a=document.createElement('a');a.href=link[1];a.textContent=link[0];a.style.cssText='font-weight:700;color:inherit;white-space:nowrap';warnEl.append(a)}
   const x=document.createElement('button');x.textContent='✕';x.setAttribute('aria-label','Chiudi avviso');x.style.cssText='background:none;border:0;font-size:1rem;padding:2px 6px';x.onclick=()=>{warnEl.style.display='none'};warnEl.append(x);
