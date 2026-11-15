@@ -19,13 +19,13 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='documenti',MINE='archivio';
-let auth,db,col,arch,archT,archV,archF,archR,uid=null,me=null,items=[],itemsDoc=[],itemsTes=[],itemsVid=[],itemsFot=[],itemsRic=[],q='',tab='conservare',tipoSel='all',tabSet=false,unsubs=[],err='',memo=null;
+let auth,db,col,arch,archT,archV,archF,archR,archC,uid=null,me=null,items=[],itemsDoc=[],itemsTes=[],itemsVid=[],itemsFot=[],itemsRic=[],itemsCom=[],q='',tab='conservare',tipoSel='all',tabSet=false,unsubs=[],err='',memo=null;
 const level=k=>me?(me.admin?'w':((me.perms||{})[k]||'n')):'n';
 const perm=()=>level(MINE),canW=()=>level(SEC)==='w'&&level(MINE)==='w';
 /* ogni file si gestisce con i permessi della sua sezione d'origine (Documenti o Tessere) */
 const canWi=it=>level((it&&it._sec)||SEC)==='w'&&level(MINE)==='w';
-const archFor=it=>it&&it._sec==='ricevute'?archR:it&&it._sec==='tessere'?archT:it&&it._sec==='video'?archV:it&&it._sec==='foto'?archF:arch;
-function merge(){items=[...itemsDoc.map(i=>({...i,_sec:SEC})),...itemsTes.filter(archiviato).map(i=>({...i,_sec:'tessere'})),...itemsVid.filter(archiviato).map(i=>({...i,_sec:'video'})),...itemsFot.filter(archiviato).map(i=>({...i,_sec:'foto'})),...itemsRic.filter(archiviato).map(i=>({...i,_sec:'ricevute'}))]}
+const archFor=it=>it&&it._sec==='commercialista'?archC:it&&it._sec==='ricevute'?archR:it&&it._sec==='tessere'?archT:it&&it._sec==='video'?archV:it&&it._sec==='foto'?archF:arch;
+function merge(){items=[...itemsDoc.map(i=>({...i,_sec:SEC})),...itemsTes.filter(archiviato).map(i=>({...i,_sec:'tessere'})),...itemsVid.filter(archiviato).map(i=>({...i,_sec:'video'})),...itemsFot.filter(archiviato).map(i=>({...i,_sec:'foto'})),...itemsRic.filter(archiviato).map(i=>({...i,_sec:'ricevute'})),...itemsCom.filter(archiviato).map(i=>({...i,_sec:'commercialista'}))]}
 const byId=id=>items.find(i=>i.id===id);
 const origine=i=>i.origine||({video:'Video',foto:'Foto'}[i._sec]||'Documenti')+' (cartella principale)';
 function icon(i){const m=i.mime||'',n=i.title.toLowerCase();
@@ -117,7 +117,7 @@ else{
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
     if(!u){location.href='index.html';return}
-    uid=u.uid;arch=archivio(db,SEC,uid);archT=archivio(db,'tessere',uid);archV=archivio(db,'video',uid);archF=archivio(db,'foto',uid);archR=archivio(db,'ricevute',uid);
+    uid=u.uid;arch=archivio(db,SEC,uid);archT=archivio(db,'tessere',uid);archV=archivio(db,'video',uid);archF=archivio(db,'foto',uid);archR=archivio(db,'ricevute',uid);archC=archivio(db,'commercialista',uid);
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
@@ -129,7 +129,9 @@ else{
         unsubs.push(onSnapshot(collection(db,'sections','video','items'),s=>{itemsVid=filtra(s.docs.map(d=>({id:d.id,...d.data()})),uid,!!me.admin);merge();render()},()=>{itemsVid=[];merge();render()}));
         unsubs.push(onSnapshot(collection(db,'sections','foto','items'),s=>{itemsFot=filtra(s.docs.map(d=>({id:d.id,...d.data()})),uid,!!me.admin);merge();render()},()=>{itemsFot=[];merge();render()}));
         /* ricevute dei pagamenti tolte dall'elenco o sostituite: 10 anni (se non hai la lettura su Ricevute, non compaiono) */
-        unsubs.push(onSnapshot(collection(db,'sections','ricevute','items'),s=>{itemsRic=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsRic=[];merge();render()}))}
+        unsubs.push(onSnapshot(collection(db,'sections','ricevute','items'),s=>{itemsRic=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsRic=[];merge();render()}));
+        /* ricevute ASD (copia verde) archiviate dalla scheda Commercialista: 10 anni (se non hai la lettura su Commercialista, non compaiono) */
+        unsubs.push(onSnapshot(collection(db,'sections','commercialista','items'),s=>{itemsCom=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsCom=[];merge();render()}))}
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });

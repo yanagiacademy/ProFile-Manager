@@ -8,6 +8,8 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
 import {archivio} from "./archivio.js";
+import {archiviaFile,archiviato} from "./conservazione.js";
+import {doc as rdoc,getDoc as rgetDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview} from "./file-tools.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
@@ -139,7 +141,7 @@ function shell(){
       </div></div>`:''}
     <div class="card"><div class="fh"><h3 style="margin:0">Ricevute emesse</h3><span class="mu" id="rasum"></span></div>
       <div id="raok" class="mu" role="status" style="margin-top:6px"></div>
-      <input id="raq" type="search" autocomplete="off" placeholder="Cerca per numero, nome, causale…" aria-label="Cerca nelle ricevute" style="margin-top:8px">
+      <div style="display:flex;gap:8px;margin-top:8px"><input id="raq" type="search" autocomplete="off" placeholder="Cerca per numero, nome, causale…" aria-label="Cerca nelle ricevute" style="flex:1 1 auto;min-width:0"><select id="rast" aria-label="Quali ricevute mostrare" style="flex:none;width:auto"><option value="att">Attive</option><option value="arc">Archiviate</option><option value="tut">Tutte</option></select></div>
       <div id="rals" style="margin-top:8px"></div></div>
   </section>
 
@@ -645,7 +647,7 @@ function setRaForm(o){
   b.hidden=!o;t.textContent=o?'Chiudi':'+ Nuova ricevuta';t.setAttribute('aria-expanded',String(o));
   if(o)raReset()}
 function bindRic(){
-  $('#raq').oninput=renderRic;
+  $('#raq').oninput=renderRic;$('#rast').onchange=renderRic;
   $('#rals').onclick=onRicClick;
   if(!canW())return;
   $('#ranw').onclick=()=>setRaForm($('#raf').hidden);
@@ -712,12 +714,41 @@ function apriRic(r,copia){
   if(f)return apriAllegato(f);                             /* copia verde: il PDF salvato */
   showPreview({title:'Ricevuta n. '+r.num+(blu?' (copia blu)':' (copia ASD)'),mime:'application/pdf',
     load:async()=>pdfDaCanvas(await disegna(r,blu?'blu':'verde')),errText:()=>'ricevuta non generata',fileName:nomeFile(r,blu?'copia blu':'copia ASD')+'.pdf'})}
+/* E-mail con la copia blu: sul telefono si apre il foglio di condivisione (scegli l'app di posta, il PDF è già allegato); sul computer si scarica il PDF
+   e si apre la nuova e-mail già compilata (l'indirizzo dell'atleta, se l'admin lo ha in Atleti): il PDF va allegato a mano. Non c'è un server che spedisca da solo. */
+async function mandaMail(r,btn){
+  btn.disabled=true;
+  try{
+    const pb=await pdfDaCanvas(await disegna(r,'blu')),nome=nomeFile(r,'copia blu')+'.pdf',file=new File([pb],nome,{type:'application/pdf'});
+    const ogg='Ricevuta n. '+r.num+' del '+fmtD(r.data),
+      testo='Buongiorno'+(r.da?' '+r.da:'')+',\nin allegato la ricevuta n. '+r.num+' del '+fmtD(r.data)+' di '+euro(r.cent)+(r.per?' per: '+String(r.per).replace(/\s+/g,' '):'')+'.\n\nCordiali saluti';
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:ogg,text:testo});raOk('Ricevuta n. '+r.num+': scegli l’app di posta per inviarla.');return}
+      catch(x){if(x&&x.name==='AbortError')return;console.warn('Condivisione non riuscita:',x)}}
+    let em='';
+    if(r.atlBlu&&me.admin){try{const sn=await rgetDoc(rdoc(db,'atletiMail',r.atlBlu));if(sn.exists())em=String(sn.data().email||'').trim()}catch(x){}}
+    if(!/^[^\s@,;]+@[^\s@,;]+$/.test(em))em='';
+    const a=document.createElement('a');a.href=URL.createObjectURL(pb);a.download=nome;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    raOk('PDF scaricato: nella nuova e-mail allega il file «'+nome+'».');
+    setTimeout(()=>{location.href='mailto:'+em+'?subject='+encodeURIComponent(ogg)+'&body='+encodeURIComponent(testo+'\n\n(Allega il PDF scaricato: '+nome+')')},400)
+  }catch(x){console.error(x);raOk('Preparazione dell’e-mail non riuscita.')}
+  finally{btn.disabled=false}}
 async function onRicClick(e){
   const b=e.target.closest('[data-a]');if(!b)return;
   const r=items.find(x=>x.id===b.dataset.id);if(!r)return;
   const a=b.dataset.a;
   if(a==='rv')apriRic(r,'verde');
   else if(a==='rb')apriRic(r,'blu');
+  else if(a==='rmail')await mandaMail(r,b);
+  else if(a==='rarc'){
+    if(!canW()||r.archiviatoIl)return;
+    if(!confirm('Archiviare la ricevuta n. '+r.num+' ('+(r.da||'')+')? Esce dall’elenco delle attive e va in Archivio per 10 anni: in questo periodo non si può eliminare.'))return;
+    try{
+      const f=items.find(x=>x.id===r.verdeId),info={tipo:'Ricevute ASD',origine:'Commercialista · Ricevute ASD · n. '+r.num,note:r.note||'',motivo:'ricevuta archiviata'};
+      if(f&&!archiviato(f))await archiviaFile(db,f,SEC,info);   /* la copia verde (PDF) compare in Archivio */
+      await archiviaFile(db,r,SEC,info);                       /* la ricevuta resta nell'elenco, tra le archiviate */
+      raOk('Ricevuta n. '+r.num+' archiviata per 10 anni: il PDF della copia verde è in Archivio.')
+    }catch(x){console.error(x);alert('Archiviazione non riuscita. Riprova.')}}
   else if(a==='rinv'){
     if(!canW()||!r.atlBlu)return;
     if(ricArch().needsTelegram()){if(confirm('Prima devi accedere dalla pagina Chat. Aprire la Chat adesso?'))location.href='chat.html';return}
@@ -725,24 +756,25 @@ async function onRicClick(e){
     try{await inviaBlu(r);raOk('Copia blu della ricevuta n. '+r.num+' inviata a '+nomeAtl({nome:r.atlNome,cognome:r.atlCognome})+'.')}
     catch(x){console.error(x);raOk('Invio non riuscito ('+ricArch().errText(x)+'; serve il permesso Ricevute in Scrittura).');b.disabled=false}}
   else if(a==='rdel'){
-    if(!canW())return;
+    if(!canW()||r.archiviatoIl)return;
     if(!confirm('Eliminare la ricevuta n. '+r.num+' ('+(r.da||'')+')? Va nel Cestino e resta recuperabile per 30 giorni.'+(r.bluId?' La copia blu già inviata all’atleta resta nelle sue ricevute: toglila da Ricevute.':'')))return;
     try{await deleteDoc(doc(db,'sections',SEC,'items',r.id));const f=items.find(x=>x.id===r.verdeId);if(f)await getArch().remove(f)}
     catch(x){console.error(x);alert(x&&x.message==='NOPUB'?'Il Cestino non è ancora attivo: l’admin deve aprire la Home una volta.':'Eliminazione non riuscita.')}}}
 function renderRic(){
   const l=$('#rals');if(!l)return;
   const w=canW(),q=nrm($('#raq')&&$('#raq').value);
-  const all=ricasd().sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))||(parseInt(b.num,10)||0)-(parseInt(a.num,10)||0));
+  const st=($('#rast')&&$('#rast').value)||'att';
+  const all=ricasd().filter(r=>st==='tut'||(st==='arc')===!!r.archiviatoIl).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))||(parseInt(b.num,10)||0)-(parseInt(a.num,10)||0));
   const list=all.filter(r=>!q||nrm([r.num,r.da,r.per,fmtD(r.data),euro(r.cent)].join(' ')).includes(q));
   const tot=list.reduce((t,r)=>t+(r.cent||0),0);
   $('#rasum').textContent=all.length?(list.length===all.length?all.length+(all.length===1?' ricevuta':' ricevute'):list.length+' di '+all.length)+' · '+euro(tot):'';
   l.innerHTML=list.length?list.map(r=>{
     const nm=nomeAtl({nome:r.atlNome,cognome:r.atlCognome});
-    const dest=r.atlBlu?(r.bluId?'🟦 copia blu inviata a '+nm:'🟦 copia blu non ancora inviata a '+nm):'';
+    const dest=[r.atlBlu?(r.bluId?'🟦 copia blu inviata a '+nm:'🟦 copia blu non ancora inviata a '+nm):'',r.archiviatoIl?'📦 archiviata il '+fmtD(r.archiviatoIl)+(r.conservaFino?', da conservare fino al '+fmtD(r.conservaFino):''):''].filter(Boolean).join(' · ');
     return `<div class="mv"><div class="dt">${esc(fmtD(r.data))}</div><div class="inf"><div><b>N. ${esc(r.num)} · ${esc(r.da||'—')}</b>${r.fb?' <span class="mu" title="Copia su Firebase">☁</span>':''}</div><div class="mu">${esc(r.per||'')}</div>${dest?`<div class="mu">${esc(dest)}</div>`:''}</div>
       <div class="am">${euro(r.cent)}</div>
-      <div class="ac"><button class="btn ghost sm" data-a="rv" data-id="${esc(r.id)}">Copia verde</button><button class="btn ghost sm" data-a="rb" data-id="${esc(r.id)}">Copia blu</button>${w&&r.atlBlu&&!r.bluId?`<button class="btn ghost sm" data-a="rinv" data-id="${esc(r.id)}">Invia all’atleta</button>`:''}${w?`<button class="btn ghost sm" data-a="rdel" data-id="${esc(r.id)}">Elimina</button>`:''}</div></div>`}).join('')
-    :`<div class="mu" style="padding:8px 0">${all.length?'Nessuna ricevuta con questa ricerca.':'Nessuna ricevuta emessa.'+(w?' Aprine una con «+ Nuova ricevuta».':'')}</div>`}
+      <div class="ac"><button class="btn ghost sm" data-a="rv" data-id="${esc(r.id)}">Copia verde</button><button class="btn ghost sm" data-a="rb" data-id="${esc(r.id)}">Copia blu</button><button class="btn ghost sm" data-a="rmail" data-id="${esc(r.id)}">Invia e-mail</button>${w&&r.atlBlu&&!r.bluId?`<button class="btn ghost sm" data-a="rinv" data-id="${esc(r.id)}">Invia all’atleta</button>`:''}${w&&!r.archiviatoIl?`<button class="btn ghost sm" data-a="rarc" data-id="${esc(r.id)}">Archivia</button><button class="btn ghost sm" data-a="rdel" data-id="${esc(r.id)}">Elimina</button>`:''}</div></div>`}).join('')
+    :`<div class="mu" style="padding:8px 0">${all.length?'Nessuna ricevuta con questa ricerca.':(st==='arc'?'Nessuna ricevuta archiviata.':'Nessuna ricevuta emessa.'+(w?' Aprine una con «+ Nuova ricevuta».':''))}</div>`}
 
 /* ---------- avvio ---------- */
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
