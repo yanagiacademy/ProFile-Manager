@@ -8,7 +8,8 @@ import {tgSendCifrato,decifraBlob,CIFRA_ATTIVA} from "./cifra.js";
 import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,saveBlob,guessMime,makeThumb,okThumb} from "./file-tools.js";
-import {GRADI,gradoLabel,gradoByLiv} from "./gradi.js";
+import {GRADI,gradoLabel,gradoByLiv,livDaGrado} from "./gradi.js";
+import {attestatoPdf,nomeFile,dataIT} from "./attestato.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,7 +23,7 @@ tick();setInterval(tick,15000);
    Gli atleti non hanno la sessione Telegram: leggono solo i contenuti con la copia su Firebase (fb:true), per questo la casella è spuntata di default. */
 const SEC='esami',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 let auth,db,col,uid=null,me=null,items=[],cat=0,flt='all',q='',unsubs=[],memo=null;
-let subMode='',subOff=null,restricted=false,livMax=16,errRead=false,fbNew=true;
+let subMode='',subOff=null,restricted=false,livMax=16,errRead=false,fbNew=true,attList=null;
 const perm=()=>me?(me.admin?'w':(((me.perms||{})[SEC]||'n')==='u'?'r':((me.perms||{})[SEC]||'n'))):'n';
 const solo=()=>!!(me&&!me.admin&&(me.perms||{})[SEC]==='u');      /* «Solo dati utente»: vede le categorie fino al proprio grado; con Lettura o Scrittura vede tutto */
 const canW=()=>perm()==='w';
@@ -39,14 +40,14 @@ else{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(solo()?'n':perm(),!!me.admin);
-      subscribe();render();
+      subscribe();render();if(!canW())loadAtt().then(render);
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
 }
 /* chi scrive legge dal registro (Telegram + Firebase); chi legge soltanto, da Firebase: l'atleta con la query limitata al proprio grado */
 async function subscribe(){
   const mode=canW()?'w':'r';if(mode===subMode)return;
-  subMode=mode;if(subOff){subOff();subOff=null}errRead=false;
+  subMode=mode;attList=null;if(subOff){subOff();subOff=null}errRead=false;
   const cb=s=>{errRead=false;items=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl&&Number.isInteger(i.liv));render()};
   if(mode==='w'){restricted=false;livMax=16;subOff=onSnapshot(col,cb,()=>{});return}
   restricted=false;livMax=16;
@@ -88,6 +89,7 @@ function render(){
   const w=canW(),f=document.activeElement&&document.activeElement.id==='q',t=q.trim().toLowerCase();
   const all=visItems(),g=cat?gradoByLiv(cat):null;
   let body='';
+  const attBtn=(w||(attList&&attList.length))?'<div class="tools" style="margin-bottom:10px"><button class="btn sm" data-act="att">Attestato di graduazione</button></div>':'';
   if(!w&&restricted&&!livMax)body=`<div class="note">Il tuo grado non è ancora stato impostato nella scheda Atleti: chiedilo al tuo allenatore o all’admin per vedere il materiale d’esame.</div>`;
   else if(errRead)body=`<div class="note">Non riesco a leggere il materiale. Se l’admin ha appena aggiornato le regole o il tuo grado, riapri la pagina tra poco.</div>`;
   const hdrNote=!w&&restricted&&livMax?`<div class="note">Vedi il materiale dalla prima categoria fino a <b>${esc(gradoLabel(gradoByLiv(livMax)))}</b>.</div>`:'';
@@ -96,7 +98,7 @@ function render(){
     body+=`<div class="card">${list.length?list.map(i=>row(i,true)).join(''):'<div class="mu">Nessun risultato.</div>'}</div>`}
   else if(!cat){
     const n=l=>all.filter(i=>i.liv===l).length;
-    body+=`<div class="cats">${visCats().map(x=>`<button class="cat" data-act="cat" data-id="${x.liv}">${belt(x)}<span class="nm"><b>${esc(x.nome)}</b><span class="mu">${esc(x.cint)}</span></span><span class="n">${n(x.liv)||''}</span></button>`).join('')}</div>`}
+    body+=attBtn+`<div class="cats">${visCats().map(x=>`<button class="cat" data-act="cat" data-id="${x.liv}">${belt(x)}<span class="nm"><b>${esc(x.nome)}</b><span class="mu">${esc(x.cint)}</span></span><span class="n">${n(x.liv)||''}</span></button>`).join('')}</div>`}
   else{
     const inCat=all.filter(i=>i.liv===cat),cnt=k=>k==='all'?inCat.length:inCat.filter(i=>tipoOf(i)===k).length;
     const list=inCat.filter(i=>flt==='all'||tipoOf(i)===flt).sort((a,b)=>(a.title||'').localeCompare(b.title||'','it',{numeric:true}));
@@ -120,12 +122,58 @@ function row(i,showCat){
   const nofb=canW()&&!i.fb?' <span class="mu" title="Solo su Telegram: gli atleti non lo vedono" aria-label="Solo su Telegram: gli atleti non lo vedono">🔒</span>':'';
   return `<div class="frow"><span class="fi" aria-hidden="true">${ico(i)}</span><button class="fn" data-act="open" data-id="${esc(i.id)}"><b>${esc(i.title)}</b>${nofb}${where}${sub}</button><span class="meta">${esc(meta)}</span>${i.note||canW()?`<button class="btn ghost sm" data-act="note" data-id="${esc(i.id)}" aria-label="Note di ${esc(i.title)}">Note${i.note?' •':''}</button>`:''}<button class="btn ghost sm" data-act="more" data-id="${esc(i.id)}" aria-label="Altre azioni per ${esc(i.title)}">⋯</button></div>`}
 
+/* ATT-START */
+/* Attestato di graduazione (PDF). Scelta: atleta (chi scrive) → cintura tra quelle fino al suo grado. Il nome è quello dell'atleta e la data di rilascio
+   è la data del cambio di quel grado in anagrafica (Atleti → gradiData). L'atleta vede solo le proprie schede (atletiEmail → atletiDati). */
+async function loadAtt(force){
+  if(attList&&!force)return attList;
+  const out=[],e=auth.currentUser&&auth.currentUser.email;
+  const add=(id,v)=>{if(v&&(v.nome||v.cognome))out.push({id,nome:String(v.nome||'').trim(),cognome:String(v.cognome||'').trim(),liv:livDaGrado(v.grado),gd:(v.gradiData&&typeof v.gradiData==='object')?v.gradiData:{}})};
+  try{
+    if(canW()){const sn=await getDocs(collection(db,'sections','atleti','items'));sn.docs.forEach(d=>{const v=d.data();if(!v.archiviatoIl)add(d.id,v)});out.sort((a,b)=>(a.cognome+' '+a.nome).localeCompare(b.cognome+' '+b.nome,'it'))}
+    else if(e){const k=await rgetDoc(rdoc(db,'atletiEmail',e.toLowerCase()));
+      if(k.exists()){const d=k.data(),ids=Array.isArray(d.atleti)&&d.atleti.length?d.atleti:[d.atleta];
+        for(const id of ids){try{const x=await rgetDoc(rdoc(db,'atletiDati',id));if(x.exists())add(id,x.data())}catch(z){console.error(z)}}}}
+  }catch(x){console.error(x)}
+  attList=out;return out}
+async function attModal(){
+  const w=canW(),pr=$('#prog');if(pr)pr.textContent='Carico gli atleti…';
+  const L=await loadAtt();if(pr)pr.textContent='';
+  if(!L.length&&!w){modal('Attestato di graduazione','<div class="note">Non trovo una scheda atleta collegata al tuo account. Chiedi all’admin di collegarla in Atleti.</div>',[{label:'Chiudi',cls:'ghost'}]);return}
+  const nm=a=>((a.cognome+' '+a.nome).trim()||'Atleta')+(a.liv?'':' (grado non impostato)');
+  const oggi=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const who=(L.length>1||w)?`<label for="aa">Atleta</label><select id="aa">${L.map((a,i)=>`<option value="${i}">${esc(nm(a))}</option>`).join('')}${w?'<option value="m">Altro (inserisci a mano)</option>':''}</select>`:`<div style="margin-bottom:8px"><b>${esc(nm(L[0]))}</b></div>`;
+  const o=modal('Attestato di graduazione',`${who}<div id="am" hidden><label for="an1">Nome</label><input id="an1" type="text" autocomplete="off"><label for="an2">Cognome</label><input id="an2" type="text" autocomplete="off"></div><label for="ab">Cintura</label><select id="ab"></select><div id="ad" style="margin-top:8px"></div>`,
+    [cancel,{label:'Scarica attestato',fn:async o=>{
+      const a=cur(),l=+ab.value;if(!l)return merr(o,'Scegli una cintura.');
+      const adt=o.querySelector('#adt');let nome,cognome,data;
+      if(a){nome=a.nome;cognome=a.cognome;data=a.gd[l]||(adt&&adt.value)||''}
+      else{nome=o.querySelector('#an1').value.trim();cognome=o.querySelector('#an2').value.trim();data=(adt&&adt.value)||''}
+      if(!nome&&!cognome)return merr(o,'Inserisci nome e cognome.');
+      if(!data)return merr(o,'Manca la data di rilascio di questo grado.');
+      try{o.querySelector('#mer').textContent='Preparo l’attestato…';saveBlob(await attestatoPdf({nome,cognome,liv:l,data}),nomeFile({nome,cognome,liv:l}))}
+      catch(x){console.error(x);return merr(o,'Non riesco a creare l’attestato. Riprova.')}}}]);
+  const sel=o.querySelector('#aa'),ab=o.querySelector('#ab'),ad=o.querySelector('#ad');
+  const cur=()=>{const v=sel?sel.value:'0';return v==='m'?null:L[+v]};
+  const dat=()=>{const a=cur(),l=+ab.value;
+    if(!l){ad.innerHTML=a?'<div class="note">Il grado di questo atleta non è ancora impostato in Atleti.</div>':'';return}
+    const d=a&&a.gd[l];
+    if(d)ad.innerHTML=`<div class="mu">Data di rilascio: <b>${esc(dataIT(d))}</b> (data del cambio di grado in anagrafica)</div>`;
+    else if(w)ad.innerHTML=`<label for="adt">Data di rilascio</label><input id="adt" type="date" value="${oggi}">${a?'<div class="mu" style="font-size:.8rem;margin-top:4px">La data di questo grado non è registrata in anagrafica: indicala qui. Per registrarla, usa il campo «Data del grado» in Atleti.</div>':''}`;
+    else ad.innerHTML='<div class="note">La data di questo grado non è ancora registrata nella tua scheda: chiedila al tuo allenatore o all’admin.</div>'};
+  const fill=()=>{const a=cur(),max=a?a.liv:16,prev=ab.value;o.querySelector('#am').hidden=!!a;
+    ab.innerHTML=GRADI.filter(g=>g.liv<=max).reverse().map(g=>`<option value="${g.liv}">${esc(gradoLabel(g))}</option>`).join('');
+    if(prev&&[...ab.options].some(x=>x.value===prev))ab.value=prev;dat()};
+  if(sel)sel.onchange=fill;ab.onchange=dat;fill()}
+/* ATT-END */
+
 function act(a,id){
   const it=id?byId(id):null;
   if(a==='cat'){cat=+id||0;flt='all';q='';render()}
   else if(a==='flt'){flt=id;render()}
   else if(a==='upf')$('#uf').click();
   else if(a==='addlink')linkModal(null);
+  else if(a==='att')attModal();
   else if(!it)return;
   else if(a==='open')openItem(it);
   else if(a==='note')noteModal(it);

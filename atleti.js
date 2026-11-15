@@ -7,6 +7,11 @@ import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,test
 import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {GRADI_LAB,livDaGrado,gradoCanon} from "./gradi.js";
+/* gradiData = {livello: "AAAA-MM-GG"}: giorno in cui l'atleta ha avuto quel grado (dal cambio del grado in anagrafica). Serve all'attestato in Esami. */
+const gdOggi=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const gdIT=iso=>/^\d{4}-\d{2}-\d{2}$/.test(iso||"")?iso.split("-").reverse().join("/"):"";
+const gdOf=o=>(o&&o.gradiData&&typeof o.gradiData==="object"&&!Array.isArray(o.gradiData))?o.gradiData:{};
+let gdMap={};
 import {ATL_EDIT,apriMedaglia,apriTest,apriDati,apriCarica,mieRichieste,richiesteHtml,annullaRichiesta} from "./richieste.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -146,7 +151,7 @@ const box2=(t,m)=>`<div class="card"><h2 style="margin:0 0 6px">${esc(t)}</h2><d
    atletiDati/<idAtleta> è la copia dei soli dati personali che l'atleta può leggere (senza note e conclusioni dell'allenatore):
    la scrive l'admin per gli atleti con email e si riallinea da sola. */
 const ATL_KEYS=ATL_EDIT.map(x=>x[0]);
-const datiOf=o=>{const r={};ATL_KEYS.forEach(k=>r[k]=String((o&&o[k])??'').trim());r.medaglie=Array.isArray(o&&o.medaglie)?o.medaglie:[];r.test=Array.isArray(o&&o.test)?o.test:[];return r};      /* medagliere e test servono all'atleta per vederli, non sono modificabili da lui direttamente */
+const datiOf=o=>{const r={};ATL_KEYS.forEach(k=>r[k]=String((o&&o[k])??'').trim());r.medaglie=Array.isArray(o&&o.medaglie)?o.medaglie:[];r.test=Array.isArray(o&&o.test)?o.test:[];r.gradiData=gdOf(o);return r};      /* medagliere e test servono all'atleta per vederli, non sono modificabili da lui direttamente */
 const diffKeys=(it,campi)=>campi?ATL_KEYS.filter(k=>k in campi&&String(campi[k]??'').trim()!==String(it[k]??'').trim()):[];
 const modKeys=it=>diffKeys(it,mods[it.id]&&mods[it.id].campi);
 const noteOf=v=>[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300);
@@ -168,6 +173,7 @@ async function okMod(it){
   const M=mods[it.id]&&mods[it.id].campi,mk=modKeys(it);if(!M||!mk.length)return;
   const upd={};mk.forEach(k=>upd[k]=String(M[k]).trim());
   if('peso' in upd)upd.peso=upd.peso.replace(',','.');
+  if('grado' in upd){const l=livDaGrado(upd.grado);if(l&&l!==livDaGrado(it.grado)){upd.gradiData={...gdOf(it),[l]:gdOggi()}}}
   const merged={...it,...upd};
   upd.title=(merged.cognome||'')+' '+(merged.nome||'');upd.note=noteOf(merged);
   await updateDoc(doc(db,'sections',SEC,'items',it.id),upd);
@@ -232,7 +238,7 @@ function shell(){
     <fieldset><legend>Dati anagrafici</legend>
       <div class="two"><div><label for="nm">Nome</label><input id="nm" type="text" autocomplete="off"></div><div><label for="cg">Cognome</label><input id="cg" type="text" autocomplete="off"></div></div>
       <div class="two"><div><label for="sx">Sesso</label><select id="sx"><option value=""></option><option value="M">M</option><option value="F">F</option></select></div><div><label for="an">Anno di nascita</label><input id="an" type="number" inputmode="numeric" min="1900" max="2100" autocomplete="off"></div></div>
-      <div class="two"><div><label for="gr">Grado</label><select id="gr"><option value=""></option>${GRADI_LAB.map(x=>`<option value="${x}">${x}</option>`).join('')}</select><div class="mu" style="font-size:.8rem;margin-top:4px">Dà accesso al materiale della scheda Esami fino a questo grado.</div></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
+      <div class="two"><div><label for="gr">Grado</label><select id="gr"><option value=""></option>${GRADI_LAB.map(x=>`<option value="${x}">${x}</option>`).join('')}</select><div class="mu" style="font-size:.8rem;margin-top:4px">Dà accesso al materiale della scheda Esami fino a questo grado.</div><label for="gd">Data del grado</label><input id="gd" type="date"><div class="mu" style="font-size:.8rem;margin-top:4px">Si compila con oggi quando cambi il grado; è la data dell’attestato in Esami.</div></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
       <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="mu" style="font-size:.8rem;margin-top:4px">Più atleti possono avere la stessa email (es. un genitore con più figli): da quell’account si vedono tutte le schede.</div></div>':''}</div>
       <label for="tp">Agonista o Dilettante</label><select id="tp"><option value=""></option><option value="agonista">Agonista</option><option value="dilettante">Dilettante</option></select>
@@ -261,7 +267,8 @@ function shell(){
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   $('#q').oninput=e=>{q=e.target.value;renderList()};
   $('#ls').onclick=e=>{const b=e.target.closest('[data-id]');if(b)openDetail(b.dataset.id)};
-  if(w){$('#ftg').onclick=()=>setForm($('#fb').hidden);$('#sv').onclick=save;$('#cx').onclick=resetForm}
+  if(w){$('#ftg').onclick=()=>setForm($('#fb').hidden);$('#sv').onclick=save;$('#cx').onclick=resetForm;
+  $('#gr').addEventListener('change',()=>{const l=livDaGrado($('#gr').value);$('#gd').value=l?(gdMap[l]||gdOggi()):''})}
 }
 function setForm(o){
   const b=$('#fb'),t=$('#ftg');if(!b)return;
@@ -271,10 +278,10 @@ const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grad
 function gradoSel(v){const s=$('#gr');if(!s)return;s.querySelectorAll('.leg').forEach(o=>o.remove());const c=gradoCanon(v);
   if(c&&!GRADI_LAB.includes(c)){const o=document.createElement('option');o.className='leg';o.value=c;o.textContent=c+' (non in elenco)';s.append(o)}s.value=c}
 function resetForm(){
-  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');gradoSel('');if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;
+  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');gradoSel('');gdMap={};$('#gd').value='';if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;
   $('#ft').textContent='Nuovo atleta';$('#sv').textContent='Salva atleta';$('#cx').hidden=true;$('#er').textContent=''}
 function edit(it){
-  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');gradoSel(it.grado);if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
+  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');gradoSel(it.grado);gdMap={...gdOf(it)};$('#gd').value=gdMap[livDaGrado(it.grado)]||'';if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
   $('#ft').textContent='Modifica atleta';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 
@@ -293,7 +300,10 @@ async function save(){
   if(em){
     const altri=Object.keys(mails).filter(k=>k!==editing&&mailOf(k).toLowerCase()===em);
     if(altri.length&&!confirm('Questa email è già collegata a: '+altri.map(k=>nameOf(items.find(i=>i.id===k)||{})||'un altro atleta').join(', ')+'.\n\nVuoi collegare anche questo atleta alla stessa email? (per esempio un genitore con più figli: dal suo account vedrà tutte le schede)'))return}
-  const data={...v,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
+  const gd=$('#gd').value.trim(),lv=livDaGrado(v.grado),gradiData={...gdMap};
+  if(gd&&!/^\d{4}-\d{2}-\d{2}$/.test(gd)){er.textContent='La data del grado non è valida.';return}
+  if(lv){if(gd)gradiData[lv]=gd;else delete gradiData[lv]}
+  const data={...v,gradiData,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
     note:noteOf(v)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
@@ -432,7 +442,7 @@ function paintDetail(){
   const medH=med.length?`<div style="margin:2px 0 6px"><b>🥇 ${cnt('1')} · 🥈 ${cnt('2')} · 🥉 ${cnt('3')}</b></div>`+med.map(m=>`<div class="row" style="padding:6px 0"><div>${esc(POSTO[m.posto]||m.posto)} · <b>${esc(m.gara)}</b>${m.data?` <span class="mu">${esc(fmtD(m.data))}</span>`:''}</div>${w?`<button class="xb" data-a="delM" data-i="${esc(m.id)}" aria-label="Togli dal medagliere">✕</button>`:''}</div>`).join(''):'<div class="mu">Nessuna medaglia registrata.</div>';
   c.innerHTML=`<h2 style="margin:0">${esc(nameOf(it))}${it.grado?`<span class="gr">${esc(it.grado)}</span>`:''}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${it.tipo?`<span class="chip">${esc(TIPO[it.tipo]||it.tipo)}</span>`:''}${testChip(it)}</div>
-    ${modBar}<h3>Dati anagrafici</h3><dl>${dm('Nome','nome')}${dm('Cognome','cognome')}${dm('Sesso','sesso')}${dm('Anno di nascita','anno')}${dd('Grado',it.grado)}${dd('Categoria',it.categoria)}${dm('Peso','peso',v=>v?v+' kg':'')}${dm('Altezza','altezza',v=>v?v+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipo',TIPO[it.tipo]||'')}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
+    ${modBar}<h3>Dati anagrafici</h3><dl>${dm('Nome','nome')}${dm('Cognome','cognome')}${dm('Sesso','sesso')}${dm('Anno di nascita','anno')}${dd('Grado',it.grado)}${dd('Data del grado',gdIT(gdOf(it)[livDaGrado(it.grado)]))}${dd('Categoria',it.categoria)}${dm('Peso','peso',v=>v?v+' kg':'')}${dm('Altezza','altezza',v=>v?v+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipo',TIPO[it.tipo]||'')}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
     <h3>Tecniche</h3><dl>${dd('Kumi kata',it.kumi)}</dl><div class="cols"><div><div class="mu" style="margin-top:6px">Tachi waza</div>${ul(it.tachi)}</div><div><div class="mu" style="margin-top:6px">Ne waza</div>${ul(it.ne)}</div></div>
     <h3>Medagliere${w?'<button class="btn ghost sm" data-a="addM">+ Aggiungi</button>':''}</h3>${medH}
     <h3>Richieste</h3>${bm('richieste')}
