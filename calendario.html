@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calendario – ProFile Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="stile.css">
+<style>
+.hd{display:flex;gap:6px 12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;min-width:0}
+.lgbox{background:#1B2A4A;border-radius:10px;padding:6px 10px;display:inline-flex;flex:none}
+.lgbox img{height:52px;width:auto;display:block}
+.cd{margin-bottom:12px}
+.dact{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.it{border:1px solid var(--ln);border-radius:10px;padding:10px;margin:8px 0;background:var(--bg);min-width:0}
+.it.off{opacity:.65}
+.it .dact{margin-top:8px}
+.dg{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0}
+.dg span{border:1px solid var(--ln);border-radius:999px;padding:2px 9px;font-size:.8rem;color:var(--mu)}
+.dg span.on{background:var(--ac);color:var(--bg);border-color:var(--ac)}
+.pz{border:1px solid var(--ln);border-radius:10px;padding:10px;margin:6px 0;background:var(--bg)}
+.pz.on{border-color:var(--ac2,var(--ac))}
+.ck{display:flex;gap:8px;align-items:center;padding:6px 0;min-width:0}
+.ck input{width:auto;flex:none}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fr>div{min-width:0}
+.dls{max-height:200px;overflow:auto;border:1px solid var(--ln);border-radius:8px;padding:2px 10px;margin-top:6px}
+.ag{margin-top:10px}
+.ag .gd{font-weight:700;margin:12px 0 4px;text-transform:capitalize}
+.ag .ri{border-left:3px solid var(--ac);padding:4px 0 4px 10px;margin:4px 0}
+.ag .ri.st{border-left-color:var(--ac2,var(--ac))}
+.ag .ri.ev{border-left-style:dashed}
+details summary{cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center}
+</style>
+<script src="tema.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<div class="clock" id="clock"></div>
+<script type="module" src="calendario.js"></script>
+</body>
+</html>

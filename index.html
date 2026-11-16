@@ -105,7 +105,9 @@ img,svg,video,canvas{max-width:100%}
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut,createUserWithEmailAndPassword,sendPasswordResetEmail} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc,getDoc,getDocs,serverTimestamp,logEvento,svuotaCodaStorico} from "./fsx.js";
+import {query,where,collection as fcol,onSnapshot as fon} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {filtra} from "./visibilita.js";
+import {prossimo,quando,statoPausa,ymd,ETICHETTE} from "./calendario-core.js";
 import {assicuraCoppia} from "./cifra.js";
 
 import {firebaseConfig} from "./firebase-config.js";
@@ -133,6 +135,7 @@ const P={
  ordini:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.5L21 8H6"/>',
  lezioni:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
  eventi:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+ calendario:'<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 15 11 17 15 13"/>',
  video:'<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>',
  foto:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
  commercialista:'<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="12" y1="11" x2="12.01" y2="11"/><line x1="16" y1="11" x2="16.01" y2="11"/><line x1="8" y1="15" x2="8.01" y2="15"/><line x1="12" y1="15" x2="12.01" y2="15"/><line x1="16" y1="15" x2="16.01" y2="15"/><line x1="8" y1="18" x2="8.01" y2="18"/><line x1="12" y1="18" x2="16" y2="18"/>',
@@ -180,7 +183,8 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+function cleanup(){cal=[];evU=[];calCfg=null;calPronto=false;mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+let cal=[],evU=[],calCfg=null,calPronto=false;     /* Calendario: voci per questo account, eventi (account «Solo dati utente») e pausa delle routine → prossimo appuntamento sotto il saluto */
 let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,ordN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
@@ -191,6 +195,18 @@ function onMe(){
   unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
   if(!me){app.innerHTML=box('Account non abilitato','Hai effettuato l’accesso ma un admin deve ancora abilitarti.','<p><button class="btn ghost" id="out">Esci</button></p>');$('#out').onclick=()=>signOut(auth);return}
   SEC.forEach(s=>{if(perm(s)!=='n')unsubs.push(onSnapshot(collection(db,'sections',key(s),'items'),sn=>{items[key(s)]=filtra(sn.docs.map(d=>({id:d.id,...d.data()})),uid,!!(me&&me.admin));if(key(s)==='documenti'&&perm('Documenti')==='w')archiviaScaduti(db,items.documenti);render()},()=>{}))});
+  /* Calendario: l'admin legge tutto (Telegram); gli altri account leggono dalla copia su Firebase solo le voci per tutti o col proprio uid, come in Eventi */
+  unsubs.push(onSnapshot(doc(db,'app','routine'),sn=>{calCfg=sn.exists()?sn.data():null;render()},()=>{}));
+  if(me.admin)unsubs.push(onSnapshot(collection(db,'sections','calendario','items'),sn=>{cal=sn.docs.map(d=>({id:d.id,...d.data()}));calPronto=true;render()},()=>{}));
+  else{
+    const mk=(base,m,fine)=>s=>{m.clear();s.docs.forEach(d=>m.set(d.id,{id:d.id,...d.data()}));fine();render()};
+    const CA=new Map(),CB=new Map(),cbase=fcol(db,'sections','calendario','items'),unisci=()=>{cal=[...new Map([...CA,...CB]).values()];calPronto=true};
+    unsubs.push(fon(query(cbase,where('destTutti','==',true)),mk(cbase,CA,unisci),()=>{}));
+    unsubs.push(fon(query(cbase,where('destUid','array-contains',uid)),mk(cbase,CB,unisci),()=>{}));
+    if((me.perms||{}).eventi==='u'){        /* gli eventi per «Solo dati utente»: solo quelli per tutti o per questo account */
+      const EA=new Map(),EB=new Map(),ebase=fcol(db,'sections','eventi','items'),uniscE=()=>{evU=[...new Map([...EA,...EB]).values()]};
+      unsubs.push(fon(query(ebase,where('destTutti','==',true)),mk(ebase,EA,uniscE),()=>{}));
+      unsubs.push(fon(query(ebase,where('destUid','array-contains',uid)),mk(ebase,EB,uniscE),()=>{}))}}
   /* admin: quante schede atleta hanno modifiche proposte dall'atleta (riquadro Atleti con bordo giallo) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
   /* ordini nuovi degli atleti: li vede chi ha Ordini in lettura o scrittura */
@@ -227,7 +243,18 @@ function bindTop(){const s=$('#q');
 const saluto=()=>{const h=new Date().getHours();return h>=5&&h<13?'Buongiorno':h>=13&&h<18?'Buon pomeriggio':'Buonasera'};
 const nome=()=>{const n=(me.name||'').trim()||String(me.email||'').split('@')[0];return n.split(/\s+/)[0]};
 const dataOggi=()=>{const s=new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});return s[0].toUpperCase()+s.slice(1)};
-const heroHtml=()=>`<div class="hero"><h1 class="hi">${saluto()}${nome()?', '+esc(nome()):''}</h1><div class="mu">${esc(dataOggi())}</div><div class="srch">${ic('search')}<input id="q" type="search" placeholder="Cerca in tutte le sezioni" aria-label="Cerca in tutte le sezioni" enterkeyhint="search" autocomplete="off" value="${esc(q)}"></div></div>`;
+/* Sotto il saluto: prossimo allenamento o evento (routine + straordinari + eventi, tenendo conto della pausa delle routine) al posto della data */
+const eventiHome=()=>(me.admin||perm('Eventi')!=='n'?(items.eventi||[]):evU).filter(i=>i.kind==='evento');
+const ADM_NX=()=>me&&me.admin;
+function prossimoHtml(){
+  if(!calPronto)return esc(dataOggi());
+  const o=prossimo({routine:cal.filter(i=>i.kind==='routine'),straord:cal.filter(i=>i.kind==='straordinario'),eventi:eventiHome(),cfg:calCfg});
+  let t;
+  if(o)t=`${esc(ETICHETTE[o.tipo])}: <b>${esc(o.titolo)}</b> · ${esc(quando(o))}${o.luogo?' · '+esc(o.luogo):''}`;
+  else if(statoPausa(calCfg,ymd(new Date()))==='attiva')t=`Routine in pausa${calCfg.motivo?' · '+esc(calCfg.motivo):''}${calCfg.finoAl?' fino al '+esc(new Date(calCfg.finoAl+'T00:00').toLocaleDateString('it-IT',{day:'numeric',month:'long'})):''}`;
+  else t='Nessun allenamento in programma';
+  return ADM_NX()?`<a href="calendario.html" style="color:inherit;text-decoration:none">${t}</a>`:t}
+const heroHtml=()=>`<div class="hero"><h1 class="hi">${saluto()}${nome()?', '+esc(nome()):''}</h1><div class="mu nx">${prossimoHtml()}</div><div class="srch">${ic('search')}<input id="q" type="search" placeholder="Cerca in tutte le sezioni" aria-label="Cerca in tutte le sezioni" enterkeyhint="search" autocomplete="off" value="${esc(q)}"></div></div>`;
 function homeView(){app.innerHTML=topbar()+'<div class="wrap">'+heroHtml()+'<div id="body"></div></div>';bindTop();results()}
 const resHtml=i=>`<button class="res" data-s="${esc(i.sec)}"><span class="ico">${ic(key(i.sec))}</span><span class="rt"><b>${esc(i.title)}</b><span class="mu">${esc(i.sec)}${i.note?' – '+esc(i.note):''}</span></span>${ic('go','go')}</button>`;
 function results(){
@@ -257,6 +284,7 @@ const bkTesto=()=>bk===undefined?'':bk===null?'Mai eseguito':'Ultimo: '+(giorniD
 const bkDaFare=()=>bk!==undefined&&(bk===null||giorniDa(bk)>30);
 const adminHtml=()=>me.admin?`<h3 class="gt">Strumenti admin</h3><div class="grid">
   <a class="tile${ricTot()?' hot':''}" href="richieste.html"><span class="ico">${ic('notifiche')}</span><span class="tn">Richieste</span><span class="ts">File e modifiche da approvare</span>${ricTot()?`<span class="pill">${ricTot()}</span>`:''}</a>
+  <a class="tile${statoPausa(calCfg,ymd(new Date()))==='attiva'?' hot':''}" href="calendario.html"><span class="ico">${ic('calendario')}</span><span class="tn">Calendario</span><span class="ts">Allenamenti, routine ed eventi</span>${statoPausa(calCfg,ymd(new Date()))==='attiva'?'<span class="pill">Routine in pausa</span>':''}</a>
   <a class="tile" href="storico.html"><span class="ico">${ic('storico')}</span><span class="tn">Storico</span><span class="ts">Tutti i movimenti</span></a>
   <a class="tile" href="tema.html"><span class="ico">${ic('tema')}</span><span class="tn">Tema</span><span class="ts">Aspetto grafico del sito</span></a>
   <a class="tile" href="notifiche.html"><span class="ico">${ic('notifiche')}</span><span class="tn">Notifiche</span><span class="ts">Telegram: atleti e admin</span></a>
@@ -457,6 +485,7 @@ function modificaAccount(a){
     if(n===(a.name||'')){close();return}
     try{await updateDoc(doc(db,'users',a.id),{name:n});logEvento('account','',a.id,n,'nome modificato (era «'+(a.name||'')+'»)');close()}
     catch(x){console.error(x);er.textContent='Salvataggio non riuscito. Riprova.'}}}
+setInterval(()=>{const n=$('.nx');if(n&&me&&view==='home')n.innerHTML=prossimoHtml()},60000);
 function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
 tick();setInterval(tick,15000);
 </script>
