@@ -16,6 +16,7 @@ import {cifraPassword,decifraPassword,isBackup} from "./cifra.js";
 /* A chi si manda il backup (nome utente Telegram, senza @). Cambialo qui se serve. */
 const DESTINATARIO='LorisAntolini';
 const PARTE_MAX=200*1024*1024;                 /* ogni parte resta sotto questa dimensione: la cifratura tiene in memoria il file e la sua copia */
+const TOTALE_MAX=1.5*1024*1024*1024;        /* tetto dei file in tutto il backup (1,5 GB). Nessun limite per il singolo file: uno più grande di una parte va in una parte tutta sua */
 const RACCOLTE=['users','app','atletiMail','atletiEmail','atletiDati','atletiModifiche','iscrizioni'];
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -72,7 +73,7 @@ async function stima(){
   if(!$('#cf').checked){el.textContent='Solo dati: pochi secondi.';return}
   if(!tgConfigured()||!hasSession()){el.textContent='';return}
   try{const {files}=await elencoFile(),b=files.reduce((s,f)=>s+(f.st.size||0),0);
-    el.textContent=files.length+(files.length===1?' file':' file')+', circa '+MB(b)+(b>PARTE_MAX?' · verrà diviso in '+Math.ceil(b/PARTE_MAX)+' parti circa':'')+'.'}catch(e){el.textContent=''}}
+    el.textContent=files.length+(files.length===1?' file':' file')+', circa '+MB(b)+(b>PARTE_MAX?' · verrà diviso in '+Math.ceil(Math.min(b,TOTALE_MAX)/PARTE_MAX)+' parti circa':'')+(b>TOTALE_MAX?' · limite 1,5 GB: i file oltre il tetto restano fuori (elenco in errori.txt)':'')+'.'}catch(e){el.textContent=''}}
 
 async function crea(){
   if(running)return;
@@ -82,7 +83,7 @@ async function crea(){
   if(!tgConfigured()||!hasSession()){er.textContent='Telegram non è collegato: accedi dalla pagina Chat e riprova.';return}
   er.textContent='';running=true;stop=false;logEl=$('#log');logEl.hidden=false;logEl.textContent='';
   $('#go').disabled=true;$('#st').disabled=false;
-  const t0=new Date();let parti=0,nFile=0,tot=0,errori=[];
+  const t0=new Date();let parti=0,nFile=0,tot=0,errori=[],totFile=0,fuori=0;
   try{
     const J=await loadZip();
     log('Lettura dei dati…');
@@ -126,10 +127,12 @@ Non contiene le chiavi di cifratura, le password degli account né i bonifici ca
       for(const f of files){
         if(stop)break;
         const nome=f.st.title||f.id;
+        if(totFile+(f.st.size||0)>TOTALE_MAX){fuori++;errori.push(f.sec+'/'+f.id+' '+nome+': non incluso, oltre il limite totale di 1,5 GB');log('  – '+nome+': oltre il limite di 1,5 GB, saltato');continue}
         try{
           const blob=await archivio(db,f.sec,me.id).getBlob({...f.st,id:f.id});
+          if(totFile+blob.size>TOTALE_MAX){fuori++;errori.push(f.sec+'/'+f.id+' '+nome+': non incluso, oltre il limite totale di 1,5 GB');log('  – '+nome+': oltre il limite di 1,5 GB, saltato');continue}
           if(bytes>0&&bytes+blob.size>PARTE_MAX)await chiudi(false);
-          zip.file('file/'+f.sec+'/'+f.id+'_'+safe(nome),blob);bytes+=blob.size;nFile++;
+          zip.file('file/'+f.sec+'/'+f.id+'_'+safe(nome),blob);bytes+=blob.size;totFile+=blob.size;nFile++;
           inParte.push({sezione:f.sec,id:f.id,nome,dimensione:blob.size,percorso:'file/'+f.sec+'/'+f.id+'_'+safe(nome)});
           if(nFile%10===0)log('  … '+nFile+' file preparati')
         }catch(e){errori.push(f.sec+'/'+f.id+' '+nome+': '+tgErrText(e));log('  ✗ '+nome+': '+tgErrText(e))}}}

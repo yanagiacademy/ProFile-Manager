@@ -19,6 +19,17 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (16/11 septies) – BACKUP: TETTO DI 1,5 GB IN TOTALE, NESSUN LIMITE PER IL SINGOLO FILE (backup.js)
+- I file nel backup possono arrivare a 1,5 GB in tutto (TOTALE_MAX). Nessun limite per il singolo file: uno più grande di una parte (200 MB, PARTE_MAX, tenuta per la memoria del browser) va in una parte tutta sua.
+- Un file che farebbe superare il tetto viene saltato (log + errori.txt); i successivi più piccoli che ci stanno vengono inclusi. La stima prima dell'avvio avvisa se i file superano il tetto.
+
+## NOVITÀ (16/11 sexies) – CORRETTO L'INVIO DEI FILE GRANDI A TELEGRAM (telegram.js)
+- PROBLEMA: il Backup si fermava all'invio della prima parte (25 MB) con «Cannot use [object File] as file. / Either one of `buffer` or `filePath` should be specified». Colpiva ogni file sopra circa 20 MB inviato con tgSendFile (backup, video, documenti pesanti); i file piccoli passavano solo grazie al ripiego CustomFile.
+- CAUSA: la libreria GramJS (telegram-lib.js) scarta un File del browser che non ha la proprietà «read» (primo errore) e, sopra i ~20 MB, legge un CustomFile da un percorso su disco che nel browser è vuoto (secondo errore).
+- CORREZIONE: in tgSendFile il File riceve una proprietà «read» fittizia, così la libreria lo accetta e lo legge in memoria (nessun limite di dimensione). Il ripiego CustomFile resta per i file piccoli. Nessun altro file toccato; numeri di versione non aggiornati.
+- Nel Backup «VID-…mp4: MISSING» non è un errore dell'invio: il file risulta nel registro ma non si trova più su Telegram (messaggio cancellato). Viene saltato e finisce in errori.txt dentro il backup.
+- DA PROVARE: rifare il Backup con i file (parte da 25 MB e successive) e inviare un video grande da Documenti. Se la pagina restituisce ancora il vecchio errore, aprirla con ?x=N in fondo all'indirizzo (cache).
+
 ## NOVITÀ (16/11 quinquies) – I CORSI DELLA SCHEDA CORSI ALIMENTANO ATLETI E GRUPPI (gruppi-atleti.js, atleti.js, eventi.js, lezioni.js, calendario.js, corsi.js)
 - L'elenco dei corsi usato dal campo «Corsi» della scheda Atleti, dal filtro dell'elenco atleti e dal criterio «Corso» dei gruppi (Eventi, Lezioni, Calendario) ora è quello dei NOMI della scheda Corsi (gruppi-atleti.js: elencoCorsi/seguiCorsi). Finché la scheda Corsi è vuota (o non leggibile) valgono i tre di partenza Kata, Judo kids, Judo; appena c'è un corso l'elenco diventa SOLO quello della scheda. Nella scheda Corsi vuota c'è il pulsante «Aggiungi Kata, Judo kids e Judo» per partire da quelli (poi si possono rinominare, aggiungere, togliere). Elenco in ordine alfabetico.
 - In Atleti le caselle dei corsi mostrano i corsi della scheda Corsi più quelli già segnati sull'atleta anche se il corso non esiste più (così non si perdono al salvataggio).

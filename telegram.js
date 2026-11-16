@@ -216,7 +216,12 @@ export async function tgSendFile(tg,client,ent,file,onProgress,mode='auto',capti
     const {Buffer}=await import("https://esm.sh/buffer");
     return client.sendFile(ent,{...base,file:new CF(file.name,file.size,'',Buffer.from(await file.arrayBuffer()))});
   };
-  const viaFile=()=>client.sendFile(ent,{...base,file});
+  /* GramJS scarta i File del browser privi di "read" (errore «Cannot use [object File] as file») e, sopra i ~20 MB,
+     un CustomFile viene letto da un percorso su disco che qui non esiste (errore «Either one of `buffer` or `filePath`…»).
+     Con una "read" fittizia il File passa dal ramo giusto e viene letto in memoria, senza limite di dimensione. */
+  const viaFile=()=>{
+    if(typeof file.read!=='function'){try{Object.defineProperty(file,'read',{value:()=>{},configurable:true})}catch(e){}}
+    return client.sendFile(ent,{...base,file})};
   if(mode==='custom')return viaCustom();
   if(mode==='file')return viaFile();
   try{return await viaFile()}catch(e1){
