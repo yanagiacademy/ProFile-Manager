@@ -32,9 +32,11 @@ const MAIL_RE=/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]{2,}$/;
 const idsOf=email=>Object.keys(mails).filter(k=>mailOf(k)&&mailOf(k).toLowerCase()===String(email).toLowerCase());
 /* liv = grado più alto tra le schede collegate (1–16, 0 se non impostato): le regole lo usano per limitare il materiale di Esami */
 const livOf=ids=>Math.max(0,...ids.map(id=>{const a=items.find(x=>x.id===id);return a?livDaGrado(a.grado):0}));
+/* profili = tipologia, grado e corsi delle schede collegate: l'account li legge per sapere a quali gruppi appartiene (regole di gruppo del Calendario) */
+const profiliOf=ids=>ids.map(id=>{const a=items.find(x=>x.id===id);return a?{tipo:a.tipo||'',grado:a.grado||'',corsi:Array.isArray(a.corsi)?a.corsi:[]}:null}).filter(Boolean);
 async function scriviChiave(email,ids){
   if(!ids.length)await deleteDoc(doc(db,'atletiEmail',email)).catch(()=>{});
-  else await setDoc(doc(db,'atletiEmail',email),{atleta:ids[0],atleti:ids,liv:livOf(ids)})}
+  else await setDoc(doc(db,'atletiEmail',email),{atleta:ids[0],atleti:ids,liv:livOf(ids),profili:profiliOf(ids)})}
 async function saveMail(id,email){
   if(!isAdm())return;
   const old=mailOf(id);
@@ -51,8 +53,8 @@ const synced=new Set();
 function syncKeys(){
   if(!isAdm())return;
   const g={};Object.entries(mails).forEach(([id,m])=>{const e=m&&m.email;if(e)(g[e]=g[e]||[]).push(id)});
-  Object.entries(g).forEach(([e,ids])=>{ids.sort();const sig=e+'|'+ids.join(',')+'|'+livOf(ids);if(synced.has(sig))return;synced.add(sig);
-    setDoc(doc(db,'atletiEmail',e),{atleta:ids[0],atleti:ids,liv:livOf(ids)}).catch(()=>synced.delete(sig))})}
+  Object.entries(g).forEach(([e,ids])=>{ids.sort();const sig=e+'|'+ids.join(',')+'|'+livOf(ids)+'|'+JSON.stringify(profiliOf(ids));if(synced.has(sig))return;synced.add(sig);
+    setDoc(doc(db,'atletiEmail',e),{atleta:ids[0],atleti:ids,liv:livOf(ids),profili:profiliOf(ids)}).catch(()=>synced.delete(sig))})}
 /* ---------- la mia tessera: l'atleta loggato (email uguale a quella inserita dall'admin) scarica la propria tessera e il proprio certificato ----------
    Legge solo la copia su Firebase (senza Telegram) dal percorso sections/tessere/items; permessi applicati dalle regole Firestore. */
 let mioRich=[],mioOrd=[];

@@ -11,7 +11,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {collection as fcol,getDocs as fget} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {GIORNI,ORDINE,ETICHETTE,ymd,fmtGiorno,statoPausa,occorrenze,quando} from "./calendario-core.js";
-import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
+import {gruppiHtml,gruppiBind,criteriHtml,leggiCriteri,scriviCriteri,erroreCriteri,pulisciCriteri,corrisponde,regolaTxt} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -33,11 +33,12 @@ const tuttiAt=()=>[...atl,...persAcc()];
 const isAcc=id=>String(id).startsWith('u:');
 const accOfAt=id=>{if(isAcc(id))return users.filter(u=>u.id===String(id).slice(2));const e=emailsOf([id])[0];return e?users.filter(u=>!u.admin&&String(u.email||'').toLowerCase()===e):[]};
 const uidsOf=ids=>{const em=emailsOf(ids.filter(i=>!isAcc(i))),dir=ids.filter(isAcc).map(i=>String(i).slice(2));return [...new Set([...users.filter(u=>!u.admin&&u.email&&em.includes(String(u.email).toLowerCase())).map(u=>u.id),...dir.filter(id=>users.some(u=>u.id===id))])]};
-const destCampi=ids=>ids&&ids.length?{dest:ids,destTutti:false,destUid:uidsOf(ids)}:{dest:[],destTutti:true,destUid:[]};
+const destCampi=ids=>ids&&ids.length?{dest:ids,destTutti:false,destUid:uidsOf(ids),perRegola:false,regola:null}:{dest:[],destTutti:true,destUid:[],perRegola:false,regola:null};
+const destRegola=f=>({dest:[],destTutti:false,destUid:[],perRegola:true,regola:pulisciCriteri(f)});
 const ristretto=i=>Array.isArray(i.dest)&&i.dest.length>0;
 const nomiDest=i=>(i.dest||[]).map(id=>{const a=tuttiAt().find(x=>x.id===id);return a?nomeAt(a):'(atleta eliminato)'});
-const destTxt=i=>ristretto(i)?nomiDest(i).join(', '):'Tutti gli atleti';
-const visibileA=idAt=>i=>!idAt||!ristretto(i)||i.dest.includes(idAt);
+const destTxt=i=>i.perRegola?'Gruppo: '+regolaTxt(i.regola)+' (si aggiorna da solo)':ristretto(i)?nomiDest(i).join(', '):'Tutti gli atleti';
+const visibileA=idAt=>i=>{if(!idAt)return true;if(i.perRegola){const a=atl.find(x=>x.id===idAt);return !!a&&corrisponde(a,i.regola)}return !ristretto(i)||i.dest.includes(idAt)};
 async function collegamenti(){
   try{
     if(!users.length){const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}))}
@@ -67,17 +68,20 @@ function modal(title,body,{ok='Salva',cancel='Annulla',onSave}={}){
 
 /* scelta dei destinatari dentro un modulo */
 function destHtml(i){
-  const sc=ristretto(i||{});
-  return `<label>Per chi</label><label class="ck"><input type="radio" name="dm" value="tutti" ${sc?'':'checked'}> Tutti gli atleti</label><label class="ck"><input type="radio" name="dm" value="scelti" ${sc?'checked':''}> Solo alcuni atleti</label>
-  <div id="dsel" ${sc?'':'hidden'}>${gruppiHtml()}<input id="dq" type="search" placeholder="Cerca un atleta" aria-label="Cerca un atleta"><div class="dls" id="dls"></div><div class="mu" id="dn"></div></div>`}
+  const rg=!!(i&&i.perRegola),sc=!rg&&ristretto(i||{});
+  return `<label>Per chi</label><label class="ck"><input type="radio" name="dm" value="tutti" ${rg||sc?'':'checked'}> Tutti gli atleti</label><label class="ck"><input type="radio" name="dm" value="scelti" ${sc?'checked':''}> Solo alcuni atleti</label><label class="ck"><input type="radio" name="dm" value="regola" ${rg?'checked':''}> Un gruppo (si aggiorna da solo)</label>
+  <div id="dsel" ${sc?'':'hidden'}>${gruppiHtml()}<input id="dq" type="search" placeholder="Cerca un atleta" aria-label="Cerca un atleta"><div class="dls" id="dls"></div><div class="mu" id="dn"></div></div>
+  <div id="drg" ${rg?'':'hidden'}><div class="mu" style="margin:2px 0 6px">La voce è per tutti gli atleti che rispettano questi criteri: chi entra nel gruppo dopo (nuovo atleta, cambio di grado, nuovo corso) la vede da solo. Serve che nella scheda siano compilati tipologia, grado e corsi e che l’atleta abbia un account collegato.</div>${criteriHtml('data-r')}<div class="mu" id="drn" role="status" style="margin-top:6px"></div></div>`}
 function bindDest(o,sel){
   const q=()=>(o.querySelector('#dq').value||'').trim().toLowerCase();
   const paint=()=>{
-    const l=o.querySelector('#dls'),box=o.querySelector('#dsel');box.hidden=(o.querySelector('input[name=dm]:checked')||{}).value!=='scelti';if(box.hidden)return;
+    const m=(o.querySelector('input[name=dm]:checked')||{}).value,l=o.querySelector('#dls'),box=o.querySelector('#dsel');o.querySelector('#drg').hidden=m!=='regola';box.hidden=m!=='scelti';if(m==='regola')contaRegola();if(box.hidden)return;
     const v=tuttiAt().filter(a=>!q()||nomeAt(a).toLowerCase().includes(q())).sort((a,b)=>nomeAt(a).localeCompare(nomeAt(b),'it'));
     l.innerHTML=v.length?v.map(a=>`<label class="ck"><input type="checkbox" data-d="${esc(a.id)}" ${sel.has(a.id)?'checked':''}> <span>${esc(nomeAt(a))}${a.acc?' <span class="mu">· account</span>':accOfAt(a.id).length?'':' <span class="mu">· senza account collegato</span>'}</span></label>`).join(''):`<div class="mu" style="padding:8px 0">${tuttiAt().length?'Nessun atleta trovato.':'Elenco atleti non disponibile: apri una volta la sezione Atleti e riprova.'}</div>`;
     o.querySelector('#dn').textContent=sel.size?sel.size+(sel.size===1?' atleta scelto':' atleti scelti'):'Nessun atleta scelto'};
+  const contaRegola=()=>{const f=leggiCriteri(o,'data-r'),er=erroreCriteri(f);o.querySelector('#drn').textContent=er&&!/Scegli/.test(er)?er:er?'':(n=>n===1?'Al momento corrisponde 1 atleta.':'Al momento corrispondono '+n+' atleti.')(atl.filter(a=>corrisponde(a,f)).length)};
   o.addEventListener('change',e=>{
+    if(e.target.getAttribute&&e.target.getAttribute('data-r')){contaRegola();return}
     if(e.target.name==='dm')paint();
     else if(e.target.dataset&&e.target.dataset.d){e.target.checked?sel.add(e.target.dataset.d):sel.delete(e.target.dataset.d);paint()}});
   o.querySelector('#dq').oninput=paint;
@@ -108,14 +112,18 @@ function form(tipo,r){
       D.dal=g('fdal');D.al=g('fal');if(D.dal&&D.al&&D.al<D.dal){er.textContent='«Fino al» deve essere dopo «Vale dal».';return false}
       D.attivo=r?r.attivo!==false:true}
     else{D.data=g('fd');if(!isDate(D.data)){er.textContent='Indica la data.';return false}}
-    const ids=destDaForm(o,sel);
-    if(o.querySelector('input[name=dm]:checked').value==='scelti'&&!ids.length){er.textContent='Scegli almeno un atleta, oppure «Tutti gli atleti».';return false}
-    await collegamenti();
-    const data={kind:rt?'routine':'straordinario',...D,...destCampi(ids),fb:true};
+    const modo=o.querySelector('input[name=dm]:checked').value,ids=destDaForm(o,sel);
+    if(modo==='scelti'&&!ids.length){er.textContent='Scegli almeno un atleta, oppure «Tutti gli atleti».';return false}
+    let dst;
+    if(modo==='regola'){const f=leggiCriteri(o,'data-r'),e2=erroreCriteri(f);if(e2){er.textContent=e2;return false}dst=destRegola(f)}
+    else{await collegamenti();dst=destCampi(ids)}
+    const data={kind:rt?'routine':'straordinario',...D,...dst,fb:true};
     if(r)await updateDoc(doc(db,'sections',SEC,'items',r.id),data);
     else await addDoc(col,{...data,by:me.id,at:serverTimestamp()});
     logEvento(r?'modifica':'crea','calendario',r?r.id:'','Calendario',(r?'Modificato ':'Creato ')+(rt?'routine «':'allenamento straordinario «')+titolo+'»')}});
-  bindDest(o,sel);o.querySelector('#ft').focus()}
+  bindDest(o,sel);
+  if(ex.perRegola){scriviCriteri(o,ex.regola,'data-r');o.querySelector('input[name=dm]:checked').dispatchEvent(new Event('change',{bubbles:true}))}
+  o.querySelector('#ft').focus()}
 
 /* ---------- pausa generale delle routine ---------- */
 const MOTIVI=['Natale','Pasqua','Estate','Altro'];

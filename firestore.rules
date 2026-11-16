@@ -74,8 +74,8 @@ service cloud.firestore {
             || request.auth.uid in get(/databases/$(database)/documents/sections/eventi/items/$(id)).data.destUid);
     }
     /* Calendario (admin): routine frequenti e allenamenti straordinari, con copia su Firebase (fb:true) come gli Eventi. Ogni voce ha destTutti (true = per tutti gli atleti) e destUid (gli account scelti):
-       qualsiasi account legge solo le voci per tutti o col proprio uid (index.html interroga con where('destTutti','==',true) e where('destUid','array-contains',uid)). L'admin legge e scrive con le regole generiche. La pausa delle routine è in app/routine (regole di app/{id}). */
-    match /sections/calendario/items/{id} { allow read: if hasAccount() && (resource.data.destTutti == true || request.auth.uid in resource.data.destUid); }
+       qualsiasi account legge solo le voci per tutti, col proprio uid o per gruppo (perRegola:true: la regola {tipo,da,a,corso} sta in «regola» e index.html la confronta con atletiEmail/<email>.profili); index.html interroga con where('destTutti','==',true), where('destUid','array-contains',uid) e where('perRegola','==',true). L'admin legge e scrive con le regole generiche. La pausa delle routine è in app/routine (regole di app/{id}). */
+    match /sections/calendario/items/{id} { allow read: if hasAccount() && (resource.data.destTutti == true || request.auth.uid in resource.data.destUid || resource.data.get('perRegola', false) == true); }
     function evPerMe(e) {
       let d = get(/databases/$(database)/documents/sections/eventi/items/$(e)).data;
       return d.destTutti == true || request.auth.uid in d.destUid;

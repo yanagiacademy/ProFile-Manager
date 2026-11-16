@@ -108,6 +108,7 @@ import {getFirestore,doc,collection,onSnapshot,setDoc,updateDoc,deleteDoc,addDoc
 import {query,where,collection as fcol,onSnapshot as fon} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {filtra} from "./visibilita.js";
 import {prossimo,quando,statoPausa,ymd,ETICHETTE} from "./calendario-core.js";
+import {corrisponde,filtroVuoto} from "./gruppi-atleti.js";
 import {assicuraCoppia} from "./cifra.js";
 
 import {firebaseConfig} from "./firebase-config.js";
@@ -183,13 +184,13 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){cal=[];evU=[];calCfg=null;calPronto=false;mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
-let cal=[],evU=[],calCfg=null,calPronto=false;     /* Calendario: voci per questo account, eventi (account «Solo dati utente») e pausa delle routine → prossimo appuntamento sotto il saluto */
+function cleanup(){cal=[];evU=[];calCfg=null;calPronto=false;miProfili=[];mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+let cal=[],evU=[],calCfg=null,calPronto=false,miProfili=[];     /* Calendario: voci per questo account, eventi (account «Solo dati utente») e pausa delle routine → prossimo appuntamento sotto il saluto */
 let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,ordN=0,bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
-function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{const n=s.exists()?((s.data().atleti||[]).length||1):0;if(s.exists()!==mio||n!==mioN){mio=s.exists();mioN=n;render()}}).catch(()=>{});
+function cercaMio(){const e=auth.currentUser&&auth.currentUser.email;if(!e)return;getDoc(doc(db,'atletiEmail',e.toLowerCase())).then(s=>{const n=s.exists()?((s.data().atleti||[]).length||1):0,pr=s.exists()?(s.data().profili||[]):[];if(s.exists()!==mio||n!==mioN||JSON.stringify(pr)!==JSON.stringify(miProfili)){mio=s.exists();mioN=n;miProfili=pr;render()}}).catch(()=>{});
   getDoc(doc(db,'tecniciEmail',e.toLowerCase())).then(s=>{if(s.exists()!==mioTec){mioTec=s.exists();render()}}).catch(()=>{})}
 function onMe(){
   unsubs.forEach(f=>f());unsubs=[];if(unsubUsers){unsubUsers();unsubUsers=null}
@@ -200,9 +201,10 @@ function onMe(){
   if(me.admin)unsubs.push(onSnapshot(collection(db,'sections','calendario','items'),sn=>{cal=sn.docs.map(d=>({id:d.id,...d.data()}));calPronto=true;render()},()=>{}));
   else{
     const mk=(base,m,fine)=>s=>{m.clear();s.docs.forEach(d=>m.set(d.id,{id:d.id,...d.data()}));fine();render()};
-    const CA=new Map(),CB=new Map(),cbase=fcol(db,'sections','calendario','items'),unisci=()=>{cal=[...new Map([...CA,...CB]).values()];calPronto=true};
+    const CA=new Map(),CB=new Map(),CC=new Map(),cbase=fcol(db,'sections','calendario','items'),unisci=()=>{cal=[...new Map([...CA,...CB,...CC]).values()];calPronto=true};
     unsubs.push(fon(query(cbase,where('destTutti','==',true)),mk(cbase,CA,unisci),()=>{}));
     unsubs.push(fon(query(cbase,where('destUid','array-contains',uid)),mk(cbase,CB,unisci),()=>{}));
+    unsubs.push(fon(query(cbase,where('perRegola','==',true)),mk(cbase,CC,unisci),()=>{}));        /* per gruppo: si filtra qui con tipologia, grado e corsi dell'atleta (atletiEmail.profili) */
     if((me.perms||{}).eventi==='u'){        /* gli eventi per «Solo dati utente»: solo quelli per tutti o per questo account */
       const EA=new Map(),EB=new Map(),ebase=fcol(db,'sections','eventi','items'),uniscE=()=>{evU=[...new Map([...EA,...EB]).values()]};
       unsubs.push(fon(query(ebase,where('destTutti','==',true)),mk(ebase,EA,uniscE),()=>{}));
@@ -248,7 +250,8 @@ const eventiHome=()=>(me.admin||perm('Eventi')!=='n'?(items.eventi||[]):evU).fil
 const ADM_NX=()=>me&&me.admin;
 function prossimoHtml(){
   if(!calPronto)return esc(dataOggi());
-  const o=prossimo({routine:cal.filter(i=>i.kind==='routine'),straord:cal.filter(i=>i.kind==='straordinario'),eventi:eventiHome(),cfg:calCfg});
+  const mie=cal.filter(i=>!i.perRegola||ADM_NX()||(!filtroVuoto(i.regola)&&miProfili.some(p=>corrisponde(p,i.regola))));
+  const o=prossimo({routine:mie.filter(i=>i.kind==='routine'),straord:mie.filter(i=>i.kind==='straordinario'),eventi:eventiHome(),cfg:calCfg});
   let t;
   if(o)t=`${esc(ETICHETTE[o.tipo])}: <b>${esc(o.titolo)}</b> · ${esc(quando(o))}${o.luogo?' · '+esc(o.luogo):''}`;
   else if(statoPausa(calCfg,ymd(new Date()))==='attiva')t=`Routine in pausa${calCfg.motivo?' · '+esc(calCfg.motivo):''}${calCfg.finoAl?' fino al '+esc(new Date(calCfg.finoAl+'T00:00').toLocaleDateString('it-IT',{day:'numeric',month:'long'})):''}`;
