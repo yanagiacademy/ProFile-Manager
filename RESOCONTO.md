@@ -19,6 +19,15 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
 
+## NOVITÀ (15/11 bis) – TEMA: RACCOLTA DEI TEMI INSTALLATI (tema-pagina.js, tema.html, telegram.js, storico.js, cestino.js)
+- Nella pagina Tema nuova scheda «Raccolta temi»: elenco dei temi salvati (nome, autore, font, data, striscia di colori, badge «Attivo»). Per ognuno: «Attiva» (applica a tutta la suite, come «Installa», senza ricaricare il file), «Prova qui» (solo su questa pagina), «Scarica», «Elimina» (va nel Cestino; se era il tema attivo resta in uso finché non se ne sceglie un altro).
+- Ogni tema installato entra da solo nella raccolta; dal file scelto si può anche «Salva nella raccolta» senza attivarlo. Lo stesso tema (stesso contenuto) non si duplica. Il tema già attivo e non ancora in raccolta ha il pulsante «Salva nella raccolta».
+- DOVE STANNO I DATI: sections/tema/items/<id> (kind 'tema', json = tema validato, nome, autore, descrizione, ts, by) tramite fsx.js: quindi sul gruppo Telegram, argomento «Tema» (quello già creato; se manca si crea da solo), cifrati come le altre sezioni. Il tema attivo resta in Firestore app/tema (lettura pubblica) come prima: le altre pagine e la schermata di accesso non cambiano.
+- Serve la sessione Telegram dell'admin (Chat): senza, salvataggio ed eliminazione dicono di accedere a Telegram; Installa/Attiva funzionano comunque (usano solo app/tema), la raccolta non si aggiorna.
+- Ogni tema della raccolta viene riconvalidato prima di mostrarlo e prima di attivarlo (PFM_TEMA.valida). Regole Firestore INVARIATE (l'admin ha già accesso a sections/*). Registrata la sezione «Tema» in storico.js e cestino.js (etichetta) e in telegram.js (titolo argomento).
+- Temi già installati prima di questa novità: restano attivi; aprire Tema e premere «Salva nella raccolta» sul tema attivo. tema-ghiaccio.json nello zip va caricato una volta e si salva.
+- File modificati: tema-pagina.js, tema.html, telegram.js, storico.js, cestino.js, RESOCONTO.md. Numeri di versione NON aggiornati. Controllata solo la sintassi con Node; non provato in un browser né con Telegram reale.
+
 ## NOVITÀ (15/11) – REVISIONE LAYOUT: PULSANTI FUORI SCHERMO E SPESSORI RIDOTTI (stile.css, index.html, chat.html e pagine di sezione)
 - PULSANTI CHE ESCONO: le finestre (.dlg, .dlg2) ora hanno altezza massima legata allo schermo (100dvh) e scorrono all'interno; la riga dei pulsanti di conferma (.dact / .dact2) resta sempre visibile in basso (sticky). In index.html la finestra Account non aveva limite di altezza e usciva dallo schermo.
 - RIGHE CHE NON ANDAVANO A CAPO: .fh (titolo + pulsanti), .hd (logo + titolo), .rw (Backup, Cestino, Notifiche, Storico), .pr e .acc-a in index.html ora vanno a capo invece di sforare. Barra alta (.top): il nome utente si accorcia con i puntini e sotto i 440px sparisce; i pulsanti non si restringono. Le tessere (.grid) usano minmax(min(140px,100%),1fr): a 320px passano da 1 a 2 colonne.
