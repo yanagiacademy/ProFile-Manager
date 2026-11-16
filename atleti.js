@@ -7,7 +7,7 @@ import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,test
 import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {GRADI_LAB,livDaGrado,gradoCanon} from "./gradi.js";
-import {CORSI} from "./gruppi-atleti.js";
+import {elencoCorsi,seguiCorsi} from "./gruppi-atleti.js";
 /* gradiData = {livello: "AAAA-MM-GG"}: giorno in cui l'atleta ha avuto quel grado (dal cambio del grado in anagrafica). Serve all'attestato in Esami. */
 const gdOggi=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 const gdIT=iso=>/^\d{4}-\d{2}-\d{2}$/.test(iso||"")?iso.split("-").reverse().join("/"):"";
@@ -245,7 +245,7 @@ function shell(){
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
       <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="mu" style="font-size:.8rem;margin-top:4px">Più atleti possono avere la stessa email (es. un genitore con più figli): da quell’account si vedono tutte le schede.</div></div>':''}</div>
       <label for="tp">Tipologia</label><select id="tp"><option value=""></option><option value="preagonista">Pre-agonista</option><option value="dilettante">Dilettante</option><option value="agonista">Agonista</option></select>
-      <label>Corsi (può seguirne più di uno)</label><div id="crs" style="display:flex;gap:6px 16px;flex-wrap:wrap">${CORSI.map(c=>`<label class="mu" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="crs" value="${c}" style="width:auto;min-height:0"> ${c}</label>`).join('')}</div>
+      <label>Corsi (può seguirne più di uno)</label><div id="crs" style="display:flex;gap:6px 16px;flex-wrap:wrap">${corsiHtml([])}</div>
     </fieldset>
     <fieldset><legend>Scheda tecnica</legend>
       <label for="ku">Kumi kata</label><input id="ku" type="text" autocomplete="off">
@@ -281,7 +281,10 @@ const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grad
   ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['nt','annotazioni']];
 function gradoSel(v){const s=$('#gr');if(!s)return;s.querySelectorAll('.leg').forEach(o=>o.remove());const c=gradoCanon(v);
   if(c&&!GRADI_LAB.includes(c)){const o=document.createElement('option');o.className='leg';o.value=c;o.textContent=c+' (non in elenco)';s.append(o)}s.value=c}
-const setCorsi=l=>document.querySelectorAll('input[name=crs]').forEach(c=>c.checked=Array.isArray(l)&&l.includes(c.value));
+/* caselle dei corsi: quelli della scheda Corsi + quelli già segnati sull'atleta (anche se il corso non esiste più) */
+const corsiHtml=cur=>[...new Set([...elencoCorsi(),...cur])].map(c=>`<label class="mu" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="crs" value="${esc(c)}" ${cur.includes(c)?'checked':''} style="width:auto;min-height:0"> ${esc(c)}</label>`).join('');
+const selCorsi=()=>[...document.querySelectorAll('input[name=crs]:checked')].map(c=>c.value);
+const setCorsi=l=>{const el=document.getElementById('crs');if(el)el.innerHTML=corsiHtml(Array.isArray(l)?l:[])};
 function resetForm(){
   setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');gradoSel('');gdMap={};$('#gd').value='';if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;setCorsi([]);
   $('#ft').textContent='Nuovo atleta';$('#sv').textContent='Salva atleta';$('#cx').hidden=true;$('#er').textContent=''}
@@ -293,7 +296,7 @@ function edit(it){
 async function save(){
   const v={};F.forEach(([e,k])=>v[k]=$('#'+e).value.trim());
   v.peso=v.peso.replace(',','.');
-  v.corsi=[...document.querySelectorAll('input[name=crs]:checked')].map(c=>c.value);
+  v.corsi=selCorsi();
   const er=$('#er');
   if(!v.nome||!v.cognome){er.textContent='Inserisci nome e cognome.';return}
   if(v.anno&&!(/^\d{4}$/.test(v.anno)&&+v.anno>=1900&&+v.anno<=new Date().getFullYear())){er.textContent='L’anno di nascita deve avere 4 cifre.';return}
@@ -469,11 +472,11 @@ function renderList(){
   const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,idAtleta(i),isAdm()?mailOf(i.id):'',TIPO[i.tipo],(i.corsi||[]).join(' '),i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
   const all=items.filter(i=>i.nome||i.cognome||i.title);
   const ok={all:()=>true,test:testDaFare,preagonista:i=>i.tipo==='preagonista',agonista:i=>i.tipo==='agonista',dilettante:i=>i.tipo==='dilettante'};
-  CORSI.forEach(c=>ok['c:'+c]=i=>(i.corsi||[]).includes(c));
+  elencoCorsi().forEach(c=>ok['c:'+c]=i=>(i.corsi||[]).includes(c));
   const list=all.filter(i=>(!t||hay(i).includes(t))&&(ok[flt]||ok.all)(i))
     .sort((a,b)=>(a.cognome||nameOf(a)).localeCompare(b.cognome||nameOf(b),'it')||(a.nome||'').localeCompare(b.nome||'','it'));
   const nd=all.filter(testDaFare).length;
-  ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="test" ${flt==='test'?'selected':''}>Test da fare (${nd})</option><option value="preagonista" ${flt==='preagonista'?'selected':''}>Pre-agonisti (${all.filter(ok.preagonista).length})</option><option value="agonista" ${flt==='agonista'?'selected':''}>Agonisti (${all.filter(ok.agonista).length})</option><option value="dilettante" ${flt==='dilettante'?'selected':''}>Dilettanti (${all.filter(ok.dilettante).length})</option>${CORSI.map(c=>`<option value="c:${c}" ${flt==='c:'+c?'selected':''}>Corso ${c} (${all.filter(ok['c:'+c]).length})</option>`).join('')}</select></div>`+
+  ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="test" ${flt==='test'?'selected':''}>Test da fare (${nd})</option><option value="preagonista" ${flt==='preagonista'?'selected':''}>Pre-agonisti (${all.filter(ok.preagonista).length})</option><option value="agonista" ${flt==='agonista'?'selected':''}>Agonisti (${all.filter(ok.agonista).length})</option><option value="dilettante" ${flt==='dilettante'?'selected':''}>Dilettanti (${all.filter(ok.dilettante).length})</option>${elencoCorsi().map(c=>`<option value="c:${esc(c)}" ${flt==='c:'+c?'selected':''}>Corso ${esc(c)} (${all.filter(ok['c:'+c]).length})</option>`).join('')}</select></div>`+
   (list.length?list.map(i=>{
     const sub=[i.categoria,i.peso&&i.peso+' kg',i.anno,i.allenatore&&'all. '+i.allenatore].filter(Boolean).join(' · ');
     const tt=tessOf(i.id);
@@ -506,6 +509,7 @@ else{
         unsubs.push(onSnapshot(collection(db,'atletiModifiche'),s=>{mods={};s.docs.forEach(d=>mods[d.id]=d.data());renderList()},()=>{mods={}}))}
       if(!unsubs.itemsSub){unsubs.itemsSub=1;
         unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
+        unsubs.push(seguiCorsi(onSnapshot,collection(db,'sections','corsi','items'),()=>{setCorsi(selCorsi());renderList()}));
         unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{tess=s.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.kind==='tessera');renderList()},()=>{tess=[]}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));

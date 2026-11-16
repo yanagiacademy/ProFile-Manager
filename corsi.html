@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Corsi – ProFile Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="stile.css">
+<style>
+.hd{display:flex;gap:6px 12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;min-width:0}
+.lgbox{background:#1B2A4A;border-radius:10px;padding:6px 10px;display:inline-flex;flex:none}
+.lgbox img{height:52px;width:auto;display:block}
+.cors{display:flex;flex-direction:column;gap:8px}
+.cr{display:block;width:100%;text-align:left;min-height:56px;padding:10px 12px;border:1px solid var(--ln);border-radius:10px;background:var(--sf,#fff);color:inherit;font:inherit;cursor:pointer;min-width:0}
+.cr:hover{border-color:var(--ac2,var(--ac))}
+.cr b{display:block}
+.cr .mu{display:block;overflow-wrap:anywhere}
+.dl{margin:10px 0 0}
+.dl dt{font-size:.8rem;color:var(--mu);margin-top:10px}
+.dl dd{margin:2px 0 0;overflow-wrap:anywhere;white-space:pre-wrap}
+.ds{white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0}
+.dlg textarea{min-height:110px}
+</style>
+<script src="tema.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<div class="clock" id="clock"></div>
+<script type="module" src="corsi.js"></script>
+</body>
+</html>

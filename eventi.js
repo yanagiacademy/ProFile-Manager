@@ -8,7 +8,7 @@ import {memoBar} from "./promemoria.js";
 import {archivio,limiteMB} from "./archivio.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {isD,fmtD,giorni} from "./atleti-scadenze.js";
-import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
+import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -459,6 +459,7 @@ else{
         else{
           unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));migraDest();riallineaDest();renderList()},()=>{}));
           if(isAdmin()){
+            unsubs.push(seguiCorsi(onSnapshot,collection(db,'sections','corsi','items')));
             unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>!a.kind||a.kind==='atleta');renderDest()},()=>{}));
             unsubs.push(fon(fcol(db,'atletiMail'),s=>{mails={};s.docs.forEach(d=>mails[d.id]=d.data());mailsOk=true;renderDest();riallineaDest()},()=>{}))}}
         unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):''},()=>{}));

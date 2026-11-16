@@ -11,7 +11,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {collection as fcol,getDocs as fget} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {GIORNI,ORDINE,ETICHETTE,ymd,fmtGiorno,statoPausa,occorrenze,quando} from "./calendario-core.js";
-import {gruppiHtml,gruppiBind,criteriHtml,leggiCriteri,scriviCriteri,erroreCriteri,pulisciCriteri,corrisponde,regolaTxt} from "./gruppi-atleti.js";
+import {seguiCorsi,gruppiHtml,gruppiBind,criteriHtml,leggiCriteri,scriviCriteri,erroreCriteri,pulisciCriteri,corrisponde,regolaTxt} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -230,5 +230,6 @@ else{
       unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));riallinea();paintAll()},e=>{console.error('calendario',e);const r=$('#rt');if(r)r.innerHTML='<p class="err" role="alert">Impossibile leggere il calendario. Controlla la connessione e l’accesso a Telegram (Chat).</p>'}));
       unsubs.push(onSnapshot(doc(db,'app','routine'),s=>{cfg=s.exists()?s.data():null;paintAll()},()=>{}));
       unsubs.push(onSnapshot(collection(db,'sections','eventi','items'),s=>{evs=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>i.kind==='evento');paintAll()},()=>{}));
+      unsubs.push(seguiCorsi(onSnapshot,collection(db,'sections','corsi','items')));
       unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>!a.kind||a.kind==='atleta');paintAgenda()},()=>{}));
       collegamenti().then(()=>{riallinea();paintAll()})},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}))})}

@@ -9,7 +9,14 @@
 import {GRADI,gradoLabel,livDaGrado} from "./gradi.js";
 export const TIPI=[['preagonista','Pre-agonista'],['dilettante','Dilettante'],['agonista','Agonista']];
 export const TIPO_LAB=Object.fromEntries(TIPI);
-export const CORSI=['Kata','Judo kids','Judo'];
+/* Elenco dei corsi: i NOMI dei corsi della scheda Corsi (sections/corsi/items). Finché lì non c'è nessun corso (o non è leggibile) valgono i tre di partenza. */
+const CORSI_BASE=['Kata','Judo kids','Judo'];
+let lista=[...CORSI_BASE];
+export const elencoCorsi=()=>lista;
+/* si abbona ai corsi: onSnapshot e collection vengono da fsx.js della pagina; dopo() = ridisegna ciò che dipende dall'elenco; restituisce la funzione per smettere */
+export const seguiCorsi=(onSnapshot,col,dopo)=>onSnapshot(col,s=>{
+  const n=[...new Set(s.docs.map(d=>d.data()).filter(x=>x&&x.nome).map(x=>String(x.nome)))].sort((a,b)=>a.localeCompare(b,'it'));
+  lista=n.length?n:[...CORSI_BASE];if(dopo)dopo()},()=>{});
 export const corsiDi=a=>Array.isArray(a&&a.corsi)?a.corsi:[];
 export const filtroVuoto=f=>!f||(!f.tipo&&!f.da&&!f.a&&!f.corso);
 export function corrisponde(a,f){
@@ -31,7 +38,7 @@ export function regolaTxt(f){
 /* i quattro criteri; attr = nome dell'attributo che li identifica (data-g per «Seleziona per gruppo», data-r per la regola) */
 export const criteriHtml=(attr='data-g')=>`<label>Tipologia</label><select ${attr}="tipo"><option value="">Qualsiasi</option>${TIPI.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div style="min-width:0"><label>Grado da</label><select ${attr}="da"><option value="">Qualsiasi</option>${gradi()}</select></div><div style="min-width:0"><label>Grado a</label><select ${attr}="a"><option value="">Qualsiasi</option>${gradi()}</select></div></div>
-  <label>Corso</label><select ${attr}="corso"><option value="">Qualsiasi</option>${CORSI.map(c=>`<option>${c}</option>`).join('')}</select>`;
+  <label>Corso</label><select ${attr}="corso"><option value="">Qualsiasi</option>${elencoCorsi().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
 export const leggiCriteri=(root,attr='data-g')=>{const v=k=>root.querySelector('['+attr+'='+k+']').value;return {tipo:v('tipo'),da:+v('da')||0,a:+v('a')||0,corso:v('corso')}};
 export const scriviCriteri=(root,f,attr='data-g')=>{f=f||{};const s=(k,v)=>{root.querySelector('['+attr+'='+k+']').value=v||''};s('tipo',f.tipo);s('da',f.da);s('a',f.a);s('corso',f.corso)};
 /* messaggio se i criteri non vanno bene, altrimenti '' */

@@ -5,7 +5,7 @@ import {firebaseConfig} from "./firebase-config.js";
 import {archivio,limiteMB} from "./archivio.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,guessMime,okThumb} from "./file-tools.js";
-import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
+import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -252,6 +252,7 @@ else{
       if(shellFor!==perm())shell();
       if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
       if(!atlSub){atlSub=true;        /* l'elenco atleti serve anche al conteggio ore (chi non ha la lettura su Atleti vede solo chi compare nelle lezioni) */
+        unsubs.push(seguiCorsi(onSnapshot,collection(db,'sections','corsi','items')));
         unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>(!a.kind||a.kind==='atleta')&&(a.nome||a.cognome||a.title));atlErr=false;renderAtl();renderOre()},()=>{atl=[];atlErr=true;renderAtl();renderOre()}))}
       if(!persSub){persSub=true;unsubs.push(onSnapshot(collection(db,'comeAtleta'),s=>{pers=s.docs.map(d=>({id:d.id,...d.data()}));renderAtl();renderOre()},()=>{pers=[]}))}
       renderList();
