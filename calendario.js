@@ -143,10 +143,10 @@ const orario=i=>i.ora?i.ora+(i.oraFine?'–'+i.oraFine:''):'';
 function paintPausa(){
   const el=$('#pausa');if(!el)return;
   const oggi=ymd(new Date()),st=statoPausa(cfg,oggi),mot=cfg&&cfg.motivo?esc(cfg.motivo):'';
-  const t={off:'<b>Le routine sono attive.</b> <span class="mu">Per Natale, Pasqua, estate o altri stop usa «Sospendi le routine».</span>',
-    attiva:`<b>Routine in pausa</b>${mot?' · '+mot:''}<div class="mu">${cfg.finoAl?'Ripartono da sole dal giorno dopo il '+esc(fmtGiorno(cfg.finoAl))+'.':'Restano ferme finché non le riattivi.'}${cfg.dal?' Pausa iniziata il '+esc(fmtGiorno(cfg.dal))+'.':''}</div>`,
-    programmata:`<b>Pausa programmata</b>${mot?' · '+mot:''}<div class="mu">Dal ${esc(fmtGiorno(cfg.dal))}${cfg.finoAl?' al '+esc(fmtGiorno(cfg.finoAl)):''}. Fino ad allora le routine continuano.</div>`,
-    scaduta:`<b>La pausa${mot?' ('+mot+')':''} è finita</b><div class="mu">Il ${esc(fmtGiorno(cfg.finoAl))} era l’ultimo giorno: le routine sono ripartite da sole.</div>`}[st];
+  const t={off:()=>'<b>Le routine sono attive.</b> <span class="mu">Per Natale, Pasqua, estate o altri stop usa «Sospendi le routine».</span>',
+    attiva:()=>`<b>Routine in pausa</b>${mot?' · '+mot:''}<div class="mu">${cfg.finoAl?'Ripartono da sole dal giorno dopo il '+esc(fmtGiorno(cfg.finoAl))+'.':'Restano ferme finché non le riattivi.'}${cfg.dal?' Pausa iniziata il '+esc(fmtGiorno(cfg.dal))+'.':''}</div>`,
+    programmata:()=>`<b>Pausa programmata</b>${mot?' · '+mot:''}<div class="mu">Dal ${esc(fmtGiorno(cfg.dal))}${cfg.finoAl?' al '+esc(fmtGiorno(cfg.finoAl)):''}. Fino ad allora le routine continuano.</div>`,
+    scaduta:()=>`<b>La pausa${mot?' ('+mot+')':''} è finita</b><div class="mu">Il ${esc(fmtGiorno(cfg.finoAl))} era l’ultimo giorno: le routine sono ripartite da sole.</div>`}[st]();
   el.innerHTML=`<div class="pz${st==='attiva'||st==='programmata'?' on':''}">${t}<div class="dact"><button class="btn${st==='off'?' ghost':''}" id="bp">${st==='off'?'Sospendi le routine':st==='scaduta'?'Chiudi la pausa':'Riattiva le routine'}</button>${st==='attiva'||st==='programmata'?'<button class="btn ghost" id="bm">Modifica la pausa</button>':''}</div><p class="err" id="erP" role="alert"></p></div>`;
   $('#bp').onclick=e=>st==='off'?formPausa():riattiva(e.target);
   if($('#bm'))$('#bm').onclick=formPausa}
