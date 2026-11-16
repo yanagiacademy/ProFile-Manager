@@ -8,6 +8,7 @@ import {memoBar} from "./promemoria.js";
 import {archivio,limiteMB} from "./archivio.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {isD,fmtD,giorni} from "./atleti-scadenze.js";
+import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -151,6 +152,7 @@ function shell(){
       <label class="ck"><input type="radio" name="dm" value="tutti" checked> Tutti gli atleti</label>
       <label class="ck"><input type="radio" name="dm" value="scelti"> Solo gli atleti che scelgo</label>
       <div id="dsel" hidden>
+        ${gruppiHtml()}
         <input id="dq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off" style="margin-top:6px">
         <div class="fr"><span class="mu" id="dn" role="status"></span><span><button type="button" class="btn ghost sm" id="dall">Seleziona i visibili</button> <button type="button" class="btn ghost sm" id="dnone">Nessuno</button></span></div>
         <div id="dls" class="dlst"></div>
@@ -189,6 +191,7 @@ function shell(){
     $('#dq').oninput=e=>{dq=e.target.value;renderDest()};
     $('#dall').onclick=()=>{visibili().forEach(a=>sel.add(a.id));renderDest()};
     $('#dnone').onclick=()=>{sel.clear();renderDest()};
+    gruppiBind($('#dsel'),{atleti:()=>atl,getSel:()=>sel,dopo:()=>renderDest()});
     $('#dls').onchange=e=>{const c=e.target.closest('[data-d]');if(!c)return;c.checked?sel.add(c.dataset.d):sel.delete(c.dataset.d);$('#dn').textContent=contaSel()}}
 }
 const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['qh','quotaHotel'],['nt','nota']];

@@ -267,7 +267,7 @@ function paintDetail(){
   const fbox=(f,ko,kd)=>f?`<div class="fr"><span class="mu">${esc(f.title)}</span><button class="btn sm" data-a="${kd}">Scarica</button><button class="btn ghost sm" data-a="${ko}">Apri</button></div>`:'<div class="mu" style="margin-top:4px">Nessun file caricato.</div>';
   c.innerHTML=`<h2 style="margin:0">${esc(nameOf(r))}${r.tec?'<span class="gr">Tecnico</span>':''}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${t?chip('Tessera',t.scadenza)+chip('Certificato',t.certScad):'<span class="chip">Senza tessera</span>'}</div>
-    <h3>Tessera</h3><dl>${dd('Ente / federazione',esc(t&&t.ente||''))}${dd('Numero tessera (ID '+(r.tec?'tecnico':'atleta')+')',esc(t&&t.numero||''))}${dd('Tipo di tessera',esc(t&&t.tipoTessera||''))}${dd('Stagione',esc(t&&t.stagione||''))}${dd('Data emissione',t&&isD(t.emissione)?esc(fmtD(t.emissione)):'')}${dd('Scadenza',t&&isD(t.scadenza)?esc(fmtD(t.scadenza)):'')}${dd('Associazione',esc(t&&t.associazione||''))}${dd('Qualifica',esc(t&&t.qualifica||''))}${dd('Sport',esc(t&&t.sport||''))}${dd('Comitato',esc(t&&t.comitato||''))}${dd('Codice affiliazione',esc(t&&t.codAff||''))}${dd('Codice fiscale',esc(t&&t.cf||''))}</dl>${fbox(ft,'ot','dt')}
+    <h3>Tessera</h3><dl>${dd('Ente / federazione',esc(t&&t.ente||''))}${dd('Numero tessera (ID '+(r.tec?'tecnico':'atleta')+')',esc(t&&t.numero||''))}${dd('Tipo di tessera',esc(t&&t.tipoTessera||''))}${dd('Data emissione',t&&isD(t.emissione)?esc(fmtD(t.emissione)):'')}${dd('Scadenza',t&&isD(t.scadenza)?esc(fmtD(t.scadenza)):'')}${dd('Associazione',esc(t&&t.associazione||''))}${dd('Qualifica',esc(t&&t.qualifica||''))}${dd('Sport',esc(t&&t.sport||''))}${dd('Comitato',esc(t&&t.comitato||''))}${dd('Codice affiliazione',esc(t&&t.codAff||''))}${dd('Codice fiscale',esc(t&&t.cf||''))}</dl>${fbox(ft,'ot','dt')}
     <h3>Certificato medico</h3><dl>${dd('Tipo',esc(t&&t.certTipo||''))}${dd('Scadenza',t&&isD(t.certScad)?esc(fmtD(t.certScad)):'')}</dl>${fbox(fc,'oc','dc')}
     ${r.tec?tesBlock(r,w):''}
     ${t&&t.nota?`<h3>Note</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(t.nota)}</div>`:''}
@@ -292,7 +292,7 @@ function openEdit(r){
       <div class="ocr" id="ot">${ftOld?'Caricata: '+esc(ftOld.title)+'.':'Con una foto o un PDF i dati si compilano da soli: poi controllali.'}</div>
       ${ftOld?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rt" style="width:auto;min-height:0"> Togli la tessera caricata (va in Archivio)</label>':''}
       <div class="two"><div><label for="en">Ente / federazione</label><input id="en" type="text" list="le" autocomplete="off" value="${esc(t.ente||'')}"><datalist id="le">${ENTI.map(e=>`<option value="${e}">`).join('')}</datalist></div><div><label for="nu">Numero tessera (ID)</label><input id="nu" type="text" autocomplete="off" value="${esc(t.numero||'')}"></div></div>
-      <div class="two"><div><label for="tp">Tipo di tessera</label><input id="tp" type="text" autocomplete="off" value="${esc(t.tipoTessera||'')}"></div><div><label for="sg">Stagione</label><input id="sg" type="text" autocomplete="off" placeholder="es. 25/26" value="${esc(t.stagione||'')}"></div></div>
+      <label for="tp">Tipo di tessera</label><input id="tp" type="text" autocomplete="off" value="${esc(t.tipoTessera||'')}">
       <div class="two"><div><label for="em">Data emissione / rilascio</label><input id="em" type="date" value="${esc(t.emissione||'')}"></div><div><label for="sc">Scadenza tessera</label><input id="sc" type="date" value="${esc(t.scadenza||'')}"></div></div>
       <label for="as">Associazione</label><input id="as" type="text" autocomplete="off" value="${esc(t.associazione||'')}">
       <div class="two"><div><label for="ql">Qualifica</label><input id="ql" type="text" autocomplete="off" value="${esc(t.qualifica||'')}"></div><div><label for="sp">Sport</label><input id="sp" type="text" autocomplete="off" value="${esc(t.sport||'')}"></div></div>
@@ -316,7 +316,7 @@ function openEdit(r){
         cognome=title(g('nc'));nome=title(g('nn'));
         if(!cognome||!nome){er.textContent='Inserisci cognome e nome del nuovo atleta.';return false}
       }else{const a=atl.find(x=>x.id===sel)||tec.find(x=>x.id===sel);isTec=!atl.some(x=>x.id===sel);aid=sel;nome=a.nome||'';cognome=a.cognome||a.title||''}}
-    const v={ente:g('en'),numero:g('nu').toUpperCase(),tipoTessera:g('tp'),stagione:g('sg'),emissione:g('em'),scadenza:g('sc'),associazione:g('as'),qualifica:g('ql'),sport:g('sp').toUpperCase(),comitato:g('cm'),codAff:g('ca'),cf:g('cf').toUpperCase().replace(/\s+/g,''),certTipo:g('ct'),certScad:g('cd'),nota:g('nt')};
+    const v={ente:g('en'),numero:g('nu').toUpperCase(),tipoTessera:g('tp'),emissione:g('em'),scadenza:g('sc'),associazione:g('as'),qualifica:g('ql'),sport:g('sp').toUpperCase(),comitato:g('cm'),codAff:g('ca'),cf:g('cf').toUpperCase().replace(/\s+/g,''),certTipo:g('ct'),certScad:g('cd'),nota:g('nt')};
     for(const [k,l] of [['emissione','La data di emissione'],['scadenza','La scadenza della tessera'],['certScad','La scadenza del certificato']])if(v[k]&&!isD(v[k])){er.textContent=l+' non è valida.';return false}
     if(v.emissione&&v.scadenza&&v.emissione>v.scadenza){er.textContent='La scadenza della tessera è prima dell’emissione.';return false}
     const ft=o.querySelector('#ft').files[0],fc=o.querySelector('#fc').files[0];
@@ -354,7 +354,7 @@ function openEdit(r){
       const text=await ocr(f,say),set=(id,val)=>{if(val)o.querySelector('#'+id).value=val},got=[],avv=[];
       if(kind==='t'){
         const p=parseTessera(text,atl.concat(tec));
-        [['en',p.ente,'ente'],['nu',p.numero,'numero'],['tp',p.tipoTessera,'tipo'],['sg',p.stagione,'stagione'],['em',p.emissione,'emissione'],['sc',p.scadenza,'scadenza'],['as',p.associazione,'associazione'],['ql',p.qualifica,'qualifica'],['sp',p.sport,'sport'],['cm',p.comitato,'comitato'],['ca',p.codAff,'codice affiliazione'],['cf',p.cf,'codice fiscale']].forEach(([id,v,l])=>{if(v){set(id,v);got.push(l)}});
+        [['en',p.ente,'ente'],['nu',p.numero,'numero'],['tp',p.tipoTessera,'tipo'],['em',p.emissione,'emissione'],['sc',p.scadenza,'scadenza'],['as',p.associazione,'associazione'],['ql',p.qualifica,'qualifica'],['sp',p.sport,'sport'],['cm',p.comitato,'comitato'],['ca',p.codAff,'codice affiliazione'],['cf',p.cf,'codice fiscale']].forEach(([id,v,l])=>{if(v){set(id,v);got.push(l)}});
         if(ta){
           if(p.atleta){ta.value=p.atleta;ta.onchange();got.push('atleta')}
           else if(canNewAtl()&&(p.cognomeRil||p.nomeRil)){ta.value='__new';ta.onchange();set('nc',p.cognomeRil);set('nn',p.nomeRil);got.push('nuovo atleta (cognome e nome da controllare)')}}

@@ -78,9 +78,6 @@ export function parseTessera(text,atl=[]){
   if(tp)out.tipoTessera=clean(tp[1]);
   const em=ds.find(x=>/emiss|rilasc|iscriz|affiliaz|data tessera/.test(x.ctx));if(em)out.emissione=em.iso;
   const sc=pickScad(ds);if(sc){out.scadenza=sc.v;if(sc.dedotta)out.dedotta='data';}
-  /* stagione sportiva "25/26" (non confondere con le date gg/mm/aaaa) */
-  const sg=t.match(/(?<![\d\/.])(\d{2})\s*\/\s*(\d{2})(?![\d\/.])/);
-  if(sg&&+sg[2]===+sg[1]+1)out.stagione=sg[1]+'/'+sg[2];
   /* se la scadenza non è stampata: rilascio + 1 anno - 1 giorno (valore calcolato, da verificare) */
   if(!out.scadenza&&out.emissione){out.scadenza=scadDaEmissione(out.emissione);out.dedotta='rilascio'}
   /* dati stampati con etichetta */

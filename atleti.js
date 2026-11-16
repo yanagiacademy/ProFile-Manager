@@ -7,6 +7,7 @@ import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,test
 import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {GRADI_LAB,livDaGrado,gradoCanon} from "./gradi.js";
+import {CORSI} from "./gruppi-atleti.js";
 /* gradiData = {livello: "AAAA-MM-GG"}: giorno in cui l'atleta ha avuto quel grado (dal cambio del grado in anagrafica). Serve all'attestato in Esami. */
 const gdOggi=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
 const gdIT=iso=>/^\d{4}-\d{2}-\d{2}$/.test(iso||"")?iso.split("-").reverse().join("/"):"";
@@ -123,7 +124,7 @@ function mioCardsBase(){
   if(!mioId)return err;
   return mioSel()+err+`<div class="card dl"><h2 style="margin:0">${esc(nome||[mioCur('nome'),mioCur('cognome')].filter(Boolean).join(' '))}</h2>${mioDatiHtml()}${mioExtraHtml()}</div>
   ${mioT?`<div class="card dl" style="margin-top:12px"><h2 style="margin:0">Tessera e certificato</h2><div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${mioChip('Tessera',t.scadenza)}${mioChip('Certificato',t.certScad)}</div>
-    <h3>Tessera</h3><dl>${d('Ente / federazione',t.ente)}${d('Numero tessera (ID atleta)',t.numero)}${d('Tipo di tessera',t.tipoTessera)}${d('Stagione',t.stagione)}${d('Data emissione',isD(t.emissione)?fmtD(t.emissione):'')}${d('Scadenza',isD(t.scadenza)?fmtD(t.scadenza):'')}${d('Associazione',t.associazione)}</dl>
+    <h3>Tessera</h3><dl>${d('Ente / federazione',t.ente)}${d('Numero tessera (ID atleta)',t.numero)}${d('Tipo di tessera',t.tipoTessera)}${d('Data emissione',isD(t.emissione)?fmtD(t.emissione):'')}${d('Scadenza',isD(t.scadenza)?fmtD(t.scadenza):'')}${d('Associazione',t.associazione)}</dl>
     <h3>Certificato medico</h3><dl>${d('Tipo',t.certTipo)}${d('Scadenza',isD(t.certScad)?fmtD(t.certScad):'')}</dl>
     ${mioFiles()}${mioUpHtml()}</div>`:(mioErr?'':`<div class="card dl" style="margin-top:12px"><h2 style="margin:0">Tessera e certificato</h2><div class="mu" style="margin-top:6px">Non c’è ancora una tessera: caricala tu, l’admin la controlla e la conferma.</div>${mioUpHtml()}</div>`)}`}
 /* riquadro fisso in cima alla sezione Atleti per l'atleta che ha anche accesso alla sezione (lettura/scrittura) */
@@ -154,7 +155,7 @@ const ATL_KEYS=ATL_EDIT.map(x=>x[0]);
 const datiOf=o=>{const r={};ATL_KEYS.forEach(k=>r[k]=String((o&&o[k])??'').trim());r.medaglie=Array.isArray(o&&o.medaglie)?o.medaglie:[];r.test=Array.isArray(o&&o.test)?o.test:[];r.gradiData=gdOf(o);return r};      /* medagliere e test servono all'atleta per vederli, non sono modificabili da lui direttamente */
 const diffKeys=(it,campi)=>campi?ATL_KEYS.filter(k=>k in campi&&String(campi[k]??'').trim()!==String(it[k]??'').trim()):[];
 const modKeys=it=>diffKeys(it,mods[it.id]&&mods[it.id].campi);
-const noteOf=v=>[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300);
+const noteOf=v=>[v.grado,v.categoria,v.peso&&v.peso+' kg',TIPO[v.tipo],(v.corsi||[]).join(', '),v.allenatore,v.obiettivi,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300);
 const synced2=new Map(),sigRic=new Map();
 /* ricevuteAtleti/<id> = solo nome e cognome: serve a chi carica le ricevute (commercialista) senza dargli la lettura su Atleti */
 function syncDati(){
@@ -203,7 +204,7 @@ const lines=s=>String(s||'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
 const uidn=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const p2=n=>String(n).padStart(2,'0');
 const todayStr=()=>{const n=new Date();return n.getFullYear()+'-'+p2(n.getMonth()+1)+'-'+p2(n.getDate())};
-const TIPO={agonista:'Agonista',dilettante:'Dilettante'};
+const TIPO={preagonista:'Pre-agonista',dilettante:'Dilettante',agonista:'Agonista'};
 const POSTO={'1':'🥇 1° posto','2':'🥈 2° posto','3':'🥉 3° posto','5':'5° posto','P':'Partecipazione'};
 /* Tipi di test predefiniti (modificabili per ogni atleta quando si registra una rilevazione) */
 const DEF_TEST=['CMJ','1RM p.piana+squat','Sprint 30m','Illinois Agility test','Test di Cooper','SJFT'];
@@ -241,7 +242,8 @@ function shell(){
       <div class="two"><div><label for="gr">Grado</label><select id="gr"><option value=""></option>${GRADI_LAB.map(x=>`<option value="${x}">${x}</option>`).join('')}</select><div class="mu" style="font-size:.8rem;margin-top:4px">Dà accesso al materiale della scheda Esami fino a questo grado.</div><label for="gd">Data del grado</label><input id="gd" type="date"><div class="mu" style="font-size:.8rem;margin-top:4px">Si compila con oggi quando cambi il grado; è la data dell’attestato in Esami.</div></div><div><label for="ct">Categoria</label><input id="ct" type="text" list="lc" autocomplete="off"><datalist id="lc"></datalist></div></div>
       <div class="two"><div><label for="pe">Peso (kg)</label><input id="pe" type="text" inputmode="decimal" autocomplete="off"></div><div><label for="al">Altezza (cm)</label><input id="al" type="text" inputmode="numeric" autocomplete="off"></div></div>
       <div class="two"><div><label for="at">Allenatore</label><input id="at" type="text" list="la" autocomplete="off"><datalist id="la"></datalist></div>${isAdm()?'<div><label for="em">Email dell\'atleta (visibile solo all\'admin)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false"><div class="mu" style="font-size:.8rem;margin-top:4px">Più atleti possono avere la stessa email (es. un genitore con più figli): da quell’account si vedono tutte le schede.</div></div>':''}</div>
-      <label for="tp">Agonista o Dilettante</label><select id="tp"><option value=""></option><option value="agonista">Agonista</option><option value="dilettante">Dilettante</option></select>
+      <label for="tp">Tipologia</label><select id="tp"><option value=""></option><option value="preagonista">Pre-agonista</option><option value="dilettante">Dilettante</option><option value="agonista">Agonista</option></select>
+      <label>Corsi (può seguirne più di uno)</label><div id="crs" style="display:flex;gap:6px 16px;flex-wrap:wrap">${CORSI.map(c=>`<label class="mu" style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="crs" value="${c}" style="width:auto;min-height:0"> ${c}</label>`).join('')}</div>
     </fieldset>
     <fieldset><legend>Scheda tecnica</legend>
       <label for="ku">Kumi kata</label><input id="ku" type="text" autocomplete="off">
@@ -277,17 +279,19 @@ const F=[['nm','nome'],['cg','cognome'],['sx','sesso'],['an','anno'],['gr','grad
   ['ku','kumi'],['tw','tachi'],['nw','ne'],['rq','richieste'],['cn','cadN'],['cu','cadU'],['px','prossimo'],['pv','preavviso'],['cc','conclusioni'],['ob','obiettivi'],['inf','infortuni'],['nt','annotazioni']];
 function gradoSel(v){const s=$('#gr');if(!s)return;s.querySelectorAll('.leg').forEach(o=>o.remove());const c=gradoCanon(v);
   if(c&&!GRADI_LAB.includes(c)){const o=document.createElement('option');o.className='leg';o.value=c;o.textContent=c+' (non in elenco)';s.append(o)}s.value=c}
+const setCorsi=l=>document.querySelectorAll('input[name=crs]').forEach(c=>c.checked=Array.isArray(l)&&l.includes(c.value));
 function resetForm(){
-  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');gradoSel('');gdMap={};$('#gd').value='';if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;
+  setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');gradoSel('');gdMap={};$('#gd').value='';if($('#em'))$('#em').value='';$('#cu').value='m';$('#fbk').checked=false;setCorsi([]);
   $('#ft').textContent='Nuovo atleta';$('#sv').textContent='Salva atleta';$('#cx').hidden=true;$('#er').textContent=''}
 function edit(it){
-  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');gradoSel(it.grado);gdMap={...gdOf(it)};$('#gd').value=gdMap[livDaGrado(it.grado)]||'';if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;
+  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]??'');gradoSel(it.grado);gdMap={...gdOf(it)};$('#gd').value=gdMap[livDaGrado(it.grado)]||'';if($('#em'))$('#em').value=mailOf(it.id);if(!$('#cu').value)$('#cu').value='m';$('#fbk').checked=!!it.fb;setCorsi(it.corsi);
   $('#ft').textContent='Modifica atleta';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 
 async function save(){
   const v={};F.forEach(([e,k])=>v[k]=$('#'+e).value.trim());
   v.peso=v.peso.replace(',','.');
+  v.corsi=[...document.querySelectorAll('input[name=crs]:checked')].map(c=>c.value);
   const er=$('#er');
   if(!v.nome||!v.cognome){er.textContent='Inserisci nome e cognome.';return}
   if(v.anno&&!(/^\d{4}$/.test(v.anno)&&+v.anno>=1900&&+v.anno<=new Date().getFullYear())){er.textContent='L’anno di nascita deve avere 4 cifre.';return}
@@ -442,7 +446,7 @@ function paintDetail(){
   const medH=med.length?`<div style="margin:2px 0 6px"><b>🥇 ${cnt('1')} · 🥈 ${cnt('2')} · 🥉 ${cnt('3')}</b></div>`+med.map(m=>`<div class="row" style="padding:6px 0"><div>${esc(POSTO[m.posto]||m.posto)} · <b>${esc(m.gara)}</b>${m.data?` <span class="mu">${esc(fmtD(m.data))}</span>`:''}</div>${w?`<button class="xb" data-a="delM" data-i="${esc(m.id)}" aria-label="Togli dal medagliere">✕</button>`:''}</div>`).join(''):'<div class="mu">Nessuna medaglia registrata.</div>';
   c.innerHTML=`<h2 style="margin:0">${esc(nameOf(it))}${it.grado?`<span class="gr">${esc(it.grado)}</span>`:''}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px">${it.tipo?`<span class="chip">${esc(TIPO[it.tipo]||it.tipo)}</span>`:''}${testChip(it)}</div>
-    ${modBar}<h3>Dati anagrafici</h3><dl>${dm('Nome','nome')}${dm('Cognome','cognome')}${dm('Sesso','sesso')}${dm('Anno di nascita','anno')}${dd('Grado',it.grado)}${dd('Data del grado',gdIT(gdOf(it)[livDaGrado(it.grado)]))}${dd('Categoria',it.categoria)}${dm('Peso','peso',v=>v?v+' kg':'')}${dm('Altezza','altezza',v=>v?v+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipo',TIPO[it.tipo]||'')}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
+    ${modBar}<h3>Dati anagrafici</h3><dl>${dm('Nome','nome')}${dm('Cognome','cognome')}${dm('Sesso','sesso')}${dm('Anno di nascita','anno')}${dd('Grado',it.grado)}${dd('Data del grado',gdIT(gdOf(it)[livDaGrado(it.grado)]))}${dd('Categoria',it.categoria)}${dm('Peso','peso',v=>v?v+' kg':'')}${dm('Altezza','altezza',v=>v?v+' cm':'')}${dd('Allenatore',it.allenatore)}${dd('ID atleta (n. tessera)',idAtleta(it))}${dd('Tipologia',TIPO[it.tipo]||'')}${dd('Corsi',(it.corsi||[]).join(', '))}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
     <h3>Tecniche</h3><dl>${dd('Kumi kata',it.kumi)}</dl><div class="cols"><div><div class="mu" style="margin-top:6px">Tachi waza</div>${ul(it.tachi)}</div><div><div class="mu" style="margin-top:6px">Ne waza</div>${ul(it.ne)}</div></div>
     <h3>Medagliere${w?'<button class="btn ghost sm" data-a="addM">+ Aggiungi</button>':''}</h3>${medH}
     <h3>Richieste</h3>${bm('richieste')}
@@ -460,13 +464,14 @@ function paintDetail(){
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const t=q.trim().toLowerCase();
-  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,idAtleta(i),isAdm()?mailOf(i.id):'',TIPO[i.tipo],i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
+  const hay=i=>[nameOf(i),i.sesso,i.anno,i.grado,i.categoria,i.peso,i.allenatore,idAtleta(i),isAdm()?mailOf(i.id):'',TIPO[i.tipo],(i.corsi||[]).join(' '),i.kumi,i.tachi,i.ne,i.richieste,i.obiettivi,i.conclusioni,i.infortuni,i.annotazioni,...(i.medaglie||[]).map(m=>m.gara),...(i.test||[]).flatMap(s=>(s.r||[]).map(r=>r.n))].filter(Boolean).join(' ').toLowerCase();
   const all=items.filter(i=>i.nome||i.cognome||i.title);
-  const ok={all:()=>true,test:testDaFare,agonista:i=>i.tipo==='agonista',dilettante:i=>i.tipo==='dilettante'};
+  const ok={all:()=>true,test:testDaFare,preagonista:i=>i.tipo==='preagonista',agonista:i=>i.tipo==='agonista',dilettante:i=>i.tipo==='dilettante'};
+  CORSI.forEach(c=>ok['c:'+c]=i=>(i.corsi||[]).includes(c));
   const list=all.filter(i=>(!t||hay(i).includes(t))&&(ok[flt]||ok.all)(i))
     .sort((a,b)=>(a.cognome||nameOf(a)).localeCompare(b.cognome||nameOf(b),'it')||(a.nome||'').localeCompare(b.nome||'','it'));
   const nd=all.filter(testDaFare).length;
-  ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="test" ${flt==='test'?'selected':''}>Test da fare (${nd})</option><option value="agonista" ${flt==='agonista'?'selected':''}>Agonisti (${all.filter(ok.agonista).length})</option><option value="dilettante" ${flt==='dilettante'?'selected':''}>Dilettanti (${all.filter(ok.dilettante).length})</option></select></div>`+
+  ls.innerHTML=`<div class="flt"><select id="fs" aria-label="Filtro elenco"><option value="all" ${flt==='all'?'selected':''}>Tutti (${all.length})</option><option value="test" ${flt==='test'?'selected':''}>Test da fare (${nd})</option><option value="preagonista" ${flt==='preagonista'?'selected':''}>Pre-agonisti (${all.filter(ok.preagonista).length})</option><option value="agonista" ${flt==='agonista'?'selected':''}>Agonisti (${all.filter(ok.agonista).length})</option><option value="dilettante" ${flt==='dilettante'?'selected':''}>Dilettanti (${all.filter(ok.dilettante).length})</option>${CORSI.map(c=>`<option value="c:${c}" ${flt==='c:'+c?'selected':''}>Corso ${c} (${all.filter(ok['c:'+c]).length})</option>`).join('')}</select></div>`+
   (list.length?list.map(i=>{
     const sub=[i.categoria,i.peso&&i.peso+' kg',i.anno,i.allenatore&&'all. '+i.allenatore].filter(Boolean).join(' · ');
     const tt=tessOf(i.id);

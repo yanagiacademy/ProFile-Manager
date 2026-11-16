@@ -24,7 +24,7 @@ export const TIPO_LAB={agonista:'Agonista',dilettante:'Dilettante'};
 export const TIPO_RICH={tessera:'Tessera',certificato:'Certificato medico',tesserino:'Tesserino',medaglia:'Medaglia o risultato',test:'Rilevazione test'};
 export const POSTO={'1':'🥇 1° posto','2':'🥈 2° posto','3':'🥉 3° posto','5':'5° posto','P':'Partecipazione'};
 export const DEF_TEST=['CMJ','1RM p.piana+squat','Sprint 30m','Illinois Agility test','Test di Cooper','SJFT','Beep test','Peso'];
-const FIELD_TESSERA=[['ente','Ente / federazione','t'],['numero','Numero tessera','t'],['tipoTessera','Tipo di tessera','t'],['stagione','Stagione','t'],['emissione','Data emissione','D'],['scadenza','Scadenza tessera','D'],['associazione','Associazione','t']];
+const FIELD_TESSERA=[['ente','Ente / federazione','t'],['numero','Numero tessera','t'],['tipoTessera','Tipo di tessera','t'],['emissione','Data emissione','D'],['scadenza','Scadenza tessera','D'],['associazione','Associazione','t']];
 const FIELD_CERT=[['certTipo','Tipo di certificato',['agonistico','non agonistico']],['certScad','Scadenza certificato','D']];
 const FIELD_TESSERINO=[['ente','Ente / federazione','t'],['numero','Numero tesserino','t'],['emissione','Data emissione (facoltativa)','D'],['scadenza','Scadenza (facoltativa)','D'],['nota','Note','a']];
 /* etichette di tutti i campi, per mostrarli all'admin */

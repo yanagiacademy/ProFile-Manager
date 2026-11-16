@@ -11,6 +11,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc
 import {collection as fcol,getDocs as fget} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {GIORNI,ORDINE,ETICHETTE,ymd,fmtGiorno,statoPausa,occorrenze,quando} from "./calendario-core.js";
+import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -68,7 +69,7 @@ function modal(title,body,{ok='Salva',cancel='Annulla',onSave}={}){
 function destHtml(i){
   const sc=ristretto(i||{});
   return `<label>Per chi</label><label class="ck"><input type="radio" name="dm" value="tutti" ${sc?'':'checked'}> Tutti gli atleti</label><label class="ck"><input type="radio" name="dm" value="scelti" ${sc?'checked':''}> Solo alcuni atleti</label>
-  <div id="dsel" ${sc?'':'hidden'}><input id="dq" type="search" placeholder="Cerca un atleta" aria-label="Cerca un atleta"><div class="dls" id="dls"></div><div class="mu" id="dn"></div></div>`}
+  <div id="dsel" ${sc?'':'hidden'}>${gruppiHtml()}<input id="dq" type="search" placeholder="Cerca un atleta" aria-label="Cerca un atleta"><div class="dls" id="dls"></div><div class="mu" id="dn"></div></div>`}
 function bindDest(o,sel){
   const q=()=>(o.querySelector('#dq').value||'').trim().toLowerCase();
   const paint=()=>{
@@ -79,7 +80,8 @@ function bindDest(o,sel){
   o.addEventListener('change',e=>{
     if(e.target.name==='dm')paint();
     else if(e.target.dataset&&e.target.dataset.d){e.target.checked?sel.add(e.target.dataset.d):sel.delete(e.target.dataset.d);paint()}});
-  o.querySelector('#dq').oninput=paint;paint()}
+  o.querySelector('#dq').oninput=paint;
+  gruppiBind(o.querySelector('#dsel'),{atleti:()=>atl,getSel:()=>sel,dopo:paint});paint()}
 const destDaForm=(o,sel)=>(o.querySelector('input[name=dm]:checked')||{}).value==='scelti'?[...sel]:[];
 
 /* ---------- modulo routine / straordinario ---------- */

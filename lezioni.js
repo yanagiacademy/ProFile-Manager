@@ -5,6 +5,7 @@ import {firebaseConfig} from "./firebase-config.js";
 import {archivio,limiteMB} from "./archivio.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,guessMime,okThumb} from "./file-tools.js";
+import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -45,7 +46,7 @@ function shell(){
     <label for="tp">Tipologia lezione</label><input id="tp" type="text" list="lt" autocomplete="off"><datalist id="lt"></datalist>
     <div class="two"><div><label for="or">N. ore lezione</label><select id="or"><option value="">Seleziona…</option>${ORE.map(n=>`<option value="${n}">${fmtOre(n)}</option>`).join('')}</select></div>
       <div><label id="prlb">Atleti presenti</label><details class="dd" id="pr"><summary id="prs" aria-labelledby="prlb prs">Nessun atleta selezionato</summary>
-        <div class="ddp"><input id="prq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off"><div class="acts"><button type="button" class="btn ghost sm" id="pra">Seleziona tutti</button><button type="button" class="btn ghost sm" id="prn">Nessuno</button></div><div id="prl"></div></div></details></div></div>
+        <div class="ddp">${gruppiHtml()}<input id="prq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off"><div class="acts"><button type="button" class="btn ghost sm" id="pra">Seleziona tutti</button><button type="button" class="btn ghost sm" id="prn">Nessuno</button></div><div id="prl"></div></div></details></div></div>
     <label for="rp">Rapporto della lezione</label><textarea id="rp" placeholder="Argomenti trattati, presenze, osservazioni…"></textarea>
     <label for="fl">Allega file (foto, video, PDF…)</label><input id="fl" type="file" multiple><div id="fls"></div>
     <p class="mu" style="margin:6px 0 0">Limite ${limiteMB()} MB per file. Puoi aggiungerne altri anche dopo, dalla riga della lezione.</p>
@@ -74,6 +75,7 @@ function shell(){
     $('#prq').oninput=renderAtl;
     $('#pra').onclick=()=>{visAtl().forEach(x=>{sel.add(x.id);selNames.set(x.id,x.n)});renderAtl()};
     $('#prn').onclick=()=>{sel.clear();renderAtl()};
+    gruppiBind($('#pr'),{atleti:()=>atl,getSel:()=>sel,dopo:m=>{m.forEach(a=>selNames.set(a.id,nameOf(a)));renderAtl()}});
     renderAtl();
     $('#fl').onchange=e=>{const add=[...e.target.files];e.target.value='';const big=add.find(f=>f.size>arch.maxBytes());
       if(big){$('#er').textContent='“'+big.name+'” supera il limite di '+limiteMB()+' MB.';return}
