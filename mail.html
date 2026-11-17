@@ -26,12 +26,11 @@ textarea{width:100%;min-height:160px;font:inherit}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,onSnapshot} from "./fsx.js";
+import {getFirestore,doc,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
-import {MAIL_URL} from "./mail-config.js";
 import {showPreview,saveBlob} from "./file-tools.js";
 import {memoBar} from "./promemoria.js";
-import {mostraNotifiche} from "./mail-notifiche.js";
+let MAIL_URL='INSERISCI';try{MAIL_URL=(await import('./mail-config.js')).MAIL_URL}catch(e){console.warn('mail-config.js non trovato')}
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -141,7 +140,7 @@ function render(){
   if(mode==='not'){
     const bk=document.createElement('p');bk.style.margin='0 0 10px';bk.innerHTML='<button class="btn ghost sm" id="bkm">← Posta</button>';$('#ntv').before(bk);
     $('#bkm').onclick=()=>{mode='list';history.replaceState(null,'',location.pathname+location.search);loadList(false)};
-    mostraNotifiche({db:dbRef,root:$('#ntv')});return}
+    import('./mail-notifiche.js').then(async m=>{const F=await import('./fsx.js');m.mostraNotifiche({db:F.getFirestore(auth.app),root:$('#ntv')})}).catch(e=>{console.error(e);const v=$('#ntv');if(v)v.innerHTML='<div class="card"><p class="err">Impossibile aprire le notifiche: '+esc(e.message||e)+'</p></div>'});return}
   if(mode==='list'){
     let t;$('#q').oninput=e=>{q=e.target.value;clearTimeout(t);t=setTimeout(()=>loadList(false),600)};
     if($('#nw'))$('#nw').onclick=()=>{files=[];mode='new';render();bindForm('new')};
