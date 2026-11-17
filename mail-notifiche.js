@@ -59,7 +59,7 @@ export async function mostraNotifiche({db,root,url}){
       <div class="btns"><button class="btn" id="go">Invia ora</button><button class="btn ghost" id="no">Annulla</button></div></div>`}
 
   function disegna(){
-    const c=S.cfg||{atleti:false,admin:false,ricevute:false,esiti:false,eventiAuto:false,giorni:[30,7,1],ora:9,indirizziAdmin:[]};
+    const c=S.cfg||{atleti:false,admin:false,ricevute:false,esiti:false,eventiAuto:false,giorni:[30,7,1],ora:9,indirizziAdmin:['info.judoyanagi@gmail.com']};
     const evs=S.evs.filter(e=>S.tutti||(!e.chiuso&&!(isD(e.data)&&e.data<oggi())));
     const ck=(id,on,t,sub)=>`<label class="ck"><input type="checkbox" id="${id}"${on?' checked':''}><span>${t}${sub?`<br><span class="mu">${sub}</span>`:''}</span></label>`;
     root.innerHTML=`<div class="nt">
@@ -133,6 +133,6 @@ export async function mostraNotifiche({db,root,url}){
         try{S.reg=await leggiRegistro(db)}catch(x){}
       }catch(x){S.log=x.message}
       disegna()};
-    q('#stato').onclick=async()=>{occ(0,1);const fine=()=>{q('#stt').textContent=S.stato;occ(0,0)};try{const r=await statoMail(db);S.stato='Il ponte risponde. Mail ancora spedibili oggi: '+r.quota+' · in coda: '+r.inCoda+(r.prossimo?' · prossima: '+fmtTs(r.prossimo):'')+(r.trigger===false?' · ATTENZIONE: l’attività che spedisce la coda non è installata (esegui «autorizza» nello script).':'')}catch(x){S.stato=x.message}fine()};
+    q('#stato').onclick=async()=>{occ(0,1);const fine=()=>{q('#stt').textContent=S.stato;occ(0,0)};try{const r=await statoMail(db);S.stato='Il ponte risponde'+(r.mittente?' (invia da '+r.mittente+')':'')+'. Mail ancora spedibili oggi: '+r.quota+' · in coda: '+r.inCoda+(r.prossimo?' · prossima: '+fmtTs(r.prossimo):'')+(r.trigger===false?' · ATTENZIONE: l’attività che spedisce la coda non è installata (esegui «autorizza» nello script).':'')}catch(x){S.stato=x.message}fine()};
     q('#prova').onclick=async()=>{occ(0,1);const fine=()=>{q('#stt').textContent=S.stato;occ(0,0)};try{const a=listaMail(q('#c-ad').value);const r=await provaMail(db,a);S.stato=r.ok?'Mail di prova inviata a '+r.ok+(r.ok===1?' indirizzo.':' indirizzi.'):'Prova non riuscita: '+(r.dettagli.join('; ')||'nessun invio')}catch(x){S.stato=x.message}fine()}}
   await carica()}

@@ -11,6 +11,7 @@ const FIREBASE_API_KEY='INSERISCI';
 const PROJECT_ID='INSERISCI';
 /* ------------------------------------------------------------ */
 const NOME_MITTENTE='Yanagi Academy';
+const EMAIL_ASD='info.judoyanagi@gmail.com';          /* la casella da cui partono le mail: lo script va creato con QUESTO account */
 const PREFISSO='Q|';
 const MAX_CODA_BYTE=420000;          /* le proprietà dello script hanno 500 KB in tutto */
 const MAX_RITARDO=3*864e5;           /* una mail in coda non spedita entro 3 giorni dal suo momento viene scartata */
@@ -21,7 +22,8 @@ function autorizza(){
   MailApp.getRemainingDailyQuota();
   UrlFetchApp.fetch('https://www.google.com',{muteHttpExceptions:true});
   installaTrigger();
-  Logger.log('Autorizzato. Quota giornaliera residua: '+MailApp.getRemainingDailyQuota());
+  var chi=Session.getEffectiveUser().getEmail();
+  Logger.log(chi.toLowerCase()===EMAIL_ASD?'Autorizzato come '+chi+'. Quota giornaliera residua: '+MailApp.getRemainingDailyQuota():'ATTENZIONE: lo script è sull’account '+chi+', non su '+EMAIL_ASD+'. Crea il progetto con l’account dell’ASD.');
 }
 function installaTrigger(){
   ScriptApp.getProjectTriggers().filter(function(t){return t.getHandlerFunction()==='inviaCoda'}).forEach(function(t){ScriptApp.deleteTrigger(t)});
@@ -151,7 +153,7 @@ function nStato_(){
   var all=PropertiesService.getScriptProperties().getProperties(),n=0,prossimo=0;
   Object.keys(all).forEach(function(k){if(k.indexOf(PREFISSO)!==0)return;n++;try{var at=JSON.parse(all[k]).at;if(!prossimo||at<prossimo)prossimo=at}catch(e){}});
   var trig=ScriptApp.getProjectTriggers().some(function(t){return t.getHandlerFunction()==='inviaCoda'});
-  return {quota:MailApp.getRemainingDailyQuota(),inCoda:n,prossimo:prossimo,trigger:trig};
+  return {quota:MailApp.getRemainingDailyQuota(),inCoda:n,prossimo:prossimo,trigger:trig,mittente:Session.getEffectiveUser().getEmail()};
 }
 
 /* Attività pianificata (ogni 30 minuti): spedisce le mail in coda il cui momento è arrivato */

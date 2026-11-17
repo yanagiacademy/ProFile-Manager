@@ -17,7 +17,7 @@ const pausa=ms=>new Promise(r=>setTimeout(r,ms));
 
 /* ---------- impostazioni ---------- */
 /* Di default NIENTE parte da solo: l'admin attiva ciò che vuole dalla scheda Mail → Notifiche. */
-export const CFGM0={atleti:false,admin:false,ricevute:false,esiti:false,eventiAuto:false,giorni:[30,7,1],ora:9,indirizziAdmin:[]};
+export const CFGM0={atleti:false,admin:false,ricevute:false,esiti:false,eventiAuto:false,giorni:[30,7,1],ora:9,indirizziAdmin:['info.judoyanagi@gmail.com']};
 const RX=/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 export function listaMail(v){
   const t=Array.isArray(v)?v.join(' '):String(v||'');
