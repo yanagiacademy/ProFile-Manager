@@ -253,7 +253,7 @@ async function save(){
       }catch(e){console.error(e);er.textContent='Evento salvato, ma il documento non è stato caricato ('+arch.errText(e)+'). Riprova da Modifica.';$('#sv').disabled=false;editing=id;return}}
     else if(old&&$('#rmd').checked){await arch.remove(old).catch(()=>{});await updateDoc(doc(db,'sections',SEC,'items',id),{docId:''})}
     resetForm(false);
-    /* nuovo evento creato dall'admin: notifica Telegram agli atleti (se un operatore crea l'evento, parte alla prossima apertura della Home da admin) */
+    /* nuovo evento creato dall'admin: invio automatico per mail solo se attivo in Mail → Notifiche (di norma l'evento si sceglie e si invia da lì) */
     if(nuovo&&isAdmin())import('./notifiche-motore.js').then(m=>m.sincronizza(db,{solo:['evento']})).catch(e=>console.warn('Notifica evento:',e&&e.message));
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}

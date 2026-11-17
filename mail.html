@@ -26,11 +26,12 @@ textarea{width:100%;min-height:160px;font:inherit}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,onSnapshot} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,onSnapshot} from "./fsx.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {MAIL_URL} from "./mail-config.js";
 import {showPreview,saveBlob} from "./file-tools.js";
 import {memoBar} from "./promemoria.js";
+import {mostraNotifiche} from "./mail-notifiche.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -38,7 +39,7 @@ const box=(t,m)=>`<div class="wrap"><div class="card login"><h1>ProFile Manager<
 const tick=()=>{const d=new Date();$('#clock').textContent=d.toLocaleDateString('it-IT',{weekday:'short',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})};
 tick();setInterval(tick,15000);
 
-let memo=null,auth=null,lv='n',list=[],more=false,q='',cur=null,rmsg=null,mode='list',msg='',busy=false,files=[];
+let memo=null,auth=null,lv='n',list=[],more=false,q='',cur=null,rmsg=null,mode='list',msg='',busy=false,files=[],isAdm=false,dbRef=null;
 const MAXF=15*1048576;
 
 const fmtDate=d=>{const t=new Date(d);return isNaN(t)?'':t.toLocaleDateString('it-IT',{day:'numeric',month:'short'})+' '+t.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})};
@@ -116,7 +117,7 @@ function bindForm(kind){
 function render(){
   if(lv==='n')return;
   const w=lv==='w';
-  const top=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a>${mode==='list'?`<input id="q" type="search" placeholder="Cerca in Mail (anche from:, is:unread…)" aria-label="Cerca" value="${esc(q)}">`:'<span style="flex:1"></span>'}<button class="btn ghost sm" id="rf">Aggiorna</button></div>`;
+  const top=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a>${mode==='list'?`<input id="q" type="search" placeholder="Cerca in Mail (anche from:, is:unread…)" aria-label="Cerca" value="${esc(q)}">`:'<span style="flex:1"></span>'}${isAdm?'<button class="btn ghost sm" id="nt">Notifiche</button>':''}<button class="btn ghost sm" id="rf">Aggiorna</button></div>`;
   let main='';
   if(mode==='list'){
     main=`<div class="bar"><h2>Mail</h2>${w?'<button class="btn sm" id="nw">Nuovo messaggio</button>':''}</div>${msg?`<p class="mu" role="status">${esc(msg)}</p>`:''}${busy?'<p class="mu">Caricamento…</p>':''}<div class="card">${list.length?`<div class="ml">${list.map(m=>`<button class="mr${m.unread?' un':''}" data-id="${esc(m.id)}"><b>${esc(who(m.from))}</b>${m.n>1?' ('+m.n+')':''} — ${esc(m.subject||'(senza oggetto)')}<small>${esc(fmtDate(m.date))} · ${esc(m.snippet||'')}</small></button>`).join('')}</div>${more?'<p style="margin-top:12px"><button class="btn ghost" id="mo">Carica altri</button></p>':''}`:(busy?'':'<p class="mu">Nessun messaggio.</p>')}</div>`;
@@ -125,6 +126,8 @@ function render(){
       const content=m.html?`<iframe data-fit="1" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" title="Contenuto del messaggio" srcdoc="${esc('<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data: https:; style-src \'unsafe-inline\'"><base target="_blank">'+m.html)}"></iframe>`:`<pre>${esc(m.text||'')}</pre>`;
       const A=(m.att||[]).length?`<h3 style="margin:14px 0 4px">Allegati (${m.att.length})</h3>`+m.att.map(x=>`<div class="row"><div>${esc(x.name)} <span class="mu">(${fmtSize(x.size)})</span></div><span class="acts" style="margin:0"><button class="btn ghost sm" data-v="${mi}:${x.i}">Apri</button><button class="btn ghost sm" data-a="${mi}:${x.i}">Scarica</button></span></div>`).join(''):'';
       return `<div class="card mv"><div class="mu">Da: ${esc(m.from)}<br>A: ${esc(m.to)}${m.cc?'<br>Cc: '+esc(m.cc):''}<br>${esc(fmtDate(m.date))}</div>${content}${A}${w?`<div class="acts"><button class="btn" data-rp="${mi}">Rispondi</button></div>`:''}</div>`}).join('')+`<div class="acts"><button class="btn ghost" id="bk">← Posta in arrivo</button></div>`;
+  }else if(mode==='not'&&isAdm){
+    main='<div id="ntv"></div>';
   }else if(mode==='new'&&w){
     main=`<div class="bar"><h2>Nuovo messaggio</h2></div>`+form('new');
   }else if(mode==='reply'&&w&&rmsg){
@@ -133,7 +136,12 @@ function render(){
   const f=document.activeElement&&document.activeElement.id==='q';
   app.innerHTML=top+`<div class="wrap">${main}</div>`;
   if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
-  $('#rf').onclick=()=>mode==='view'&&cur?openThread(cur.id):loadList(false);
+  $('#rf').onclick=()=>mode==='not'?render():mode==='view'&&cur?openThread(cur.id):loadList(false);
+  if($('#nt'))$('#nt').onclick=()=>{mode='not';cur=null;msg='';history.replaceState(null,'','#notifiche');render()};
+  if(mode==='not'){
+    const bk=document.createElement('p');bk.style.margin='0 0 10px';bk.innerHTML='<button class="btn ghost sm" id="bkm">← Posta</button>';$('#ntv').before(bk);
+    $('#bkm').onclick=()=>{mode='list';history.replaceState(null,'',location.pathname+location.search);loadList(false)};
+    mostraNotifiche({db:dbRef,root:$('#ntv')});return}
   if(mode==='list'){
     let t;$('#q').oninput=e=>{q=e.target.value;clearTimeout(t);t=setTimeout(()=>loadList(false),600)};
     if($('#nw'))$('#nw').onclick=()=>{files=[];mode='new';render();bindForm('new')};
@@ -155,16 +163,16 @@ setInterval(()=>{if(lv!=='n'&&mode==='list'&&!busy&&document.visibilityState==='
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else if(MAIL_URL==='INSERISCI'){app.innerHTML=box('Mail non ancora collegata','Compila mail-config.js con l’indirizzo dell’app web di Apps Script.')}
 else{
-  auth=getAuth(initializeApp(firebaseConfig));const db=getFirestore(auth.app);let unsub=null,started=false;
+  auth=getAuth(initializeApp(firebaseConfig));const db=dbRef=getFirestore(auth.app);let unsub=null,started=false;
   onAuthStateChanged(auth,u=>{
     if(unsub)unsub();
     if(!u){location.href='index.html';return}
     unsub=onSnapshot(doc(db,'users',u.uid),sn=>{
       const me=sn.exists()?sn.data():null;
-      lv=me?(me.admin?'w':((me.perms||{}).mail||'n')):'n';
+      lv=me?(me.admin?'w':((me.perms||{}).mail||'n')):'n';isAdm=!!(me&&me.admin);
       if(lv==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');started=false;if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:'mail',uid:u.uid});memo.setAccess(lv,!!me.admin);
-      if(!started){started=true;loadList(false)}else render();
+      if(!started){started=true;if(isAdm&&location.hash==='#notifiche'){mode='not';render()}else loadList(false)}else if(mode!=='not')render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')});
   });
 }

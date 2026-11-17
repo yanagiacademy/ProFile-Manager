@@ -224,7 +224,7 @@ function onMe(){
     if(me.admin){          /* una tantum: coppie di chiavi di Cestino e Storico (tutti scrivono, leggono solo gli autorizzati) e data dell'ultimo backup */
       assicuraCoppia('cestino').catch(e=>console.warn('Chiavi Cestino:',e&&e.message));assicuraCoppia('storico').catch(e=>console.warn('Chiavi Storico:',e&&e.message));
       setTimeout(()=>svuotaCodaStorico().catch(()=>{}),4000);     /* porta nello Storico le voci degli account senza sessione Telegram */
-      setTimeout(()=>import('./notifiche-motore.js').then(m=>m.autoSincronizza(db)).catch(()=>{}),6000);     /* notifiche Telegram: sincronizzazione in silenzio (al massimo ogni 10 ore) */
+      setTimeout(()=>import('./notifiche-motore.js').then(m=>m.autoSincronizza(db)).catch(()=>{}),6000);     /* notifiche via mail: sincronizzazione in silenzio (al massimo ogni 10 ore) */
       getDoc(doc(db,'app','backup')).then(s=>{bk=s.exists()&&s.data().at&&s.data().at.toMillis?s.data().at.toMillis():null;render()}).catch(()=>{})}}
 }
 function loginView(){
@@ -291,7 +291,7 @@ const adminHtml=()=>me.admin?`<h3 class="gt">Strumenti admin</h3><div class="gri
   <a class="tile${statoPausa(calCfg,ymd(new Date()))==='attiva'?' hot':''}" href="calendario.html"><span class="ico">${ic('calendario')}</span><span class="tn">Calendario</span><span class="ts">Allenamenti, routine ed eventi</span>${statoPausa(calCfg,ymd(new Date()))==='attiva'?'<span class="pill">Routine in pausa</span>':''}</a>
   <a class="tile" href="storico.html"><span class="ico">${ic('storico')}</span><span class="tn">Storico</span><span class="ts">Tutti i movimenti</span></a>
   <a class="tile" href="tema.html"><span class="ico">${ic('tema')}</span><span class="tn">Tema</span><span class="ts">Aspetto grafico del sito</span></a>
-  <a class="tile" href="notifiche.html"><span class="ico">${ic('notifiche')}</span><span class="tn">Notifiche</span><span class="ts">Telegram: atleti e admin</span></a>
+  <a class="tile" href="mail.html#notifiche"><span class="ico">${ic('notifiche')}</span><span class="tn">Notifiche</span><span class="ts">Via mail: eventi e scadenze</span></a>
   <a class="tile${bkDaFare()?' hot':''}" href="backup.html"><span class="ico">${ic('backup')}</span><span class="tn">Backup</span>${bkTesto()?`<span class="ts">${esc(bkTesto())}</span>`:''}${bkDaFare()?'<span class="pill">Da fare</span>':''}</a></div>
   <details class="adm"><summary>${ic('tool')}Operazioni una tantum</summary><div style="padding-bottom:6px"><a class="res" href="migra.html"><span class="ico">${ic('tool')}</span><span class="rt"><b>Migrazione su Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a><a class="res" href="cifra-esistenti.html"><span class="ico">${ic('lock')}</span><span class="rt"><b>Cifratura contenuti Telegram</b><span class="mu">Una tantum</span></span>${ic('go','go')}</a></div></details>`:'';
 /* Schede usate di recente (solo su questo dispositivo) */
