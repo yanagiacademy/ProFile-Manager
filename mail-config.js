@@ -1,1 +1,1 @@
-export const MAIL_URL='https://script.google.com/macros/s/AKfycbyZ9J65XCPZKqc0mpusslNzOTrxAP4GATAx9B2XrtcnZS3o4jyhWiC7_I4zP1lgw5mW/exec';   /* indirizzo /exec dell'app web di Apps Script (vedi ponte-mail.gs) */
+export const MAIL_URL='https://script.google.com/macros/s/AKfycbw8eGDqQhWD3PRrdcAOBIbIVm693xw1oKkR_61s4Zx--ItxTLxW6yHl6HpGoDgDrjM/exec';   /* indirizzo /exec dell'app web di Apps Script (vedi ponte-mail.gs) */
