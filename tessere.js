@@ -188,7 +188,7 @@ function openTesserino(r,z){
     const g=id=>(o.querySelector('#'+id)||{value:''}).value.trim();
     const albo=g('tb'),altraNome=g('an');
     if(albo==='altra'&&!altraNome){er.textContent='Scrivi il nome della qualifica.';return false}
-    const righe=[...o.querySelectorAll('[data-r]')].map(e=>{const f=k=>e.querySelector('[data-f="'+k+'"]').value.trim();return {sport:f('sport'),settore:f('settore'),livello:f('livello')}}).filter(x=>x.sport||x.settore||x.livello);
+    const righe=[...o.querySelectorAll('[data-r]')].map(e=>{const f=k=>e.querySelector('[data-f="'+k+'"]').value.trim();return {sport:f('sport'),disciplina:f('disciplina'),settore:f('settore'),livello:f('livello')}}).filter(x=>x.sport||x.disciplina||x.settore||x.livello);
     if(albo!=='altra'&&(!righe.length||righe.some(x=>!x.sport||!x.livello))){er.textContent='Per ogni riga indica lo sport e '+(albo==='cinture'?'il grado (es. 4° Dan)':'la qualifica (es. Istruttore)')+'.';return false}
     const v={ente:g('ten'),numero:g('tnu').toUpperCase(),emissione:g('tem'),scadenza:g('tsc'),nota:g('tnt')};
     for(const [k,l] of [['emissione','La data di emissione'],['scadenza','La scadenza']])if(v[k]&&!isD(v[k])){er.textContent=l+' non è valida.';return false}
@@ -216,7 +216,8 @@ function openTesserino(r,z){
     rg.querySelectorAll('[data-f="livello"]').forEach(e=>{e.placeholder=livelloEsempio(tb.value);e.setAttribute('aria-label',livelloEtichetta(tb.value))})};
   const add=x=>{
     const d=document.createElement('div');d.setAttribute('data-r','');d.style.cssText='border:1px solid var(--bd,#cfd6e4);border-radius:10px;padding:8px 10px;margin-top:8px';
-    d.innerHTML=`<div class="two"><div><label>Sport</label><input type="text" data-f="sport" list="sl" autocomplete="off" aria-label="Sport" value="${esc(x.sport||'')}"></div><div><label>Settore (facoltativo)</label><input type="text" data-f="settore" list="ss" autocomplete="off" aria-label="Settore" value="${esc(x.settore||'')}"></div></div>
+    d.innerHTML=`<div class="two"><div><label>Sport</label><input type="text" data-f="sport" list="sl" autocomplete="off" aria-label="Sport" value="${esc(x.sport||'')}"></div><div><label>Specialità (facoltativa)</label><input type="text" data-f="settore" list="ss" autocomplete="off" aria-label="Specialità" value="${esc(x.settore||'')}"></div></div>
+      <label>Disciplina (facoltativa)</label><input type="text" data-f="disciplina" autocomplete="off" aria-label="Disciplina" value="${esc(x.disciplina||'')}">
       <label data-lv></label><input type="text" data-f="livello" autocomplete="off" value="${esc(x.livello||'')}">
       <button type="button" class="btn ghost sm" data-rm style="margin-top:6px">Togli questo sport</button>`;
     d.querySelector('[data-rm]').onclick=()=>{if(rg.children.length>1){d.remove()}else{d.querySelectorAll('input').forEach(i=>i.value='')}};

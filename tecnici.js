@@ -6,7 +6,9 @@ import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {TEC_EDIT,apriDati,apriCarica,mieRichieste,richiesteHtml,annullaRichiesta,valTxt} from "./richieste.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
-import {tesName,rigaBreve,sumTes,tesserini} from "./tesserini.js";
+import {tesName,rigaBreve,sumTes,tesserini,tesStile,tesCard} from "./tesserini.js";
+import {archivio} from "./archivio.js";
+import {tesBox,salvaTesserini} from "./tesserini-carica.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -15,8 +17,10 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 const SEC='tecnici';
-let auth,db,col,uid=null,me=null,items=[],tess=[],q='',flt='all',unsubs=[],shellFor='',editing=null,memo=null,started=false,tessStarted=false,mails={},mods={},richAll=[],mioState='',mioId='',mioDati=null,mioMod={},mioT=null,mioTes=[],mioFiles={},mioRich=[],mioErr=false;
+let auth,db,col,uid=null,me=null,items=[],tess=[],q='',flt='all',unsubs=[],shellFor='',editing=null,memo=null,started=false,tessStarted=false,mails={},mods={},richAll=[],atl=[],atlStarted=false,ataWant='',tsb=null,arch=null,mioState='',mioId='',mioDati=null,mioMod={},mioT=null,mioTes=[],mioFiles={},mioRich=[],mioErr=false;
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
+const permA=()=>me?(me.admin?'w':((me.perms||{}).atleti||'n')):'n';
+const getArch=()=>arch||(arch=archivio(db,'tessere',uid));
 const permT=()=>me?(me.admin?'w':((me.perms||{}).tessere||'n')):'n';
 const fmtD=d=>String(d||'').split('-').reverse().join('/');
 const isD=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
@@ -79,9 +83,12 @@ function shell(){
     <fieldset><legend>Anagrafica</legend>
       <div class="two"><div><label for="nm">Nome</label><input id="nm" type="text" autocomplete="off"></div><div><label for="cg">Cognome</label><input id="cg" type="text" autocomplete="off"></div></div>
       <div class="two"><div><label for="nas">Data di nascita</label><input id="nas" type="date"></div><div><label for="cf">Codice fiscale</label><input id="cf" type="text" maxlength="16" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase"></div></div>
+      <label for="mt">Matricola (quella dei tesserini)</label><input id="mt" type="text" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase">
       ${isAdm()?'<label for="em">Email del tecnico (visibile solo all’admin: gli permette di entrare e caricare i propri file e dati)</label><input id="em" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false">':''}
     </fieldset>
-    <p class="mu" style="margin:10px 0 0">Tessera, certificato medico e tesserini (albo cinture nere, albo qualifiche, altre qualifiche) si inseriscono nella sezione ${permT()==='w'?'<a href="tessere.html">Tessere</a>':'Tessere'}, con le stesse regole degli atleti.</p>
+    <p class="mu" style="margin:10px 0 0">Tessera e certificato medico si inseriscono nella sezione ${permT()==='w'?'<a href="tessere.html">Tessere</a>':'Tessere'}, con le stesse regole degli atleti.${permT()==='w'?'':' I tesserini può caricarli chi ha accesso a Tessere.'}</p>
+    ${permT()==='w'?'<fieldset><legend>Tesserini (albo cinture nere, albo qualifiche, altre qualifiche)</legend><div id="tsbox"></div></fieldset>':''}
+    ${permA()==='w'?'<fieldset><legend>Anche atleta</legend><label for="ata">Questo tecnico è anche un atleta?</label><select id="ata"></select><div class="mu" style="margin-top:6px">Se è anche atleta resta una sola persona con due schede collegate (Tecnici e Atleti).</div></fieldset>':''}
     <fieldset><legend>Informazioni</legend>
       <label for="inf">Info</label><textarea id="inf"></textarea>
       <label for="nt">Note</label><textarea id="nt"></textarea>
@@ -96,17 +103,36 @@ function shell(){
   if(w){
     $('#ftg').onclick=()=>setForm($('#fb').hidden);
     $('#sv').onclick=save;$('#cx').onclick=resetForm;
+    tsb=$('#tsbox')?tesBox($('#tsbox'),{getArch,onDati:d=>{
+      if(d.nome&&!$('#nm').value.trim())$('#nm').value=d.nome;
+      if(d.cognome&&!$('#cg').value.trim())$('#cg').value=d.cognome;
+      if(d.numero&&!$('#mt').value.trim())$('#mt').value=d.numero}}):null;
+    if($('#ata')){$('#ata').onchange=e=>{ataWant=e.target.value};fillAta()}
   }
 }
+function fillAta(){
+  const s=$('#ata');if(!s)return;
+  s.innerHTML='<option value="">No, solo tecnico</option><option value="__new">Sì: crea la scheda atleta con questi dati</option>'+(atl.length?'<optgroup label="Sì: collega a un atleta già inserito">'+atl.slice().sort((a,b)=>nameOf(a).localeCompare(nameOf(b),'it')).map(a=>'<option value="'+esc(a.id)+'">'+esc(nameOf(a))+'</option>').join('')+'</optgroup>':'');
+  s.value=ataWant;if(s.value!==ataWant)s.value=''}
+/* collega (o scollega) la scheda atleta: tecnici/<id>.atletaId e atleti/<id>.tecnicoId */
+async function collegaAtleta(id,v){
+  if(!$('#ata'))return;
+  const prev=(items.find(x=>x.id===id)||{}).atletaId||'';let nuovo=$('#ata').value;
+  if(nuovo==='__new'){
+    const r=await addDoc(collection(db,'sections','atleti','items'),{nome:v.nome,cognome:v.cognome,title:v.cognome+' '+v.nome,cf:v.cf||'',anno:isD(v.nascita)?v.nascita.slice(0,4):'',note:v.cf||'',test:[],medaglie:[],fb:false,tecnicoId:id,by:uid,at:serverTimestamp()});
+    nuovo=r.id}
+  else if(nuovo)await updateDoc(doc(db,'sections','atleti','items',nuovo),{tecnicoId:id});
+  if(prev&&prev!==nuovo)await updateDoc(doc(db,'sections','atleti','items',prev),{tecnicoId:''}).catch(()=>{});
+  if(nuovo!==prev)await updateDoc(doc(db,'sections',SEC,'items',id),{atletaId:nuovo})}
 function setForm(o){
   const b=$('#fb'),t=$('#ftg');if(!b)return;
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo del tecnico':'Apri il modulo del tecnico')}
-const F=[['nm','nome'],['cg','cognome'],['nas','nascita'],['cf','cf'],['inf','info'],['nt','annotazioni']];
+const F=[['nm','nome'],['cg','cognome'],['nas','nascita'],['cf','cf'],['mt','matricola'],['inf','info'],['nt','annotazioni']];
 function resetForm(){
   setForm(false);editing=null;F.forEach(([e])=>$('#'+e).value='');if($('#em'))$('#em').value='';$('#fbk').checked=false;
-  $('#ft').textContent='Nuovo tecnico';$('#sv').textContent='Salva tecnico';$('#cx').hidden=true;$('#er').textContent=''}
+  $('#ft').textContent='Nuovo tecnico';$('#sv').textContent='Salva tecnico';$('#cx').hidden=true;$('#er').textContent='';ataWant='';fillAta();if(tsb)tsb.reset()}
 function edit(it){
-  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]||'');if($('#em'))$('#em').value=mailOf(it.id);$('#fbk').checked=!!it.fb;
+  setForm(true);editing=it.id;F.forEach(([e,k])=>$('#'+e).value=it[k]||'');if($('#em'))$('#em').value=mailOf(it.id);$('#fbk').checked=!!it.fb;ataWant=it.atletaId||'';fillAta();
   $('#ft').textContent='Modifica tecnico';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;$('#er').textContent='';
   $('#ft').scrollIntoView({behavior:'smooth',block:'start'})}
 
@@ -119,6 +145,7 @@ async function save(){
   if(v.cf&&items.some(i=>i.id!==editing&&(i.cf||'')===v.cf)){er.textContent='Esiste già un tecnico con questo codice fiscale.';return}
   const em=$('#em')?$('#em').value.trim():null;
   if(em&&!MAIL_RE.test(em)){er.textContent='L’email non è valida.';return}
+  if(tsb){const e2=tsb.inLettura()?'Attendi la fine della lettura dei tesserini.':tsb.controlla();if(e2){er.textContent=e2;return}}
   const data={...v,fb:$('#fbk').checked,title:v.cognome+' '+v.nome,
     note:[v.cf,v.info,v.annotazioni].filter(Boolean).join(' · ').replace(/\s+/g,' ').slice(0,300)};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
@@ -127,6 +154,12 @@ async function save(){
     if(editing)await updateDoc(doc(db,'sections',SEC,'items',editing),data);
     else id=(await addDoc(col,{...data,by:uid,at:serverTimestamp()})).id;
     if(em!==null&&em!==mailOf(id))await saveMail(id,em);
+    let avv='';
+    if(tsb&&tsb.voci().length){
+      const r=await salvaTesserini({db,arch:getArch(),uid,tec:{id,nome:v.nome,cognome:v.cognome},voci:tsb.voci(),say:t=>{er.textContent=t}});
+      if(r.errori.length)avv='Tecnico salvato, ma: '+r.errori.join('; ')+'. Riapri il tecnico con «Modifica» e ricarica i tesserini non salvati.'}
+    try{await collegaAtleta(id,v)}catch(x){console.error(x);avv=(avv?avv+' ':'')+'Tecnico salvato, ma il collegamento con la scheda atleta non è riuscito (serve il permesso di scrittura su Atleti).'}
+    if(avv){editing=id;if(tsb)tsb.reset();er.textContent=avv;$('#sv').disabled=false;return}
     resetForm();
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}
@@ -140,7 +173,7 @@ function tesBloc(it){
   const lnk=`<div style="margin-top:8px"><a class="btn ghost sm" href="tessere.html#${encodeURIComponent(it.id)}" style="text-decoration:none">${permT()==='w'?'Gestisci in Tessere':'Apri in Tessere'}</a></div>`;
   return `<h3>Tessera</h3>${t&&(t.numero||t.scadenza)?`<dl>${dd('Ente / federazione',t.ente)}${dd('Numero tessera (ID tecnico)',t.numero)}${dd('Tipo di tessera',t.tipoTessera)}${sc('Scadenza',t.scadenza)}</dl>`:'<div class="mu">Nessuna tessera inserita.</div>'}
     <h3>Certificato medico</h3>${t&&(t.certTipo||t.certScad)?`<dl>${dd('Tipo',t.certTipo)}${sc('Scadenza',t.certScad)}</dl>`:'<div class="mu">Nessun certificato inserito.</div>'}
-    <h3>Tesserini e qualifiche</h3>${L.length?L.map(z=>`<div style="margin:6px 0"><b>${esc(tesName(z))}</b>${isD(z.scadenza)?' <span class="chip '+(stato(z.scadenza)||{}).k+'">'+esc(fmtD(z.scadenza))+' · '+(stato(z.scadenza)||{}).t+'</span>':''}${(z.righe||[]).length?`<div class="mu">${esc(z.righe.map(x=>[x.sport,x.settore&&'settore '+x.settore,x.livello].filter(Boolean).join(' · ')).join('  —  '))}</div>`:''}${z.numero||z.ente?`<div class="mu">${esc([z.ente,z.numero&&'n. '+z.numero].filter(Boolean).join(' · '))}</div>`:''}</div>`).join(''):'<div class="mu">Nessun tesserino inserito.</div>'}
+    <h3>Tesserini e qualifiche</h3>${L.length?(tesStile(),'<div class="tcs">'+L.map(z=>tesCard(z,{nome:nameOf(it),matricola:it.matricola})).join('')+'</div>')+L.filter(z=>isD(z.scadenza)).map(z=>'<div class="mu">'+esc(tesName(z))+': scade il '+esc(fmtD(z.scadenza))+' <span class="chip '+(stato(z.scadenza)||{}).k+'">'+(stato(z.scadenza)||{}).t+'</span></div>').join(''):'<div class="mu">Nessun tesserino inserito.</div>'}
     ${leg?`<h3>Dati della vecchia scheda</h3><dl>${dd('Grado',it.grado)}${dd('Qualifiche',quals(it.qualifiche).join(', '))}${dd('ID',it.idTec)}${dd('Numero tessera',it.tessera)}${sc('Tesseramento fino al',it.tessScad)}${sc('Certificato medico fino al',it.certScad)}</dl><div class="mu">Riportali in Tessere: lì valgono per gli avvisi di scadenza.</div>`:(!t&&(it.grado||it.qualifiche)?`<h3>Dati della vecchia scheda</h3><dl>${dd('Grado',it.grado)}${dd('Qualifiche',quals(it.qualifiche).join(', '))}</dl>`:'')}
     ${lnk}`}
 function openDetail(id){
@@ -151,7 +184,7 @@ function openDetail(id){
   const o=document.createElement('div');o.className='ov';
   o.innerHTML=`<div class="card dlg big dl" role="dialog" aria-modal="true" aria-label="Scheda tecnico"><h2 style="margin:0">${esc(nameOf(it))}</h2>
     ${isAdm()&&pend(it.id)?`<div class="card" style="margin:8px 0"><b>Richieste da approvare</b><div class="mu">Il tecnico ha caricato file o proposto modifiche: ogni file e ogni campo si accetta o si rifiuta.</div><div class="dact"><a class="btn sm" href="richieste.html#${esc(it.id)}" style="text-decoration:none">Rivedi le richieste</a></div></div>`:''}
-    <h3>Anagrafica</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Data di nascita',isD(it.nascita)?fmtD(it.nascita)+(a!==''?' ('+a+' anni)':''):'')}${dd('Codice fiscale',it.cf)}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
+    <h3>Anagrafica</h3><dl>${dd('Nome',it.nome)}${dd('Cognome',it.cognome)}${dd('Data di nascita',isD(it.nascita)?fmtD(it.nascita)+(a!==''?' ('+a+' anni)':''):'')}${dd('Codice fiscale',it.cf)}${dd('Matricola',it.matricola)}${it.atletaId?'<dt>Anche atleta</dt><dd>'+esc(nameOf(atl.find(a=>a.id===it.atletaId)||{})||'scheda collegata')+(permA()!=='n'?' <a class="mu" href="atleti.html#'+esc(it.atletaId)+'">apri</a>':'')+'</dd>':''}${isAdm()?dd('Email (solo admin)',mailOf(it.id)):''}</dl>
     ${tesBloc(it)}
     <h3>Informazioni</h3><dl>${dd('Info',it.info)}${dd('Note',it.annotazioni)}${dd('Firebase',it.fb?'Salvato anche su Firebase':'Solo su Telegram')}</dl>
     <div class="dact">${w?'<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>':''}<button class="btn" data-a="x">Chiudi</button></div></div>`;
@@ -270,7 +303,7 @@ if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora c
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);col=collection(db,'sections',SEC,'items');
   onAuthStateChanged(auth,u=>{
-    unsubs.forEach(f=>f());unsubs=[];started=false;tessStarted=false;mioState='';mioId='';mioErr=false;
+    unsubs.forEach(f=>f());unsubs=[];started=false;tessStarted=false;atlStarted=false;mioState='';mioId='';mioErr=false;
     if(!u){location.href='index.html';return}
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
@@ -292,6 +325,7 @@ else{
           unsubs.push(onSnapshot(collection(db,'atletiModifiche'),s=>{mods={};s.docs.forEach(d=>mods[d.id]=d.data());renderList()},()=>{mods={}}));
           unsubs.push(ronSnap(rcollection(db,'richieste'),s=>{richAll=s.docs.map(d=>({id:d.id,...d.data()})).filter(r=>r.completa);renderList()},()=>{richAll=[]}))}
         else if(mioState===''){mioState='load';loadMio().then(ok=>{mioState=ok?'ok':'no';paintMio()})}}
+      if(!atlStarted&&permA()==='w'){atlStarted=true;unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()}));fillAta()},()=>{atl=[]}))}
       if(!tessStarted&&permT()!=='n'){tessStarted=true;unsubs.push(onSnapshot(collection(db,'sections','tessere','items'),s=>{tess=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{tess=[];renderList()}))}
       renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));

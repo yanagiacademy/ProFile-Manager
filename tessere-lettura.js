@@ -107,3 +107,40 @@ export function parseCert(text){
   if(sc){out.certScad=sc.v;if(sc.dedotta)out.dedotta='data'}
   if(/non\s+agonistic/i.test(t))out.certTipo='non agonistico';else if(/agonistic/i.test(t))out.certTipo='agonistico';
   return out}
+
+/* ---------- tesserino di un tecnico (card con Sport / Disciplina / Specialità / Qualifica o Livello e Matricola) ---------- */
+const FINE='(?![A-Za-zÀ-ÿ])';
+const TL=[['sport',new RegExp('^sport'+FINE,'i')],['disciplina',new RegExp('^disciplina'+FINE,'i')],['settore',new RegExp('^specialit[aà]'+FINE,'i')],['qualifica',new RegExp('^qualifica'+FINE,'i')],['livello',new RegExp('^livello'+FINE,'i')]];
+function etichetta(s){
+  const x=s.replace(/^[^A-Za-zÀ-ÿ]+/,'');
+  for(const [k,re] of TL)if(re.test(x))return {k,rest:x.replace(re,'').replace(/^[\s:\-–|]+/,'').trim()};
+  return null}
+const solo=s=>/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’. -]{3,40}$/.test(s)&&s.split(/\s+/).length>=2&&s.split(/\s+/).length<=4;
+export function parseTesserino(text){
+  const t=String(text||'').replace(/\r/g,''),L=rows(t),out={},vals={},orfane=[],vuote=[];
+  const mm=t.match(/matricola\s*[:\-.]?\s*([A-Z0-9][A-Z0-9\-\/]{2,12})/i);if(mm)out.numero=mm[1].toUpperCase();
+  const prima=[];let cur=null,visti=false;
+  for(const r of L){
+    if(/matricola/i.test(r))continue;
+    const e=etichetta(r);
+    if(e){visti=true;cur=e.k;if(!vals[cur])vals[cur]=[];if(e.rest)vals[cur].push(e.rest);else vuote.push(cur);continue}
+    if(!visti){prima.push(r);continue}
+    if(cur&&vals[cur].length&&vuote.length===0)vals[cur].push(r);      /* valore andato a capo */
+    else if(cur&&vals[cur].length===0&&vuote.length===1)vals[cur].push(r);
+    else orfane.push(r)}
+  /* OCR che ha letto prima tutte le etichette e poi tutti i valori: si abbinano in ordine */
+  if(vuote.length>1&&orfane.length){
+    out.incerto=true;
+    const v=orfane.slice(),n=vuote.length;
+    while(v.length>n){let k=0,m=1e9;for(let i=0;i<v.length-1;i++){const l=v[i].length+v[i+1].length;if(l<m){m=l;k=i}}v.splice(k,2,v[k]+' '+v[k+1])}
+    vuote.forEach((k,i)=>{if(v[i])vals[k].push(v[i])})}
+  const g=k=>clean((vals[k]||[]).join(' ').replace(/\s+/g,' ').trim());
+  const nome=prima.find(solo);
+  if(nome){const tk=nome.replace(/[^A-Za-zÀ-ÿ'’ .-]/g,' ').split(/\s+/).filter(Boolean);out.nome=title(tk[0]);out.cognome=title(tk.slice(1).join(' '))}
+  const sport=g('sport'),disc=g('disciplina'),spec=g('settore'),qual=g('qualifica');
+  const livRaw=(vals.livello||[]).join(' ').replace(/\s+/g,' ').trim();let liv=livRaw;
+  const dan=livRaw.match(/(\d{1,2})\s*[°º]?\s*(dan|kyu)/i);if(dan)liv=dan[1]+'° '+title(dan[2]);else liv=clean(livRaw);
+  out.albo=liv?'cinture':'qualifiche';
+  out.riga={sport,disciplina:disc,settore:spec,livello:liv||qual};
+  if(!sport&&!disc&&!liv&&!qual)out.vuoto=true;
+  return out}
