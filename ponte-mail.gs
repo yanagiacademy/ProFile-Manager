@@ -118,19 +118,24 @@ function rispondi_(b){
 
 /* ---------- notifiche: invio immediato, coda, annullamento ---------- */
 function valida_(a){return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(a||''))}
-function manda_(to,subject,text){GmailApp.sendEmail(to,subject||'Yanagi Academy',text||'',{name:NOME_MITTENTE})}
+function manda_(to,subject,text,allegati){
+  var o={name:NOME_MITTENTE};
+  if(allegati&&allegati.length)o.attachments=allegati;
+  GmailApp.sendEmail(to,subject||'Yanagi Academy',text||'',o);
+  Logger.log('Inviata a '+to+(allegati&&allegati.length?' con '+allegati.length+' allegati':''));
+}
 function chiave_(k){return PREFISSO+Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,String(k)))}
 
-/* items: [{key,to,subject,text}] → esiti: [{key,ok,e?}] */
+/* items: [{key,to,subject,text}] (+ files: [{name,type,data}] allegati a tutte le mail della richiesta) → esiti: [{key,ok,e?}] */
 function nInvia_(b){
-  var items=(b.items||[]).slice(0,40),esiti=[],quota=MailApp.getRemainingDailyQuota();
+  var items=(b.items||[]).slice(0,40),esiti=[],quota=MailApp.getRemainingDailyQuota(),at=blobs_(b.files);
   items.forEach(function(v){
     if(!valida_(v.to)){esiti.push({key:v.key,ok:false,e:'indirizzo non valido'});return}
     if(quota<1){esiti.push({key:v.key,ok:false,e:'limite giornaliero di Gmail raggiunto'});return}
-    try{manda_(v.to,v.subject,v.text);quota--;esiti.push({key:v.key,ok:true})}
+    try{manda_(v.to,v.subject,v.text,at);quota--;esiti.push({key:v.key,ok:true})}
     catch(err){esiti.push({key:v.key,ok:false,e:String((err&&err.message)||err).slice(0,120)})}
   });
-  return {esiti:esiti,quota:quota};
+  return {esiti:esiti,quota:quota,mittente:Session.getEffectiveUser().getEmail()};
 }
 /* items: [{key,to,subject,text,at(ms)}] → messi in coda; li spedisce inviaCoda */
 function nProgramma_(b){

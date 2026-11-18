@@ -6,6 +6,7 @@
 import {doc,collection,getDoc,getDocs,setDoc,caricaDati,logEvento} from "./fsx.js";
 import {getAuth} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {hasSession,tgConfigured} from "./telegram.js";
+import {archivio} from "./archivio.js";
 import {costruisci,confronta,cfgOk,CFG0} from "./notifiche-core.js";
 export {cfgOk,CFG0};
 
@@ -44,11 +45,11 @@ async function ponte(db,a,p={}){
   if(!j.ok)throw new Error(j.e||'Errore del servizio Mail');
   return j}
 /* a blocchi: se un blocco fallisce (rete, script non aggiornato) i restanti risultano non inviati */
-async function blocchi(db,items,az,n){
+async function blocchi(db,items,az,n,extra={}){
   const out=[];
   for(let i=0;i<items.length;i+=n){
     const parte=items.slice(i,i+n);
-    try{const r=await ponte(db,az,{items:parte});const m=new Map((r.esiti||[]).map(e=>[e.key,e]));parte.forEach(v=>out.push(m.get(v.key)||{key:v.key,ok:false,e:'nessuna risposta'}))}
+    try{const r=await ponte(db,az,{items:parte,...extra});const m=new Map((r.esiti||[]).map(e=>[e.key,e]));parte.forEach(v=>out.push(m.get(v.key)||{key:v.key,ok:false,e:'nessuna risposta'}))}
     catch(e){items.slice(i).forEach(v=>out.push({key:v.key,ok:false,e:e.message}));break}
     if(i+n<items.length)await pausa(300)}
   return out}
@@ -64,7 +65,8 @@ async function leggiMails(db){
 export const leggiRubrica=leggiMails;                          /* {idAtleta: email} */
 export async function elencoEventi(db){
   if(!prontoDati())throw new Error(DATI_KO);await caricaDati();
-  return (await lista(db,'eventi')).filter(e=>e.kind==='evento').sort((a,b)=>String(a.data||'').localeCompare(String(b.data||'')))}
+  const tutti=await lista(db,'eventi'),files=tutti.filter(i=>i.kind==='file'&&i.ruolo==='doc');   /* ruolo 'doc' = documento allegato all'evento dall'admin */
+  return tutti.filter(e=>e.kind==='evento').map(e=>({...e,allegati:files.filter(f=>f.evento===e.id)})).sort((a,b)=>String(a.data||'').localeCompare(String(b.data||'')))}
 export async function elencoAtleti(db){
   if(!prontoDati())throw new Error(DATI_KO);await caricaDati();
   const [atleti,mails]=await Promise.all([lista(db,'atleti'),leggiMails(db)]);
@@ -81,14 +83,24 @@ function oggetto(x){
   return 'Yanagi Academy'}
 
 /* ---------- invio di un evento scelto dall'admin ---------- */
-export async function inviaEvento(db,ev,{a,oggetto:og,testo}){
+const MAX_ALL=15*1024*1024;      /* allegati: 15 MB in tutto per mail (Gmail arriva a 25) */
+const b64=blob=>new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]||'');r.onerror=()=>ko(new Error('Lettura dell’allegato non riuscita.'));r.readAsDataURL(blob)});
+export async function inviaEvento(db,ev,{a,oggetto:og,testo,allegati=[]}){
   const rec_=listaMail(a);if(!rec_.length)throw new Error('Nessun destinatario valido.');
   if(!String(testo||'').trim())throw new Error('Il testo è vuoto.');
+  const files=[];
+  if(allegati.length){
+    const au=getAuth(db.app);if(!au.currentUser)throw new Error('Accesso scaduto: rifai il login nella suite.');
+    const arch=archivio(db,'eventi',au.currentUser.uid);let tot=0;
+    for(const f of allegati){
+      let blob;try{blob=await arch.getBlob({...f})}catch(e){throw new Error('Impossibile leggere l’allegato «'+(f.title||'file')+'»: '+(e&&e.message||e))}
+      tot+=blob.size;if(tot>MAX_ALL)throw new Error('Gli allegati superano 15 MB in totale: toglierne qualcuno.');
+      files.push({name:f.title||f.name||'allegato',type:blob.type||f.mime||'application/octet-stream',data:await b64(blob)})}}
   const now=Date.now(),key='evm:'+ev.id+':'+now,sub=(og||'').trim()||('Evento: '+(ev.nome||ev.title||'senza nome'));
-  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:testo})),'n-invia',20);
+  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:testo})),'n-invia',files.length?10:20,files.length?{files}:{});
   const ok=es.filter(e=>e.ok).length,ko=es.filter(e=>!e.ok);
-  if(ok){const reg=await leggiRegistro(db);reg.voci[key]={k:'ev',t:now,n:ok,ev:ev.id};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
-  logEvento('notifica','eventi',ev.id,'Evento inviato per mail: '+(ev.nome||ev.title||''),ok+' inviate'+(ko.length?', '+ko.length+' errori':''));
+  if(ok){const reg=await leggiRegistro(db);reg.voci[key]={k:'ev',t:now,n:ok,ev:ev.id,all:files.length};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
+  logEvento('notifica','eventi',ev.id,'Evento inviato per mail: '+(ev.nome||ev.title||''),ok+' inviate'+(files.length?' con '+files.length+' allegati':'')+(ko.length?', '+ko.length+' errori':''));
   return {ok,ko:ko.length,dettagli:ko.map(e=>String(e.key).split('|').pop()+': '+e.e)}}
 export async function provaMail(db,indirizzi){
   const a=listaMail(indirizzi);if(!a.length)throw new Error('Indica almeno un indirizzo valido.');

@@ -52,6 +52,7 @@ export async function mostraNotifiche({db,root,url}){
     return `<div class="pn" data-pn="${esc(e.id)}">
       <label for="og" style="margin-top:0">Oggetto</label><input id="og" type="text" value="${esc('Evento: '+nome)}">
       <label for="tx">Testo della mail</label><textarea id="tx">${esc(testoEvento(e,BASE))}</textarea>
+      ${(e.allegati||[]).length?`<label>Allegati <span class="mu">(max 15 MB in tutto)</span></label>${e.allegati.map(f=>`<label class="ck"><input type="checkbox" data-f="${esc(f.id)}" checked><span>${esc(f.title||'file')}${f.size?`<br><span class="mu">${esc((f.size/1048576).toFixed(1))} MB</span>`:''}</span></label>`).join('')}`:''}
       <label>Destinatari${dst?' <span class="mu">(l’evento è rivolto solo ad alcuni atleti: sono già spuntati)</span>':''}</label>
       ${per.size?`<div class="btns" style="margin-top:4px"><button class="btn ghost sm" id="sa">Tutti</button><button class="btn ghost sm" id="sn">Nessuno</button><span class="mu" id="cnt" style="align-self:center"></span></div><div class="lst">${lista}</div>`:'<p class="mu">Nessun atleta ha un indirizzo e-mail nella scheda Atleti.</p>'}
       <label for="ex">Altri indirizzi (facoltativo, separati da virgola o a capo)</label><textarea id="ex" style="min-height:64px" placeholder="es. genitore@email.it, tecnico@email.it"></textarea>
@@ -107,10 +108,11 @@ export async function mostraNotifiche({db,root,url}){
         if(!S.pronta){er.textContent='La Mail non è ancora collegata (mail-config.js).';return}
         if(!a.length){er.textContent='Scegli almeno un destinatario.';return}
         if(!confirm('Inviare «'+(e.nome||e.title||'evento')+'» a '+a.length+(a.length===1?' indirizzo?':' indirizzi?')))return;
-        const go=q('#go');go.disabled=true;er.textContent='Invio in corso…';
+        const go=q('#go'),all=(e.allegati||[]).filter(f=>qa('[data-f]:checked').some(x=>x.dataset.f===f.id));
+        go.disabled=true;er.textContent=all.length?'Preparazione degli allegati e invio in corso…':'Invio in corso…';
         try{
-          const r=await inviaEvento(db,e,{a,oggetto:q('#og').value,testo:q('#tx').value});
-          S.msg='Evento inviato a '+r.ok+(r.ok===1?' indirizzo':' indirizzi')+(r.ko?' · '+r.ko+' non riusciti: '+r.dettagli.join('; '):'')+'.';
+          const r=await inviaEvento(db,e,{a,oggetto:q('#og').value,testo:q('#tx').value,allegati:all});
+          S.msg='Evento inviato a '+r.ok+(r.ok===1?' indirizzo':' indirizzi')+(all.length?' con '+all.length+(all.length===1?' allegato':' allegati'):'')+(r.ko?' · '+r.ko+' non riusciti: '+r.dettagli.join('; '):'')+'.';
           S.aperto=null;try{S.reg=await leggiRegistro(db)}catch(x){}disegna()
         }catch(x){er.textContent=x.message;go.disabled=false}}}
     const leggiForm=()=>({atleti:q('#c-atleti').checked,admin:q('#c-admin').checked,ricevute:q('#c-ric').checked,esiti:q('#c-esi').checked,eventiAuto:q('#c-ev').checked,giorni:q('#c-gg').value,ora:q('#c-ora').value,indirizziAdmin:q('#c-ad').value});
