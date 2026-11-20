@@ -162,7 +162,7 @@ const P={
  tool:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'
 };
 const ic=(n,c='')=>`<svg${c?` class="${c}"`:''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${P[n]||''}</svg>`;
-let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',unsubs=[],unsubUsers=null,unsubMe=null;
+let fa,auth,db,uid=null,me=null,accounts=[],items={},view='home',q='',qAcc='',unsubs=[],unsubUsers=null,unsubMe=null;
 let msgAcc='',msgNew='',newMail='',newExtra='';
 let accReg={},accRegOk=false,allineaT=null;const inVolo=new Map();     /* elenco cifrato degli account su Telegram (argomento «Account»): attivi e rimossi */
 const page=s=>key(s)+'.html';
@@ -414,10 +414,16 @@ function paintNew(){const n=$('#ned');if(!n)return;n.innerHTML=editorHtml('new',
 const SENS={atleti:'Atleti',tecnici:'Tecnici',tessere:'Tessere',ricevute:'Ricevute',ordini:'Ordini',esami:'Esami',eventi:'Eventi',commercialista:'Commercialista',mail:'Mail',archivio:'Archivio',cestino:'Cestino'};
 let legati=null;
 function caricaLegati(){if(legati)return;legati=new Set();getDocs(collection(db,'atletiEmail')).then(s=>{legati=new Set(s.docs.map(d=>d.id));if($('#er2'))adminView()}).catch(()=>{})}
+/* «Permessi corretti»: l'admin conferma che l'accesso è voluto. Si salva la firma dei permessi confermati (permOk): se poi cambiano, l'avviso ricompare */
+const sensAcc=a=>Object.keys(SENS).filter(k=>['r','w'].includes((a.perms||{})[k]));
+const sigAcc=a=>sensAcc(a).map(k=>k+':'+a.perms[k]).join(',');
 const warnAcc=a=>{
   if(a.admin||!a.email||!legati||!legati.has(a.email.toLowerCase()))return '';
-  const l=Object.keys(SENS).filter(k=>['r','w'].includes((a.perms||{})[k])).map(k=>SENS[k]+' ('+((a.perms||{})[k]==='w'?'scrittura':'lettura')+')');
-  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta e con accesso a: ${esc(l.join(', '))}. Con Lettura vede i dati di tutti, con Scrittura li modifica. Se non è voluto scegli «Solo dati utente» (dove c’è) o togli la spunta. <button class="btn ghost sm" onclick="fixU('${esc(a.id)}')">Passa a «Solo dati utente»</button></div>`:''};
+  if(a.permOk&&a.permOk===sigAcc(a))return '';
+  const l=sensAcc(a).map(k=>SENS[k]+' ('+((a.perms||{})[k]==='w'?'scrittura':'lettura')+')');
+  return l.length?`<div class="err" style="margin:6px 0 0;font-size:.85rem">⚠ Collegato a un atleta e con accesso a: ${esc(l.join(', '))}. Con Lettura vede i dati di tutti, con Scrittura li modifica. Se non è voluto scegli «Solo dati utente» (dove c’è) o togli la spunta. <button class="btn ghost sm" onclick="fixU('${esc(a.id)}')">Passa a «Solo dati utente»</button> <button class="btn ghost sm" onclick="okPerm('${esc(a.id)}')">Permessi corretti</button></div>`:''};
+window.okPerm=async id=>{const a=accounts.find(x=>x.id===id);if(!a)return;
+  try{await updateDoc(doc(db,'users',id),{permOk:sigAcc(a)});logEvento('account','',id,nomeAcc(id),'permessi confermati corretti: '+sensAcc(a).map(k=>SENS[k]).join(', '))}catch(e){alert('Modifica non riuscita. Riprova.')}};
 /* porta a «Solo dati utente» tutte le schede (che lo prevedono) su cui l'account ha Lettura o Scrittura */
 window.fixU=async id=>{const a=accounts.find(x=>x.id===id);if(!a)return;const ch={};SOLO_U.forEach(k=>{if(['r','w'].includes((a.perms||{})[k]))ch['perms.'+k]='u'});if(!Object.keys(ch).length){alert('Nelle altre schede non esiste «Solo dati utente»: togli la spunta da “Schede visibili”.');return}
   try{await updateDoc(doc(db,'users',id),ch);logEvento('account','',id,nomeAcc(id),'passato a «Solo dati utente»: '+Object.keys(ch).map(x=>x.slice(6)).join(', '))}catch(e){alert('Modifica non riuscita. Riprova.')}};
@@ -427,13 +433,17 @@ function adminView(){
   const keep=['#nn2','#ne','#np'].map(i=>$(i)?$(i).value:''),keepA=$('#na')?$('#na').checked:false;
   app.innerHTML=topbar()+`<div class="wrap"><div class="bar"><button class="btn ghost sm" id="bk">Indietro</button><h2>Gestione account</h2></div>
   <div class="card"><h2 style="margin:0">Account (${accounts.length})</h2>
-  ${accounts.map(a=>`<div class="acc"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><label class="ck" title="Compare tra gli atleti selezionabili in Eventi (destinatari) e in Lezioni (presenti)"><input type="checkbox" data-ca="${esc(a.id)}" ${a.comeAtleta?'checked':''}> Come atleta</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin,a.memo)}</div>`).join('')}
+  <input id="qa" type="search" placeholder="Cerca per nome o email" aria-label="Cerca account" autocomplete="off" value="${esc(qAcc)}" style="margin:8px 0"><div class="mu" id="qan" role="status" hidden>Nessun account trovato.</div>
+  ${accounts.map(a=>`<div class="acc" data-s="${esc(((a.name||'')+' '+(a.email||'')).toLowerCase())}"><div class="acc-h"><div><b>${esc(a.name||'—')}</b><div class="mu">${esc(a.email||'')}</div></div><div class="acc-a"><label class="ck"><input type="checkbox" data-a="${esc(a.id)}" ${a.admin?'checked':''}> Admin</label><label class="ck" title="Compare tra gli atleti selezionabili in Eventi (destinatari) e in Lezioni (presenti)"><input type="checkbox" data-ca="${esc(a.id)}" ${a.comeAtleta?'checked':''}> Come atleta</label><button class="btn ghost sm" data-ed="${esc(a.id)}">Modifica</button><button class="btn ghost sm" data-pw="${esc(a.id)}">Password</button><button class="btn ghost sm" data-x="${esc(a.id)}">Rimuovi</button></div></div>${warnAcc(a)}${editorHtml(a.id,a.perms,!!a.admin,a.memo)}</div>`).join('')}
   <p class="err" id="er2" role="alert"></p><p class="mu">Gli admin hanno sempre scrittura su tutte le schede. Per impostare schede e permessi specifici, togli prima il ruolo admin. “Rimuovi” revoca l’accesso ma il login resta: per riattivare la stessa email basta crearla di nuovo (se non ricordi la sua password, l’app ti offre di inviare il link per sceglierne una nuova). Per cancellare del tutto il login apri <a href="https://console.firebase.google.com/project/yanagi-academy-profile-manager/authentication/users" target="_blank" rel="noopener">Authentication nella console Firebase</a>, cerca l’email e scegli «Elimina utente».</p></div>
   ${rimossiHtml()}
   <div class="card" style="margin-top:12px"><h2>Nuovo account</h2><label for="nn2" style="margin-top:0">Nome</label><input id="nn2" type="text"><label for="ne">Email</label><input id="ne" type="text" autocomplete="off"><label for="np">Password iniziale (min. 6 caratteri)</label><input id="np" type="password" autocomplete="new-password"><label class="ck" style="margin-top:8px"><input type="checkbox" id="na"> Admin</label><label class="ck"><input type="checkbox" id="nca"> Come atleta <span class="mu">(selezionabile in Eventi e Lezioni)</span></label><div id="ned" style="margin-top:4px"></div><p class="err" id="er" role="alert"></p><button class="btn" id="cr">Crea account</button></div></div>`;
   $('#nn2').value=keep[0];$('#ne').value=keep[1];$('#np').value=keep[2];$('#na').checked=keepA;
   if(msgAcc)$('#er2').textContent=msgAcc;if(msgNew){$('#er').innerHTML=msgNew;bindRst()}
   paintNew();bindEd(app);$('#na').onchange=paintNew;
+  /* ricerca account: nasconde le righe senza ricaricare la pagina, così non si perde ciò che stai modificando */
+  const filtraAcc=()=>{let n=0;document.querySelectorAll('.acc[data-s]').forEach(r=>{const ok=!qAcc||r.dataset.s.includes(qAcc);r.style.display=ok?'':'none';if(ok)n++});const m=$('#qan');if(m)m.hidden=n>0||!accounts.length};
+  $('#qa').oninput=e=>{qAcc=e.target.value.trim().toLowerCase();filtraAcc()};filtraAcc();
   bindTop();$('#bk').onclick=()=>{view='home';render()};
   document.querySelectorAll('[data-a]').forEach(c=>c.onchange=()=>{if(!c.checked&&adminsLeft<2){c.checked=true;$('#er2').textContent='Deve restare almeno un admin.';return}updateDoc(doc(db,'users',c.dataset.a),{admin:c.checked}).then(()=>logEvento('account','',c.dataset.a,nomeAcc(c.dataset.a),c.checked?'reso admin':'tolto il ruolo admin')).catch(()=>{})});
   document.querySelectorAll('[data-ca]').forEach(c=>c.onchange=async()=>{
