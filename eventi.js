@@ -356,8 +356,8 @@ function openDetail(id){
   detail={id,o};document.body.append(o);paintDetail();
   o.querySelector('[data-a="x"]').focus()}
 
-/* senza risposta = account con accesso a Eventi che non hanno ancora risposto (solo l'admin può leggere l'elenco account) */
-const senzaRisposta=ev=>ristretto(ev)?users.filter(u=>(ev.destUid||[]).includes(u.id)&&!iscOf(ev.id).some(r=>r.uid===u.id)):users.filter(u=>!u.admin&&['r','w'].includes((u.perms||{})[SEC])&&!iscOf(ev.id).some(r=>r.uid===u.id));
+/* senza risposta = account con accesso a Eventi (anche «Solo dati utente», che vedono gli eventi per tutti) che non hanno ancora risposto (solo l'admin può leggere l'elenco account) */
+const senzaRisposta=ev=>ristretto(ev)?users.filter(u=>(ev.destUid||[]).includes(u.id)&&!iscOf(ev.id).some(r=>r.uid===u.id)):users.filter(u=>!u.admin&&['r','w','u'].includes((u.perms||{})[SEC])&&!iscOf(ev.id).some(r=>r.uid===u.id));
 
 function paintDetail(){
   if(!detail||!document.body.contains(detail.o))return;

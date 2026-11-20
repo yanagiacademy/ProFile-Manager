@@ -102,6 +102,22 @@ export async function inviaEvento(db,ev,{a,oggetto:og,testo,allegati=[]}){
   if(ok){const reg=await leggiRegistro(db);reg.voci[key]={k:'ev',t:now,n:ok,ev:ev.id,all:files.length};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
   logEvento('notifica','eventi',ev.id,'Evento inviato per mail: '+(ev.nome||ev.title||''),ok+' inviate'+(files.length?' con '+files.length+' allegati':'')+(ko.length?', '+ko.length+' errori':''));
   return {ok,ko:ko.length,dettagli:ko.map(e=>String(e.key).split('|').pop()+': '+e.e)}}
+/* Invio programmato di un evento: le mail restano in coda sul ponte (n-programma) e partono all'ora scelta, entro 30 minuti, anche a suite chiusa.
+   Nel registro la voce è «evprog» (non «sched»: quelle le gestisce la sincronizzazione automatica e le annullerebbe). Gli allegati non si possono programmare. */
+export async function programmaEvento(db,ev,{a,oggetto:og,testo,at}){
+  const rec_=listaMail(a);if(!rec_.length)throw new Error('Nessun destinatario valido.');
+  if(!String(testo||'').trim())throw new Error('Il testo è vuoto.');
+  if(!(at>Date.now()+60e3))throw new Error('L’orario di invio deve essere nel futuro.');
+  const now=Date.now(),key='evm:'+ev.id+':'+now,sub=(og||'').trim()||('Evento: '+(ev.nome||ev.title||'senza nome'));
+  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:testo,at})),'n-programma',40);
+  const ok=es.filter(e=>e.ok),ko=es.filter(e=>!e.ok);
+  if(ok.length){const reg=await leggiRegistro(db);reg.voci[key]={k:'evprog',t:at,n:ok.length,ev:ev.id,qk:ok.map(e=>e.key)};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
+  logEvento('notifica','eventi',ev.id,'Evento programmato per mail: '+(ev.nome||ev.title||''),ok.length+' in coda per il '+new Date(at).toLocaleString('it-IT')+(ko.length?', '+ko.length+' errori':''));
+  return {ok:ok.length,ko:ko.length,dettagli:ko.map(e=>String(e.key).split('|').pop()+': '+e.e)}}
+export async function annullaProgrammato(db,key){
+  const reg=await leggiRegistro(db),v=reg.voci[key];if(!v||!(v.qk||[]).length)return 0;
+  await ponte(db,'n-annulla',{keys:v.qk});delete reg.voci[key];await salvaRegistro(db,{...reg,ult:Date.now()});
+  logEvento('notifica','eventi',v.ev||'','Invio programmato annullato','mail in coda tolte: '+v.qk.length);return v.qk.length}
 export async function provaMail(db,indirizzi){
   const a=listaMail(indirizzi);if(!a.length)throw new Error('Indica almeno un indirizzo valido.');
   const es=await blocchi(db,a.map(to=>({key:'prova|'+to,to,subject:'Prova notifiche ProFile Manager',text:'✅ Se leggi questa mail, l’invio delle notifiche dal Gmail dell’ASD funziona.\n— Yanagi Academy'})),'n-invia',10);

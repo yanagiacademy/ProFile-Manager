@@ -36,28 +36,33 @@ export function regolaTxt(f){
   if(f.corso)p.push('corso '+f.corso);
   return p.join(' · ')}
 /* i quattro criteri; attr = nome dell'attributo che li identifica (data-g per «Seleziona per gruppo», data-r per la regola) */
-export const criteriHtml=(attr='data-g')=>`<label>Tipologia</label><select ${attr}="tipo"><option value="">Qualsiasi</option>${TIPI.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>
+export const criteriHtml=(attr='data-g',multi=false)=>`<label>Tipologia</label><select ${attr}="tipo"><option value="">Qualsiasi</option>${TIPI.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div style="min-width:0"><label>Grado da</label><select ${attr}="da"><option value="">Qualsiasi</option>${gradi()}</select></div><div style="min-width:0"><label>Grado a</label><select ${attr}="a"><option value="">Qualsiasi</option>${gradi()}</select></div></div>
-  <label>Corso</label><select ${attr}="corso"><option value="">Qualsiasi</option>${elencoCorsi().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>`;
-export const leggiCriteri=(root,attr='data-g')=>{const v=k=>root.querySelector('['+attr+'='+k+']').value;return {tipo:v('tipo'),da:+v('da')||0,a:+v('a')||0,corso:v('corso')}};
-export const scriviCriteri=(root,f,attr='data-g')=>{f=f||{};const s=(k,v)=>{root.querySelector('['+attr+'='+k+']').value=v||''};s('tipo',f.tipo);s('da',f.da);s('a',f.a);s('corso',f.corso)};
+  ${multi?`<label>Corsi <span class="mu">(anche più d’uno)</span></label><div ${attr}="corsi"></div>`:`<label>Corso</label><select ${attr}="corso"><option value="">Qualsiasi</option>${elencoCorsi().map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>`}`;
+export const leggiCriteri=(root,attr='data-g')=>{const v=k=>{const e=root.querySelector('['+attr+'='+k+']');return e?e.value:''};return {tipo:v('tipo'),da:+v('da')||0,a:+v('a')||0,corso:v('corso')}};
+export const scriviCriteri=(root,f,attr='data-g')=>{f=f||{};const s=(k,v)=>{const e=root.querySelector('['+attr+'='+k+']');if(e)e.value=v||''};s('tipo',f.tipo);s('da',f.da);s('a',f.a);s('corso',f.corso)};
 /* messaggio se i criteri non vanno bene, altrimenti '' */
 export const erroreCriteri=f=>filtroVuoto(f)?'Scegli almeno un criterio.':(f.da&&f.a&&f.da>f.a?'Il grado «da» deve essere uguale o inferiore al grado «a».':'');
 /* dati da salvare nella voce: solo i criteri usati */
 export const pulisciCriteri=f=>{const o={};if(f.tipo)o.tipo=f.tipo;if(f.da)o.da=f.da;if(f.a)o.a=f.a;if(f.corso)o.corso=f.corso;return o};
 
 export const gruppiHtml=()=>`<details class="gx" style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;min-height:40px;display:flex;align-items:center">Seleziona per gruppo</summary>
-  <div style="padding-bottom:6px"><div class="mu" style="margin:2px 0 6px">Scegli uno o più criteri e premi «Aggiungi»: si spuntano tutti gli atleti che li rispettano.</div>
-  ${criteriHtml('data-g')}
+  <div style="padding-bottom:6px"><div class="mu" style="margin:2px 0 6px">Scegli uno o più criteri e premi «Aggiungi»: si spuntano tutti gli atleti che li rispettano. Con più corsi spuntati si prendono gli atleti di uno qualsiasi (es. Judo e Kata).</div>
+  ${criteriHtml('data-g',true)}
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button type="button" class="btn ghost sm" data-g="add">Aggiungi il gruppo</button><button type="button" class="btn ghost sm" data-g="del">Togli il gruppo</button></div>
   <div class="mu" data-g="esito" role="status" style="margin-top:6px"></div></div></details>`;
 /* root = contenitore con gruppiHtml(); atleti() = elenco delle schede atleta; getSel() = Set degli id spuntati; dopo(corrispondenti, aggiunti) = ridisegna l'elenco */
 export function gruppiBind(root,{atleti,getSel,dopo}){
   const esito=t=>{root.querySelector('[data-g=esito]').textContent=t};
+  /* corsi: caselle da spuntare (anche più d'uno); l'elenco si ridisegna quando si apre il gruppo, perché i corsi arrivano dopo la pagina */
+  const scelti=()=>[...root.querySelectorAll('[data-gc]:checked')].map(c=>c.dataset.gc);
+  const disegnaCorsi=()=>{const b=root.querySelector('[data-g=corsi]');if(!b)return;const on=new Set(scelti());
+    b.innerHTML=elencoCorsi().map(c=>`<label class="ck"><input type="checkbox" data-gc="${esc(c)}"${on.has(c)?' checked':''}> ${esc(c)}</label>`).join('')};
+  disegnaCorsi();root.addEventListener('toggle',disegnaCorsi,true);
   const applica=agg=>{
-    const f=leggiCriteri(root,'data-g'),er=erroreCriteri(f);
+    const f=leggiCriteri(root,'data-g'),cs=scelti(),er=erroreCriteri(cs.length?{...f,corso:cs[0]}:f);
     if(er){esito(er);return}
-    const m=atleti().filter(a=>corrisponde(a,f)),sel=getSel();
+    const m=atleti().filter(a=>corrisponde(a,f)&&(!cs.length||cs.some(c=>corsiDi(a).includes(c)))),sel=getSel();
     if(!m.length){esito('Nessun atleta corrisponde. Controlla che nelle schede Atleti siano compilati tipologia, grado e corsi.');return}
     m.forEach(a=>agg?sel.add(a.id):sel.delete(a.id));
     const n=m.length;dopo(m,agg);esito(n+(n===1?' atleta ':' atleti ')+(agg?(n===1?'aggiunto alla selezione.':'aggiunti alla selezione.'):(n===1?'tolto dalla selezione.':'tolti dalla selezione.')))};

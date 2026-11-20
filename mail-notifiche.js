@@ -1,7 +1,7 @@
 /* Scheda «Notifiche» della sezione Mail (solo admin): sceglie quale evento inviare e a quali indirizzi, e attiva le altre notifiche automatiche
    (scadenze di tessera e certificato agli atleti, riepilogo scadenze all'admin, ricevute di pagamento, esito delle richieste).
    La logica sta in notifiche-motore.js (invio/coda) e notifiche-core.js (calcolo); l'invio passa dal ponte Gmail (ponte-mail.gs). */
-import {leggiConfig,salvaConfig,leggiRegistro,elencoEventi,elencoAtleti,inviaEvento,sincronizza,statoMail,provaMail,listaMail,mailPronta} from "./notifiche-motore.js";
+import {leggiConfig,salvaConfig,leggiRegistro,elencoEventi,elencoAtleti,inviaEvento,programmaEvento,annullaProgrammato,sincronizza,statoMail,provaMail,listaMail,mailPronta} from "./notifiche-motore.js";
 import {testoEvento,fmtD,isD} from "./notifiche-core.js";
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -38,11 +38,11 @@ export async function mostraNotifiche({db,root,url}){
     try{[S.evs,S.ats]=await Promise.all([elencoEventi(db),elencoAtleti(db)])}catch(e){S.evs=[];S.ats=[];S.errDati=e.message}
     disegna()}
 
-  const inviiDi=id=>Object.values(S.reg.voci||{}).filter(v=>v.ev===id).sort((a,b)=>b.t-a.t);
+  const inviiDi=id=>Object.entries(S.reg.voci||{}).filter(([k,v])=>v.ev===id).map(([k,v])=>({...v,kk:k})).sort((a,b)=>b.t-a.t);
   function rigaEvento(e){
-    const nome=e.nome||e.title||'Evento senza nome',inv=inviiDi(e.id),u=inv[0];
+    const nome=e.nome||e.title||'Evento senza nome',tutti=inviiDi(e.id),prog=tutti.filter(v=>v.k==='evprog'&&v.t>Date.now()),inv=tutti.filter(v=>!(v.k==='evprog'&&v.t>Date.now())),u=inv[0];
     const stato=e.chiuso?'<span class="chip">chiuso</span>':(isD(e.data)&&e.data<oggi()?'<span class="chip">concluso</span>':'');
-    return `<div class="rw"><div><b>${esc(nome)}</b>${stato}<br><span class="mu">${isD(e.data)?fmtD(e.data):''}${u?' · '+`<span class="chip ok">inviato ${esc(fmtTs(u.t))} a ${u.n||'?'} indirizzi${inv.length>1?' (+'+(inv.length-1)+' invii)':''}</span>`:''}</span></div>
+    return `<div class="rw"><div><b>${esc(nome)}</b>${stato}<br><span class="mu">${isD(e.data)?fmtD(e.data):''}${prog.map(v=>' · <span class="chip">programmato '+esc(fmtTs(v.t))+' a '+(v.n||'?')+' indirizzi <button class="btn ghost sm" data-an="'+esc(v.kk)+'" style="min-height:0;padding:0 6px">Annulla</button></span>').join('')}${u?' · '+`<span class="chip ok">inviato ${esc(fmtTs(u.t))} a ${u.n||'?'} indirizzi${inv.length>1?' (+'+(inv.length-1)+' invii)':''}</span>`:''}</span></div>
       <div class="ac"><button class="btn sm${S.aperto===e.id?' ghost':''}" data-ev="${esc(e.id)}">${S.aperto===e.id?'Chiudi':'Invia…'}</button></div></div>${S.aperto===e.id?pannello(e):''}`}
 
   function pannello(e){
@@ -56,6 +56,9 @@ export async function mostraNotifiche({db,root,url}){
       <label>Destinatari${dst?' <span class="mu">(l’evento è rivolto solo ad alcuni atleti: sono già spuntati)</span>':''}</label>
       ${per.size?`<div class="btns" style="margin-top:4px"><button class="btn ghost sm" id="sa">Tutti</button><button class="btn ghost sm" id="sn">Nessuno</button><span class="mu" id="cnt" style="align-self:center"></span></div><div class="lst">${lista}</div>`:'<p class="mu">Nessun atleta ha un indirizzo e-mail nella scheda Atleti.</p>'}
       <label for="ex">Altri indirizzi (facoltativo, separati da virgola o a capo)</label><textarea id="ex" style="min-height:64px" placeholder="es. genitore@email.it, tecnico@email.it"></textarea>
+      <label style="margin-top:12px">Quando inviare</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div><label for="qd">Data</label><input id="qd" type="date"></div><div><label for="qh">Ora</label><input id="qh" type="time"></div></div>
+      <p class="mu" style="margin:4px 0 0">Lascia vuoto per inviare subito. Con data e ora la mail resta in coda e parte entro 30 minuti dall’orario scelto, anche a suite chiusa. Gli allegati si possono mandare solo subito.</p>
       <p class="err" id="er" role="alert"></p>
       <div class="btns"><button class="btn" id="go">Invia ora</button><button class="btn ghost" id="no">Annulla</button></div></div>`}
 
@@ -96,19 +99,41 @@ export async function mostraNotifiche({db,root,url}){
   function aggiornaConto(){const n=qa('[data-m]:checked').length;const c=q('#cnt');if(c)c.textContent=n+(n===1?' destinatario':' destinatari')}
   function lega(){
     q('#tt').onchange=e=>{S.tutti=e.target.checked;if(S.aperto&&!S.evs.some(x=>x.id===S.aperto))S.aperto=null;disegna()};
+    qa('[data-an]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Annullare l’invio programmato? Le mail in coda vengono tolte.'))return;
+      b.disabled=true;
+      try{const n=await annullaProgrammato(db,b.dataset.an);S.msg=n?'Invio programmato annullato ('+n+(n===1?' mail tolta':' mail tolte')+').':'Niente da annullare.';try{S.reg=await leggiRegistro(db)}catch(x){}}
+      catch(x){S.msg='Annullamento non riuscito: '+x.message}
+      disegna()});
     qa('[data-ev]').forEach(b=>b.onclick=()=>{S.aperto=S.aperto===b.dataset.ev?null:b.dataset.ev;S.msg='';disegna();const p=q('[data-pn]');if(p)p.scrollIntoView({block:'nearest'})});
     if(S.aperto){
       aggiornaConto();qa('[data-m]').forEach(i=>i.onchange=aggiornaConto);
       if(q('#sa'))q('#sa').onclick=()=>{qa('[data-m]').forEach(i=>i.checked=true);aggiornaConto()};
       if(q('#sn'))q('#sn').onclick=()=>{qa('[data-m]').forEach(i=>i.checked=false);aggiornaConto()};
       q('#no').onclick=()=>{S.aperto=null;disegna()};
+      const etich=()=>{q('#go').textContent=(q('#qd').value||q('#qh').value)?'Programma invio':'Invia ora'};
+      q('#qd').oninput=q('#qh').oninput=etich;
       q('#go').onclick=async()=>{
         const e=S.evs.find(x=>x.id===S.aperto),er=q('#er');if(!e)return;
         const a=[...new Set([...qa('[data-m]:checked').map(x=>x.dataset.m),...listaMail(q('#ex').value)])];
         if(!S.pronta){er.textContent='La Mail non è ancora collegata (mail-config.js).';return}
         if(!a.length){er.textContent='Scegli almeno un destinatario.';return}
+        const qd=q('#qd').value,qh=q('#qh').value,all=(e.allegati||[]).filter(f=>qa('[data-f]:checked').some(x=>x.dataset.f===f.id));
+        if(qd||qh){
+          if(!qd||!qh){er.textContent='Per programmare indica sia la data sia l’ora, oppure lascia vuoti entrambi i campi.';return}
+          const at=new Date(qd+'T'+qh).getTime();
+          if(!(at>Date.now()+60e3)){er.textContent='L’orario di invio deve essere nel futuro.';return}
+          if(all.length){er.textContent='Gli allegati non si possono programmare: toglili dalla lista oppure invia subito.';return}
+          if(!confirm('Programmare «'+(e.nome||e.title||'evento')+'» per il '+fmtTs(at)+' a '+a.length+(a.length===1?' indirizzo?':' indirizzi?')))return;
+          const g=q('#go');g.disabled=true;er.textContent='Programmazione in corso…';
+          try{
+            const r=await programmaEvento(db,e,{a,oggetto:q('#og').value,testo:q('#tx').value,at});
+            S.msg=r.ok?'Invio programmato per '+fmtTs(at)+' a '+r.ok+(r.ok===1?' indirizzo':' indirizzi')+(r.ko?' · '+r.ko+' non riusciti: '+r.dettagli.join('; '):'')+'.':'Nessuna mail programmata: '+r.dettagli.join('; ');
+            S.aperto=null;try{S.reg=await leggiRegistro(db)}catch(x){}disegna()
+          }catch(x){er.textContent=x.message;g.disabled=false}
+          return}
         if(!confirm('Inviare «'+(e.nome||e.title||'evento')+'» a '+a.length+(a.length===1?' indirizzo?':' indirizzi?')))return;
-        const go=q('#go'),all=(e.allegati||[]).filter(f=>qa('[data-f]:checked').some(x=>x.dataset.f===f.id));
+        const go=q('#go');
         go.disabled=true;er.textContent=all.length?'Preparazione degli allegati e invio in corso…':'Invio in corso…';
         try{
           const r=await inviaEvento(db,e,{a,oggetto:q('#og').value,testo:q('#tx').value,allegati:all});
