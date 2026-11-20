@@ -177,7 +177,7 @@ const count=s=>{const k=key(s),its=items[k]||[];
   if(k==='documenti')return its.filter(i=>!i.archiviatoIl).length;
   if(k==='archivio')return [...(items.documenti||[]),...(items.tessere||[])].filter(archiviato).length;
   if(k==='documenti-in-scadenza')return (items.documenti||[]).filter(inScadenza).length;
-  if(k==='lezioni')return its.filter(i=>i.kind!=='file').length;
+  if(k==='lezioni')return its.filter(i=>i.kind!=='file'&&i.stato!=='prog').length;
   if(k==='eventi')return its.filter(i=>i.kind==='evento').length;
   if(k==='tessere')return its.filter(i=>i.kind==='tessera').length;
   if(k==='ordini')return its.filter(i=>i.kind==='prodotto').length;

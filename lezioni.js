@@ -30,7 +30,13 @@ const today=()=>{const d=new Date(),m=String(d.getMonth()+1).padStart(2,'0'),g=S
 const fmtSize=n=>!n?'':n<1024?n+' B':n<1048576?(n/1024).toFixed(0)+' KB':(n/1048576).toFixed(1)+' MB';
 const ext=n=>(String(n).includes('.')?String(n).split('.').pop():'').slice(0,4).toUpperCase();
 const icon=a=>{const t=guessMime(a.title,a.mime);return t.startsWith('image/')?'🖼️':t.startsWith('video/')?'🎬':t.startsWith('audio/')?'🎵':t==='application/pdf'?'📄':t.startsWith('text/')?'📝':'📎'};
-const lessonsOf=()=>items.filter(i=>i.kind!=='file');
+const lessonsOf=()=>items.filter(i=>i.kind!=='file'&&i.stato!=='prog');      /* solo le lezioni svolte: ore ed elenco partono da qui */
+/* Prossima lezione: stato «prog» = programmata; se la data è passata finisce in «Da confermare» finché non la confermi. cond = condivisa con i tecnici */
+const isPlan=i=>i.kind!=='file'&&i.stato==='prog';
+const canSee=i=>perm()==='w'||!!i.cond;
+const futureOf=()=>items.filter(i=>isPlan(i)&&canSee(i)&&(i.date||'')>=today()).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+const pastOf=()=>items.filter(i=>isPlan(i)&&perm()==='w'&&(i.date||'')<today()).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+let planEd=null,confirming=null;
 const attsOf=id=>items.filter(i=>i.kind==='file'&&i.lesson===id).sort((a,b)=>((a.at&&a.at.seconds)??Infinity)-((b.at&&b.at.seconds)??Infinity)||a.title.localeCompare(b.title,'it'));
 const note=(t,ms=8000)=>{const p=$('#prog');if(!p)return;p.style.display='block';p.textContent=t;setTimeout(()=>{p.style.display='none'},ms)};
 
@@ -39,6 +45,7 @@ function shell(){
   const w=perm()==='w';shellFor=perm();
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca nelle lezioni" aria-label="Cerca nelle lezioni" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Lezioni</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div></div>
+  ${proxHtml(w)}
   ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 id="ft" style="margin:0">Nuova lezione</h3><button class="btn sm" id="ftg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="fb" aria-label="Apri il modulo della lezione">+</button></div>
     <div id="fb" hidden>
     <div class="two"><div><label for="dt">Data</label><input id="dt" type="date"></div><div><label for="dy">Giorno</label><input id="dy" type="text" readonly tabindex="-1" aria-live="polite"></div></div>
@@ -47,6 +54,7 @@ function shell(){
     <div class="two"><div><label for="or">N. ore lezione</label><select id="or"><option value="">Seleziona…</option>${ORE.map(n=>`<option value="${n}">${fmtOre(n)}</option>`).join('')}</select></div>
       <div><label id="prlb">Atleti presenti</label><details class="dd" id="pr"><summary id="prs" aria-labelledby="prlb prs">Nessun atleta selezionato</summary>
         <div class="ddp">${gruppiHtml()}<input id="prq" type="search" placeholder="Cerca atleta" aria-label="Cerca atleta" autocomplete="off"><div class="acts"><button type="button" class="btn ghost sm" id="pra">Seleziona tutti</button><button type="button" class="btn ghost sm" id="prn">Nessuno</button></div><div id="prl"></div></div></details></div></div>
+    <div id="pn" hidden style="border:1px dashed var(--ln);border-radius:8px;padding:8px 10px;margin-top:10px"><b>Programma previsto</b><div id="pnt" class="mu" style="white-space:pre-wrap"></div></div>
     <label for="rp">Rapporto della lezione</label><textarea id="rp" placeholder="Argomenti trattati, presenze, osservazioni…"></textarea>
     <label for="fl">Allega file (foto, video, PDF…)</label><input id="fl" type="file" multiple><div id="fls"></div>
     <p class="mu" style="margin:6px 0 0">Limite ${limiteMB()} MB per file. Puoi aggiungerne altri anche dopo, dalla riga della lezione.</p>
@@ -62,7 +70,7 @@ function shell(){
   <div class="card" id="ls"></div></div>`;
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   $('#q').oninput=e=>{q=e.target.value;renderList()};
-  $('#ls').onclick=onListClick;
+  $('#ls').onclick=onListClick;$('#pl').onclick=onPlanClick;$('#dc').onclick=onPlanClick;
   $('#otg').onclick=()=>{const ap=$('#ob').hidden;$('#ob').hidden=!ap;$('#otg').textContent=ap?'−':'+';$('#otg').setAttribute('aria-expanded',String(ap));if(ap)renderOre()};
   ['#od','#oa'].forEach(s=>$(s).onchange=renderOre);$('#oq').oninput=renderOre;
   $('#orst').onclick=()=>{$('#od').value='';$('#oa').value='';renderOre()};
@@ -72,6 +80,10 @@ function shell(){
     $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);
     $('#dt').oninput=()=>{$('#dy').value=dayOf($('#dt').value)};
     $('#sv').onclick=save;$('#cx').onclick=resetForm;
+    $('#ptg').onclick=()=>setPlan($('#pb').hidden);
+    $('#pdt').value=today();$('#pdy').value=dayOf($('#pdt').value);
+    $('#pdt').oninput=()=>{$('#pdy').value=dayOf($('#pdt').value)};
+    $('#psv').onclick=savePlan;$('#pcx').onclick=resetPlan;
     $('#prq').oninput=renderAtl;
     $('#pra').onclick=()=>{visAtl().forEach(x=>{sel.add(x.id);selNames.set(x.id,x.n)});renderAtl()};
     $('#prn').onclick=()=>{sel.clear();renderAtl()};
@@ -129,7 +141,7 @@ function setForm(o){
   const b=$('#fb'),t=$('#ftg');if(!b)return;
   b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o));t.setAttribute('aria-label',o?'Chiudi il modulo della lezione':'Apri il modulo della lezione')}
 function resetForm(){
-  setForm(false);editing=null;pend=[];renderPend();$('#ft').textContent='Nuova lezione';$('#sv').textContent='Salva lezione';$('#cx').hidden=true;
+  setForm(false);editing=null;confirming=null;$('#pn').hidden=true;pend=[];renderPend();$('#ft').textContent='Nuova lezione';$('#sv').textContent='Salva lezione';$('#cx').hidden=true;
   $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);$('#ms').value='';$('#tp').value='';$('#rp').value='';$('#fbk').checked=false;$('#er').textContent='';
   $('#or').value='';sel.clear();selNames.clear();$('#prq').value='';$('#pr').open=false;renderAtl()}
 
@@ -160,7 +172,7 @@ async function save(){
   const ore=parseFloat($('#or').value);
   if(!(ore>0)){er.textContent='Seleziona il numero di ore della lezione.';return}
   if(pend.length&&!canUpload())return;
-  const ids=[...sel],data={date,day:dayOf(date),master,type,ore,presenti:ids,presentiN:ids.map(id=>selNames.get(id)||(baseAtl().find(x=>x.id===id)||{}).n||''),report,fb:$('#fbk').checked,title:'Lezione '+fmtD(date)+' – '+type,note:master+' · '+fmtOre(ore)+(ids.length?' · '+ids.length+' presenti':'')+(report?' · '+report.replace(/\s+/g,' ').slice(0,160):'')};
+  const ids=[...sel],data={date,day:dayOf(date),master,type,ore,presenti:ids,presentiN:ids.map(id=>selNames.get(id)||(baseAtl().find(x=>x.id===id)||{}).n||''),report,fb:$('#fbk').checked,...(confirming?{stato:'svolta'}:{}),title:'Lezione '+fmtD(date)+' – '+type,note:master+' · '+fmtOre(ore)+(ids.length?' · '+ids.length+' presenti':'')+(report?' · '+report.replace(/\s+/g,' ').slice(0,160):'')};
   $('#sv').disabled=true;er.textContent='Salvataggio…';
   try{
     let id=editing;
@@ -171,7 +183,7 @@ async function save(){
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#sv').disabled=false}
 function edit(it){
-  setForm(true);editing=it.id;$('#ft').textContent='Modifica lezione';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;
+  setForm(true);editing=it.id;confirming=null;$('#pn').hidden=true;$('#ft').textContent='Modifica lezione';$('#sv').textContent='Salva modifiche';$('#cx').hidden=false;
   $('#dt').value=it.date||today();$('#dy').value=dayOf($('#dt').value);$('#ms').value=it.master||'';$('#tp').value=it.type||'';$('#rp').value=it.report||'';$('#fbk').checked=!!it.fb;$('#er').textContent='';
   $('#or').value=it.ore?String(it.ore):'';sel=new Set(it.presenti||[]);selNames=new Map((it.presenti||[]).map((id,k)=>[id,(it.presentiN||[])[k]||'']));$('#prq').value='';renderAtl();
   $('#dt').scrollIntoView({behavior:'smooth',block:'center'})}
@@ -197,7 +209,7 @@ function tileAtt(a){
 function renderList(){
   const ls=$('#ls');if(!ls)return;
   const w=perm()==='w',t=q.trim().toLowerCase();
-  const hay=i=>[i.title,i.note,i.master,i.type,i.report,...(i.presentiN||[]),i.date&&fmtD(i.date),i.day,...attsOf(i.id).map(a=>a.title)].filter(Boolean).join(' ').toLowerCase();
+  const hay=i=>[i.title,i.note,i.master,i.type,i.report,i.piano,...(i.presentiN||[]),i.date&&fmtD(i.date),i.day,...attsOf(i.id).map(a=>a.title)].filter(Boolean).join(' ').toLowerCase();
   const list=lessonsOf().filter(i=>!t||hay(i).includes(t)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
   ls.innerHTML=list.length?list.map(i=>{
     const mn=w?`<button class="btn ghost sm mn" data-act="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione" title="Azioni">⋯</button>`:'';
@@ -212,7 +224,7 @@ function renderList(){
   if(w){const uniq=k=>[...new Set(lessonsOf().map(i=>i[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
     $('#lm').innerHTML=uniq('master').map(v=>`<option value="${esc(v)}">`).join('');
     $('#lt').innerHTML=uniq('type').map(v=>`<option value="${esc(v)}">`).join('')}
-  renderOre()
+  renderOre();renderPlans()
 }
 function menu(it){
   const o=document.createElement('div');o.className='mnu-ov';
@@ -237,6 +249,78 @@ async function doAct(act,id){
     catch(x){console.error(x);alert('Eliminazione non riuscita.')}}
 }
 function onListClick(e){const b=e.target.closest('[data-act]');if(b)doAct(b.dataset.act,b.dataset.id)}
+
+/* ---------- Prossima lezione: prepari il programma, lo condividi con i tecnici, a data passata lo confermi con ciò che è stato fatto ---------- */
+const proxHtml=w=>`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 style="margin:0">Prossima lezione</h3>${w?`<button class="btn sm" id="ptg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="pb" aria-label="Apri il modulo della prossima lezione">+</button>`:''}</div>
+  ${w?`<div id="pb" hidden>
+    <div class="two"><div><label for="pdt">Data</label><input id="pdt" type="date"></div><div><label for="pdy">Giorno</label><input id="pdy" type="text" readonly tabindex="-1" aria-live="polite"></div></div>
+    <label for="pms">Maestro</label><input id="pms" type="text" list="lm" autocomplete="off">
+    <label for="ptp">Tipologia lezione</label><input id="ptp" type="text" list="lt" autocomplete="off">
+    <label for="por">N. ore lezione (facoltativo)</label><select id="por"><option value="">Seleziona…</option>${ORE.map(n=>`<option value="${n}">${fmtOre(n)}</option>`).join('')}</select>
+    <label for="ppn">Programma della lezione</label><textarea id="ppn" placeholder="Cosa vuoi fare: riscaldamento, tecniche, esercizi, obiettivi…"></textarea>
+    <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="pcd" style="width:auto;min-height:0"> Condividi con i tecnici</label>
+    <p class="err" id="per" role="alert"></p>
+    <div class="acts"><button class="btn" id="psv">Salva programma</button><button class="btn ghost" id="pcx" hidden>Annulla modifica</button></div></div>`:''}
+  <div id="pl" style="margin-top:8px"></div></div>
+  <div class="card" id="dc" style="margin-bottom:12px" hidden></div>`;
+function setPlan(o){const b=$('#pb'),t=$('#ptg');if(!b)return;b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o))}
+function resetPlan(){
+  planEd=null;setPlan(false);$('#pdt').value=today();$('#pdy').value=dayOf($('#pdt').value);
+  ['#pms','#ptp','#ppn'].forEach(s=>{$(s).value=''});$('#por').value='';$('#pcd').checked=false;$('#per').textContent='';$('#psv').textContent='Salva programma';$('#pcx').hidden=true}
+async function savePlan(){
+  const date=$('#pdt').value,master=$('#pms').value.trim(),type=$('#ptp').value.trim(),piano=$('#ppn').value.trim(),er=$('#per'),ore=parseFloat($('#por').value)||0;
+  if(!date){er.textContent='Inserisci la data.';return}
+  if(!master){er.textContent='Inserisci il maestro.';return}
+  if(!type){er.textContent='Inserisci la tipologia della lezione.';return}
+  const data={stato:'prog',date,day:dayOf(date),master,type,ore,piano,cond:$('#pcd').checked,title:'Lezione programmata '+fmtD(date)+' – '+type,note:master+(ore>0?' · '+fmtOre(ore):'')+(piano?' · '+piano.replace(/\s+/g,' ').slice(0,160):'')};
+  $('#psv').disabled=true;er.textContent='Salvataggio…';
+  try{
+    if(planEd)await updateDoc(doc(db,'sections',SEC,'items',planEd),data);
+    else await addDoc(col,{...data,by:uid,at:serverTimestamp()});
+    resetPlan()
+  }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
+  $('#psv').disabled=false}
+function editPlan(it){
+  setPlan(true);planEd=it.id;$('#psv').textContent='Salva modifiche';$('#pcx').hidden=false;$('#per').textContent='';
+  $('#pdt').value=it.date||today();$('#pdy').value=dayOf($('#pdt').value);$('#pms').value=it.master||'';$('#ptp').value=it.type||'';
+  $('#por').value=it.ore>0?String(it.ore):'';$('#ppn').value=it.piano||'';$('#pcd').checked=!!it.cond;
+  $('#pdt').scrollIntoView({behavior:'smooth',block:'center'})}
+/* conferma: riusa il modulo delle lezioni svolte, con il programma come base da correggere in ciò che è stato fatto */
+function confirmEdit(it){
+  edit(it);confirming=it.id;
+  $('#ft').textContent='Conferma lezione svolta';$('#sv').textContent='Conferma lezione svolta';
+  $('#pnt').textContent=it.piano||'(nessun programma inserito)';$('#pn').hidden=false;$('#rp').value=it.piano||''}
+function planRow(i,conf){
+  const w=perm()==='w',ore=i.ore>0?' · '+esc(fmtOre(i.ore)):'';
+  const act=conf?`<button class="btn sm" data-pa="conf" data-id="${esc(i.id)}" style="white-space:nowrap">Conferma</button>`:`<button class="btn ghost sm" data-pa="open" data-id="${esc(i.id)}" style="white-space:nowrap">Programma</button>`;
+  const mn=w?`<button class="btn ghost sm mn" data-pa="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione programmata" title="Azioni">⋯</button>`:'';
+  return `<div class="les"><div class="inf"><div><b>${esc(fmtD(i.date))}</b> · ${esc(i.day||dayOf(i.date))}${i.cond&&w?' · <span class="mu">condivisa</span>':''}</div><div class="mu">${esc(i.master||'—')}${i.type?' · '+esc(i.type):''}${ore}</div></div>${act}${mn}</div>`}
+function renderPlans(){
+  const pl=$('#pl');if(!pl)return;const w=perm()==='w',f=futureOf(),p=pastOf(),dc=$('#dc');
+  pl.innerHTML=f.length?f.map(i=>planRow(i,false)).join(''):`<div class="mu">${w?'Nessuna lezione programmata. Tocca + per prepararne una.':'Nessuna lezione condivisa al momento.'}</div>`;
+  if(dc){dc.hidden=!p.length;dc.innerHTML=p.length?`<h3 style="margin:0 0 4px">Da confermare</h3><div class="mu" style="margin-bottom:6px">La data è passata: correggi il programma con ciò che è stato fatto e conferma, la lezione passa tra quelle svolte.</div>`+p.map(i=>planRow(i,true)).join(''):''}}
+setInterval(()=>{renderPlans()},60000);
+function openPlan(it){
+  const w=perm()==='w',txt=`${it.day||dayOf(it.date)} ${fmtD(it.date)}\nMaestro: ${it.master||''}\nTipologia: ${it.type||''}${it.ore>0?'\nOre lezione: '+fmtOre(it.ore):''}\n\nProgramma della lezione\n${it.piano||'(nessun programma inserito)'}`;
+  const extra=w?[{label:'Modifica',fn:()=>{pv.close();editPlan(it)}}]:[];
+  const pv=showPreview({title:'Lezione programmata '+fmtD(it.date),fileName:'Programma lezione '+it.date+'.txt',mime:'text/plain',load:async()=>new Blob([txt],{type:'text/plain'}),extra})}
+function planMenu(it){
+  const late=(it.date||'')<today(),o=document.createElement('div');o.className='mnu-ov';
+  o.innerHTML=`<div class="card mnu" role="dialog" aria-modal="true" aria-label="Azioni sulla lezione programmata"><b>Lezione del ${esc(fmtD(it.date))}</b><div class="acts">${late?'<button class="btn" data-a="conf">Conferma lezione svolta</button>':''}<button class="btn ghost" data-a="edit">Modifica programma</button><button class="btn ghost" data-a="share">${it.cond?'Smetti di condividere con i tecnici':'Condividi con i tecnici'}</button><button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="x">Chiudi</button></div></div>`;
+  const close=()=>o.remove();
+  o.addEventListener('click',e=>{if(e.target===o)close()});
+  o.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{close();if(b.dataset.a!=='x')planAct(b.dataset.a,it)});
+  document.body.append(o)}
+async function planAct(act,it){
+  if(act==='conf')confirmEdit(it);
+  else if(act==='edit')editPlan(it);
+  else if(act==='share'){try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{cond:!it.cond})}catch(e){console.error(e);alert('Operazione non riuscita.')}}
+  else if(act==='del'){
+    if(!confirm('Eliminare la lezione programmata del '+fmtD(it.date)+'? Va nel Cestino e resta recuperabile per 30 giorni.'))return;
+    try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(planEd===it.id)resetPlan()}catch(e){console.error(e);alert('Eliminazione non riuscita.')}}}
+function onPlanClick(e){
+  const b=e.target.closest('[data-pa]');if(!b)return;const it=items.find(x=>x.id===b.dataset.id);if(!it)return;
+  if(b.dataset.pa==='open')openPlan(it);else if(b.dataset.pa==='mnu')planMenu(it);else if(b.dataset.pa==='conf')confirmEdit(it)}
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
