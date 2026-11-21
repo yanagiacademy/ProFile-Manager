@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Iscrizione evento – Yanagi Academy</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="stile.css">
+<style>
+.hd{display:flex;gap:6px 12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;min-width:0}
+.lgbox{background:#1B2A4A;border-radius:10px;padding:6px 10px;display:inline-flex;flex:none}
+.lgbox img{height:60px;width:auto;display:block}
+.hd .grow{flex:1 1 auto;min-width:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media (max-width:560px){.two{grid-template-columns:1fr}}
+textarea{width:100%;min-height:80px;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);resize:vertical}
+input[type=email],input[type=tel],input[type=number]{width:100%;padding:9px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--bg);min-height:44px}
+input[type=text]{min-height:44px}
+fieldset{border:1px solid var(--ln);border-radius:10px;margin:14px 0 0;padding:2px 14px 14px;min-width:0}
+legend{padding:0 6px;font-weight:700;font-size:.9rem;color:var(--ac)}
+.chip{display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:99px;border:1px solid var(--ln);white-space:nowrap;color:var(--mu);margin:0 4px 4px 0}
+.chip.ok{border-color:var(--ac);color:var(--tx);font-weight:700}
+.chip.warn{border-color:var(--ac2);color:var(--tx);font-weight:700}
+.chip.bad{border-color:var(--er);background:var(--er);color:var(--bg);font-weight:700}
+.pr{display:grid;grid-template-columns:1fr 1fr 90px 44px;gap:8px;align-items:center;margin-top:8px}
+.pr.nopeso{grid-template-columns:1fr 1fr 44px}
+@media (max-width:560px){.pr,.pr.nopeso{grid-template-columns:1fr 44px}.pr input[data-f=nome],.pr input[data-f=peso]{grid-column:1}}
+.xb{background:none;border:1px solid var(--ln);border-radius:8px;min-height:44px;min-width:44px}
+.pay{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.95rem;border:1px dashed var(--ln);border-radius:8px;padding:10px 12px;background:var(--bg)}
+.tot{display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:.95rem}
+.tot.big{font-weight:700;font-size:1.1rem;border-top:1px solid var(--ln);margin-top:4px;padding-top:8px}
+.ok-t{color:var(--ac);font-weight:700}
+.qrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:8px}
+.qc{border:1px solid var(--ln);border-radius:10px;padding:10px;text-align:center;background:#fff;color:#14213D}
+.qc canvas{width:100%;height:auto;max-width:220px}
+.qc .cd{font:700 1.1rem ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em}
+.fr{display:flex;gap:8px;align-items:center}
+.fr input{flex:1 1 auto;min-width:0}
+</style>
+<script src="tema.js"></script>
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<meta name="theme-color" content="#EEF1F4">
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="iscrizione.js"></script>
+</body>
+</html>

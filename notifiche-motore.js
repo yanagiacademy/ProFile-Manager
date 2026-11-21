@@ -102,6 +102,10 @@ export async function inviaEvento(db,ev,{a,oggetto:og,testo,allegati=[]}){
   if(ok){const reg=await leggiRegistro(db);reg.voci[key]={k:'ev',t:now,n:ok,ev:ev.id,all:files.length};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
   logEvento('notifica','eventi',ev.id,'Evento inviato per mail: '+(ev.nome||ev.title||''),ok+' inviate'+(files.length?' con '+files.length+' allegati':'')+(ko.length?', '+ko.length+' errori':''));
   return {ok,ko:ko.length,dettagli:ko.map(e=>String(e.key).split('|').pop()+': '+e.e)}}
+/* Invio diretto di UNA mail dal Gmail dell'ASD, con eventuali allegati (usato da Eventi per i codici/QR degli iscritti esterni). Esito: {key, ok, e?} */
+export async function inviaDiretta(db,{key,to,subject,text,files=[]}){
+  const es=await blocchi(db,[{key,to,subject,text}],'n-invia',1,files.length?{files}:{});
+  return es[0]||{key,ok:false,e:'nessuna risposta'}}
 /* Invio programmato di un evento: le mail restano in coda sul ponte (n-programma) e partono all'ora scelta, entro 30 minuti, anche a suite chiusa.
    Nel registro la voce è «evprog» (non «sched»: quelle le gestisce la sincronizzazione automatica e le annullerebbe). Gli allegati non si possono programmare. */
 export async function programmaEvento(db,ev,{a,oggetto:og,testo,at}){

@@ -9,6 +9,7 @@ import {archivio,limiteMB} from "./archivio.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {isD,fmtD,giorni} from "./atleti-scadenze.js";
 import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
+import * as ext from "./eventi-esterni.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -21,13 +22,16 @@ const CATS={seminario:'Seminari',gara:'Gare',allenamento:'Allenamenti',altro:'Al
 const CAT1={seminario:'Seminario',gara:'Gara',allenamento:'Allenamento',altro:'Altro'};
 const catL=e=>{const b=CAT1[e.cat]||e.cat||'';return e.cat==='altro'&&e.catAltro?b+': '+e.catAltro:b};
 const MOTIVI=['Sold out','Iscrizioni complete','Altro motivo'];
-let auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set(),atl=[],mails={},mailsOk=false,sel=new Set(),dq='';
+let payOk=false,auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set(),atl=[],mails={},mailsOk=false,sel=new Set(),dq='';
 const isAdmin=()=>!!(me&&me.admin);
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const meName=()=>(me&&(me.name||me.email))||'';
 const newId=()=>{const a=new Uint8Array(12);crypto.getRandomValues(a);return Array.from(a,b=>(b%36).toString(36)).join('')};
 const money=v=>{const n=parseFloat(String(v??'').replace(',','.'));return isFinite(n)&&n>0?n.toLocaleString('it-IT',{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2})+' €':''};
 const dlTxt=g=>g<0?'scaduta da '+(-g)+(g===-1?' giorno':' giorni'):g===0?'scade oggi':g===1?'scade domani':'scade tra '+g+' giorni';
+
+/* copia pubblica degli eventi con link per esterni (solo l'admin la scrive; si riallinea da sola quando cambiano evento o «Come pagare») */
+const syncPub=()=>{if(isAdmin()&&payOk&&items.length)ext.sync(db,evs(),pay,catL)};
 
 /* ---------- dati ---------- */
 const evs=()=>items.filter(i=>i.kind==='evento');
@@ -168,6 +172,14 @@ function shell(){
         <label for="qh">Quota hotel (€, facoltativa)</label><input id="qh" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 80 oppure 80,50">
         <label class="ck"><input type="checkbox" id="hpp"> Quota hotel per persona (si moltiplica per le persone in hotel)</label></div>
     </fieldset>
+    <fieldset><legend>Iscrizione per esterni (altre associazioni)</legend>
+      <label class="ck"><input type="checkbox" id="esx"> Genera un link con il modulo di iscrizione per gli esterni</label>
+      <div id="esw" hidden>
+        <div class="mu" style="margin:2px 0 6px">Il link compare nella scheda dell’evento dopo il salvataggio. Gli esterni iscrivono atleti e tecnici (separati), applicano un eventuale coupon, leggono le coordinate di «Come pagare» e allegano la copia del bonifico. Restano in attesa finché non confermi la ricezione.</div>
+        <label for="qtt">Quota tecnici (€, facoltativa)</label><input id="qtt" type="text" inputmode="decimal" autocomplete="off" placeholder="vuoto = come gli atleti · 0 = gratis">
+        <label for="nes">Messaggio per gli esterni (facoltativo)</label><textarea id="nes"></textarea>
+      </div>
+    </fieldset>
     <fieldset><legend>Documento e nota per gli atleti</legend>
       <label for="fl">Documento (se c’è)</label><input id="fl" type="file"><div class="mu" id="cur" style="margin-top:4px"></div>
       <label class="mu" id="rml" style="display:none;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="rmd" style="width:auto;min-height:0"> Togli il documento attuale</label>
@@ -186,6 +198,7 @@ function shell(){
     $('#ftg').onclick=()=>resetForm($('#fb').hidden);
     $('#sv').onclick=save;$('#cx').onclick=()=>resetForm(false);
     $('#ht').onchange=()=>{$('#shw').hidden=!$('#ht').checked};
+    $('#esx').onchange=()=>{$('#esw').hidden=!$('#esx').checked};
     $('#ct').onchange=togCa;
     document.querySelectorAll('input[name=dm]').forEach(r=>r.onchange=paintDest);
     $('#dq').oninput=e=>{dq=e.target.value;renderDest()};
@@ -194,17 +207,17 @@ function shell(){
     gruppiBind($('#dsel'),{atleti:()=>atl,getSel:()=>sel,dopo:()=>renderDest()});
     $('#dls').onchange=e=>{const c=e.target.closest('[data-d]');if(!c)return;c.checked?sel.add(c.dataset.d):sel.delete(c.dataset.d);$('#dn').textContent=contaSel()}}
 }
-const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['qh','quotaHotel'],['nt','nota']];
+const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['qh','quotaHotel'],['nt','nota'],['qtt','quotaTecnico'],['nes','notaEsterni']];
 function togCa(){const a=$('#ct').value==='altro';$('#caw').hidden=!a;if(!a)$('#ca').value=''}
 function setForm(o){const b=$('#fb'),t=$('#ftg');if(!b)return;b.hidden=!o;t.setAttribute('aria-expanded',String(o));t.textContent=o?'− Chiudi':'+ Nuovo evento'}
 function resetForm(open){
-  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';togCa();$('#ht').checked=false;$('#qpp').checked=false;$('#hpp').checked=false;$('#ape').checked=false;$('#aph').checked=false;$('#shw').hidden=true;
+  setForm(open);editing=null;FF.forEach(([e])=>$('#'+e).value='');$('#ct').value='seminario';togCa();$('#ht').checked=false;$('#qpp').checked=false;$('#hpp').checked=false;$('#ape').checked=false;$('#aph').checked=false;$('#shw').hidden=true;$('#esx').checked=false;$('#esw').hidden=true;
   $('#fl').value='';$('#cur').textContent='';$('#rml').style.display='none';$('#rmd').checked=false;
   sel=new Set();dq='';$('#dq').value='';setModo('tutti');
   $('#ft').textContent='Nuovo evento';$('#sv').textContent='Salva evento';$('#er').textContent=''}
 function edit(ev){
   setForm(true);editing=ev.id;FF.forEach(([e,k])=>$('#'+e).value=ev[k]??'');if(!$('#ct').value)$('#ct').value='altro';togCa();
-  $('#ht').checked=!!ev.hotel;$('#qpp').checked=!!ev.quotaPP;$('#hpp').checked=!!ev.hotelPP;$('#ape').checked=!!ev.accompEv;$('#aph').checked=!!ev.accompHotel;$('#shw').hidden=!ev.hotel;$('#fl').value='';$('#rmd').checked=false;
+  $('#ht').checked=!!ev.hotel;$('#qpp').checked=!!ev.quotaPP;$('#hpp').checked=!!ev.hotelPP;$('#ape').checked=!!ev.accompEv;$('#aph').checked=!!ev.accompHotel;$('#shw').hidden=!ev.hotel;$('#esx').checked=!!ev.esterni;$('#esw').hidden=!ev.esterni;$('#fl').value='';$('#rmd').checked=false;
   const d=docOf(ev);$('#cur').textContent=d?'Documento attuale: '+d.title+'. Scegli un file per sostituirlo.':'';$('#rml').style.display=d?'flex':'none';
   sel=new Set(ev.dest||[]);dq='';$('#dq').value='';setModo(ristretto(ev)?'scelti':'tutti');
   $('#ft').textContent='Modifica evento';$('#sv').textContent='Salva modifiche';$('#er').textContent='';
@@ -219,7 +232,7 @@ function canUpload(){
 
 async function save(){
   const g=id=>$('#'+id).value.trim(),er=$('#er');
-  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',quotaPP:$('#qpp').checked,accompEv:$('#ape').checked,accompHotel:$('#ht').checked&&$('#aph').checked,quotaHotel:$('#ht').checked?g('qh').replace(',','.'):'',hotelPP:$('#ht').checked&&$('#hpp').checked,nota:g('nt')};
+  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',quotaPP:$('#qpp').checked,accompEv:$('#ape').checked,accompHotel:$('#ht').checked&&$('#aph').checked,quotaHotel:$('#ht').checked?g('qh').replace(',','.'):'',hotelPP:$('#ht').checked&&$('#hpp').checked,nota:g('nt'),esterni:$('#esx').checked,quotaTecnico:$('#esx').checked?g('qtt').replace(',','.'):'',notaEsterni:$('#esx').checked?g('nes'):''};
   if(!v.nome){er.textContent='Inserisci il nome dell’evento.';return}
   if(v.cat==='altro'&&!v.catAltro){er.textContent='Specifica di che tipo di evento si tratta (Altro).';return}
   if(!isD(v.data)){er.textContent='Indica la data dell’evento.';return}
@@ -228,6 +241,7 @@ async function save(){
   if(v.hotel&&v.scadHotel&&!isD(v.scadHotel)){er.textContent='La scadenza dell’hotel non è valida.';return}
   if(v.quota&&!/^\d{1,5}(\.\d{1,2})?$/.test(v.quota)){er.textContent='La quota deve essere un importo (es. 25 o 25,50).';return}
   if(v.quotaHotel&&!/^\d{1,5}(\.\d{1,2})?$/.test(v.quotaHotel)){er.textContent='La quota dell’hotel deve essere un importo (es. 80 o 80,50).';return}
+  if(v.quotaTecnico&&!/^\d{1,5}(\.\d{1,2})?$/.test(v.quotaTecnico)){er.textContent='La quota dei tecnici deve essere un importo (es. 15 o 15,50; 0 = gratis).';return}
   const modo=(document.querySelector('input[name=dm]:checked')||{}).value;
   if(modo==='scelti'&&!sel.size){er.textContent='Scegli almeno un atleta, oppure seleziona «Tutti gli atleti».';return}
   const file=$('#fl').files[0];
@@ -344,12 +358,18 @@ function openDetail(id){
           await delChunks(r.id,f);const list=(r.bonifici||[]).filter(x=>x.id!==i);await fupd(fdoc(db,'iscrizioni',r.id),{bonifici:list});r.bonifici=list;paintDetail()}}
       else if(a==='vf'){const r=iscr.find(x=>x.id===i);if(r&&isAdmin())await patchVerif(r)}
       else if(a==='csv')csv(ev);
+      else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid});
+      else if(a==='cpn'&&isAdmin())ext.apriCoupon(db,ev,{uid});
+      else if(a==='chk'&&isAdmin())ext.apriCheckin(db,ev,{uid});
+      else if(a==='lnk'&&isAdmin()){const ok=await ext.copiaLink(ev);b.textContent=ok?'Copiato ✔':'Copia';setTimeout(()=>{b.textContent='Copia'},2000)}
+      else if(a==='shr'&&isAdmin())await ext.condividiLink(ev);
       else if(a==='chiudi'&&isAdmin())openChiudi(ev);
       else if(a==='apri'&&isAdmin())await patchEv(ev,{chiuso:false,chiusoMotivo:''});
       else if(a==='edit'&&isAdmin()){close();edit(ev)}
       else if(a==='del'&&isAdmin()){
-        if(!confirm('Eliminare “'+ev.nome+'”? L’evento e i suoi file vanno nel Cestino (30 giorni), ma le iscrizioni e i bonifici caricati vengono cancellati subito e non si recuperano. Se vuoi solo fermare le iscrizioni usa “Chiudi iscrizioni”.'))return;
+        if(!confirm('Eliminare “'+ev.nome+'”? L’evento e i suoi file vanno nel Cestino (30 giorni), ma le iscrizioni e i bonifici caricati vengono cancellati subito e non si recuperano. Se l’evento ha il link per gli esterni, anche le loro iscrizioni, i bonifici, i coupon e i check-in vengono cancellati. Se vuoi solo fermare le iscrizioni usa “Chiudi iscrizioni”.'))return;
         for(const r of iscOf(ev.id)){try{for(const f of bonificiOf(r))await delChunks(r.id,f);await fdel(fdoc(db,'iscrizioni',r.id))}catch(x){console.error(x)}}
+        try{await ext.purge(db,ev)}catch(x){console.error(x)}
         for(const it of items.filter(x=>x.evento===ev.id)){try{await arch.remove(it)}catch(x){console.error(x)}}
         await deleteDoc(doc(db,'sections',SEC,'items',ev.id));if(editing===ev.id)resetForm(false);close()}
     }catch(x){console.error(x);alert('Operazione non riuscita. Controlla la connessione e i permessi'+(x&&x.code==='permission-denied'?' (l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.')}});
@@ -367,7 +387,7 @@ function paintDetail(){
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?v:'<span class="mu">—</span>'}</dd>`;
   const d=docOf(ev),my=myIsc(ev.id),mf=bonificiOf(my),hasQ=num(ev.quota)>0||num(ev.quotaHotel)>0,dv=dovuto(ev,my);
   const sr=isD(ev.scadReg)?esc(fmtD(ev.scadReg))+' '+(ev.chiuso?'':dlWarn(ev.scadReg)):'';
-  const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota))+(ev.quota&&ev.quotaPP?' <span class="chip">a persona</span>':''))}${ev.hotel&&num(ev.quotaHotel)?dd('Quota hotel',esc(money(ev.quotaHotel))+(ev.hotelPP?' <span class="chip">a persona</span>':'')):''}${dd('Accompagnatori',esc((ev.accompEv?'ammessi all’evento':'non ammessi all’evento')+(ev.hotel?', '+(ev.accompHotel?'ammessi in hotel':'non ammessi in hotel'):'')))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
+  const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota))+(ev.quota&&ev.quotaPP?' <span class="chip">a persona</span>':''))}${ev.esterni&&String(ev.quotaTecnico??'').trim()!==''?dd('Quota tecnici (esterni)',esc(num(ev.quotaTecnico)>0?money(ev.quotaTecnico):'gratis')):''}${ev.hotel&&num(ev.quotaHotel)?dd('Quota hotel',esc(money(ev.quotaHotel))+(ev.hotelPP?' <span class="chip">a persona</span>':'')):''}${dd('Accompagnatori',esc((ev.accompEv?'ammessi all’evento':'non ammessi all’evento')+(ev.hotel?', '+(ev.accompHotel?'ammessi in hotel':'non ammessi in hotel'):'')))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
   /* parte dell'atleta */
   const si=my&&my.partecipa==='si',no=my&&my.partecipa==='no';
   let mine=`<h3>La tua partecipazione</h3>${closed?`<div class="mu">${esc(motivoChiusura(ev))}.</div>`:''}
@@ -390,9 +410,13 @@ function paintDetail(){
       ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip">${esc(money(dovuto(ev,r).tot))}</span>`:''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(hasQ?'<span class="chip warn">nessun bonifico</span>':'')}${hasQ?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${hasQ&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(dovuto(ev,r).tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
       ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
       ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
+  const exb=adm&&ev.esterni?`<h3>Iscrizioni per esterni<button class="btn ghost sm" data-a="ext">Elenco e conferme</button></h3>
+    <div class="mu" style="margin:2px 0 6px">Link del modulo da inviare alle altre associazioni:</div>
+    <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(ext.linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo per gli esterni" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>
+    <div class="acts" style="margin-top:8px"><button class="btn ghost sm" data-a="cpn">Coupon</button><button class="btn ghost sm" data-a="chk">Check-in con QR</button></div>`:'';
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
-    ${info}${mine}${rep}
+    ${info}${mine}${rep}${exb}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
 
@@ -421,7 +445,7 @@ function renderList(){
     else if(my&&my.partecipa==='no')st=`<span class="chip">Non partecipo</span>`;
     else if(!chiusa(e)&&!adm)st='<span class="chip warn">Da rispondere</span>';
     const dl=e.chiuso?`<span class="chip bad">Chiuso${e.chiusoMotivo?': '+esc(e.chiusoMotivo):''}</span>`:isPast(e)?'':dlChip('Iscrizione',e.scadReg)+(e.hotel?dlChip('Hotel',e.scadHotel):'');
-    return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(catL(e))} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm&&ristretto(e)?`<span class="chip">Solo ${e.dest.length} atlet${e.dest.length===1?'a':'i'}</span>`:''}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
+    return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(catL(e))} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm&&e.esterni?'<span class="chip">Link esterni</span>':''}${adm&&ristretto(e)?`<span class="chip">Solo ${e.dest.length} atlet${e.dest.length===1?'a':'i'}</span>`:''}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
   ls.innerHTML=tabs+(list.length?(up.map(row).join('')+(pa.length?`<div class="sep">Passati</div>`+pa.map(row).join(''):'')):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun evento in programma.'+(adm?' Crea il primo con “+ Nuovo evento”.':'')}</div>`);
   paintDetail()}
 
@@ -457,12 +481,13 @@ else{
           unsubs.push(fon(query(base,where('destTutti','==',true)),mk(A),e=>console.error('eventi',e)));
           unsubs.push(fon(query(base,where('destUid','array-contains',uid)),mk(B),e=>console.error('eventi',e)))}
         else{
-          unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));migraDest();riallineaDest();renderList()},()=>{}));
+          unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));migraDest();riallineaDest();syncPub();renderList()},()=>{}));
           if(isAdmin()){
             unsubs.push(seguiCorsi(onSnapshot,collection(db,'sections','corsi','items')));
             unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>!a.kind||a.kind==='atleta');renderDest()},()=>{}));
             unsubs.push(fon(fcol(db,'atletiMail'),s=>{mails={};s.docs.forEach(d=>mails[d.id]=d.data());mailsOk=true;renderDest();riallineaDest()},()=>{}))}}
-        unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):''},()=>{}));
+        unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):'';payOk=true;syncPub()},()=>{}));
+        if(isAdmin())unsubs.push(ext.seguiPubblici(db));
         listenIscr()}
       loadUsers();renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));

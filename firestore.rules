@@ -97,6 +97,59 @@ service cloud.firestore {
       }
     }
 
+    /* Eventi → iscrizioni per gli ESTERNI (altre associazioni), senza login.
+       eventiPubblici/<evento> = copia pubblica dei soli dati che servono al modulo (nome, data, quote, coordinate di pagamento…), scritta dall'admin quando l'evento ha il link per esterni.
+         Solo «get» (l'id è casuale: non si può elencare); chi ha scrittura su Eventi la gestisce e la elenca.
+       eventiCoupon/<evento>_<CODICE> = coupon (gratis, % o €): solo «get» per chi conosce il codice; elenco e scrittura solo con scrittura su Eventi.
+       iscrizioniEsterne/<id> = iscrizione di un'associazione (persone: atleti e tecnici). L'id è casuale e funge da «chiave» del link di stato: get pubblico, elenco solo per chi vede tutte le iscrizioni.
+         Chiunque può CREARE (solo stato «attesa», senza codici, solo se l'evento è aperto) e, finché è in attesa, aggiungere la copia del bonifico (campo bonifici). Conferma, codici ed eliminazione: solo admin.
+       eventiCheckin/<evento>_<codice> = ingresso registrato (scansione del QR): lo legge chi vede tutte le iscrizioni, lo scrive chi ha scrittura su Eventi. */
+    function evScrive() { return hasAccount() && level('eventi') == 'w'; }
+    function evElenco() { return eventiOk() && eventiTutti(); }
+    function esAperto(ev) {
+      let m = get(/databases/$(database)/documents/eventiPubblici/$(ev)).data;
+      return m.get('esterni', false) == true && m.get('chiuso', false) == false
+        && (m.get('chiudeMs', 0) == 0 || request.time.toMillis() <= m.chiudeMs);
+    }
+    function esAttesa(id) { return get(/databases/$(database)/documents/iscrizioniEsterne/$(id)).data.stato == 'attesa'; }
+    match /eventiPubblici/{id} {
+      allow get: if true;
+      allow list, write: if evScrive();
+    }
+    match /eventiCoupon/{id} {
+      allow get: if true;
+      allow list, write: if evScrive();
+    }
+    match /iscrizioniEsterne/{id} {
+      allow get: if true;
+      allow list: if evElenco();
+      allow create: if esAperto(request.resource.data.evento)
+        && request.resource.data.keys().hasOnly(['evento', 'assoc', 'email', 'referente', 'tel', 'persone', 'coupon', 'importo', 'nota', 'stato', 'bonifici', 'ts'])
+        && request.resource.data.stato == 'attesa'
+        && request.resource.data.assoc is string && request.resource.data.assoc.size() > 0 && request.resource.data.assoc.size() <= 120
+        && request.resource.data.email is string && request.resource.data.email.matches('.+@.+\\..+') && request.resource.data.email.size() <= 120
+        && request.resource.data.referente is string && request.resource.data.referente.size() <= 80
+        && request.resource.data.tel is string && request.resource.data.tel.size() <= 40
+        && request.resource.data.nota is string && request.resource.data.nota.size() <= 1000
+        && request.resource.data.coupon is string && request.resource.data.coupon.size() <= 24
+        && request.resource.data.importo is number
+        && request.resource.data.persone is list && request.resource.data.persone.size() > 0 && request.resource.data.persone.size() <= 60
+        && request.resource.data.bonifici is list && request.resource.data.bonifici.size() == 0;
+      allow update: if isAdmin()
+        || (resource.data.stato == 'attesa'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bonifici'])
+            && request.resource.data.bonifici.size() <= 5);
+      allow delete: if isAdmin();
+      match /chunks/{c} {
+        allow read: if evElenco();
+        allow create, delete: if esAttesa(id) || isAdmin();
+      }
+    }
+    match /eventiCheckin/{id} {
+      allow read: if evElenco();
+      allow write: if evScrive();
+    }
+
     /* Email degli atleti (sezione Atleti): leggibile e scrivibile solo dall'admin, in una raccolta a parte
        così non finisce nelle schede degli atleti che vedono anche gli altri account. */
     match /atletiMail/{id} {
