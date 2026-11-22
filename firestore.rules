@@ -97,6 +97,28 @@ service cloud.firestore {
       }
     }
 
+    /* Lezioni → proposte dei tecnici per la «Prossima lezione» (raccolta Firebase, non passa da Telegram).
+       Tecnico = Lezioni in «Lettura»: crea proposte a proprio nome (stato «attesa»), le corregge o le elimina finché sono in attesa o rifiutate e legge solo le proprie.
+       Chi scrive su Lezioni (admin compreso) le legge tutte e le accetta, modifica o rifiuta. */
+    match /lezioniProposte/{id} {
+      allow read: if hasAccount() && (level('lezioni') == 'w' || resource.data.by == request.auth.uid);
+      allow create: if hasAccount() && level('lezioni') == 'r'
+        && request.resource.data.keys().hasOnly(['tipo', 'lez', 'date', 'day', 'master', 'type', 'ore', 'piano', 'by', 'byName', 'stato', 'ts', 'mailAdm', 'risolta', 'motivo'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.stato == 'attesa'
+        && request.resource.data.tipo in ['nuova', 'modifica']
+        && request.resource.data.date is string && request.resource.data.date.size() == 10
+        && request.resource.data.master is string && request.resource.data.master.size() <= 120
+        && request.resource.data.type is string && request.resource.data.type.size() <= 120
+        && request.resource.data.piano is string && request.resource.data.piano.size() <= 5000;
+      allow update: if hasAccount() && (level('lezioni') == 'w'
+        || (level('lezioni') == 'r' && resource.data.by == request.auth.uid && resource.data.stato in ['attesa', 'rifiutata']
+            && request.resource.data.stato == 'attesa'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'day', 'master', 'type', 'ore', 'piano', 'stato', 'ts', 'motivo', 'risolta', 'mailAdm'])));
+      allow delete: if hasAccount() && (level('lezioni') == 'w'
+        || (level('lezioni') == 'r' && resource.data.by == request.auth.uid && resource.data.stato in ['attesa', 'rifiutata']));
+    }
+
     /* Eventi → iscrizioni per gli ESTERNI (altre associazioni), senza login.
        eventiPubblici/<evento> = copia pubblica dei soli dati che servono al modulo (nome, data, quote, coordinate di pagamento…), scritta dall'admin quando l'evento ha il link per esterni.
          Solo «get» (l'id è casuale: non si può elencare); chi ha scrittura su Eventi la gestisce e la elenca.

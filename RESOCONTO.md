@@ -1,4 +1,4 @@
-# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 21/11/2026
+# RESOCONTO – ProFile Manager (Yanagi Academy) – aggiornato al 22/11/2026
 
 ## OBIETTIVO
 Suite web con login. Gli account li crea solo l'admin, che decide per ogni account (compreso il proprio) lettura/scrittura su ogni sezione e quali account sono admin.
@@ -18,6 +18,16 @@ Barra di ricerca in alto che filtra tutte le sezioni. Data e ora in basso a dest
 ## STATO VERIFICATO (31/10)
 - Chat: FUNZIONA, compreso l'inserimento del numero con prefisso (+39) e il pulsante Continua.
 - Firestore: regole aggiornate PUBBLICATE (compresa /app/{id} per il promemoria di tutte le pagine).
+
+## NOVITÀ (22/11) – LEZIONI: ALERT PER LA «PROSSIMA LEZIONE» TRA ADMIN E TECNICI
+- TECNICO = account non admin con Lezioni in «Lettura» (chi ha «Scrittura» è come l'admin e non ha bisogno di approvazione).
+- ADMIN → TECNICI: quando l'admin aggiunge o modifica una prossima lezione CONDIVISA (o attiva «Condividi con i tecnici»), i tecnici ricevono (1) una mail dal Gmail dell'ASD con data, maestro, tipologia, durata e programma e (2) un avviso nella Home («Lezioni: N lezioni in programma nuove o modificate»; sparisce aprendo Lezioni, per dispositivo). Le lezioni non condivise non avvisano nessuno. Lo stesso avviene quando l'admin accetta o modifica-e-accetta una proposta.
+- TECNICO → ADMIN: il tecnico ora ha in «Prossima lezione» il pulsante + per PROPORRE una nuova lezione e il pulsante ✎ per proporre una MODIFICA a una lezione condivisa. Le proposte stanno in Firebase (raccolta lezioniProposte, non passano da Telegram) e il tecnico le vede in «Le mie proposte» (in attesa / accettata / accettata con modifiche / rifiutata + motivo); finché sono in attesa o rifiutate può correggerle e reinviarle o eliminarle.
+- L'ADMIN VEDE il riquadro «Proposte dei tecnici» in Lezioni (per le modifiche mostra il valore «prima:») e per ciascuna sceglie: ACCETTA (la lezione diventa condivisa e i tecnici sono avvisati), MODIFICA… (apre il modulo con i dati proposti, «Salva e accetta»; il tecnico vede «accettata con modifiche»), RIFIUTA (con motivo facoltativo, avvisa solo il proponente). Nella Home dell'admin: «Lezioni: N proposte dei tecnici da valutare». Il tecnico, nella Home: «N tue proposte valutate dall'admin».
+- MAIL ALL'ADMIN per le proposte: i tecnici non possono usare il ponte Gmail (è solo per l'admin), quindi la mail agli indirizzi admin (Mail → Notifiche) parte alla prima apertura della suite o di Lezioni da parte dell'admin (una sola volta per proposta). L'avviso nell'app è invece immediato.
+- Se la Mail non è collegata (mail-config.js) restano gli avvisi nell'app; l'esito dell'invio compare in Lezioni.
+- FILE NUOVO: lezioni-avvisi.js. MODIFICATI: lezioni.js, index.html (avvisi Home), firestore.rules (RIPUBBLICARE: blocco «Lezioni → proposte dei tecnici»). Numeri di versione NON aggiornati.
+- PROVATO in browser di prova con Firestore simulato (32 controlli su 32): mail e avvisi ai tecnici (solo ai tecnici con mail, non a admin/altri account), proposta nuova e di modifica, accetta, modifica-e-accetta, rifiuta con motivo, correggi e reinvia, elimina, riservatezza (un tecnico non vede le proposte altrui), mail all'admin una sola volta. NON provato: regole Firestore reali e invio vero dal Gmail.
 
 ## NOVITÀ (21/11) – EVENTI: ISCRIZIONE PER ESTERNI (LINK), COUPON, CODICI/QR, CHECK-IN
 - LINK PER GLI ESTERNI: nel modulo evento, riquadro «Iscrizione per esterni» → casella «Genera un link…». Dopo il salvataggio, nella scheda dell'evento compaiono il link (Copia / Condividi) e i pulsanti «Elenco e conferme», «Coupon», «Check-in con QR». Il modulo è la pagina pubblica iscrizione.html?e=<idEvento> (senza login). Togliendo la spunta il link smette di funzionare.

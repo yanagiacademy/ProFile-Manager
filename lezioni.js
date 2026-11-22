@@ -6,6 +6,8 @@ import {archivio,limiteMB} from "./archivio.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,guessMime,okThumb} from "./file-tools.js";
 import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
+import {collection as fcol,doc as fdoc,query,where,onSnapshot as fon,addDoc as fadd,updateDoc as fupd,deleteDoc as fdel} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {avvisaTecnici,avvisaUtente,mailProposteAdmin} from "./lezioni-avvisi.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -37,15 +39,21 @@ const canSee=i=>perm()==='w'||!!i.cond;
 const futureOf=()=>items.filter(i=>isPlan(i)&&canSee(i)&&(i.date||'')>=today()).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 const pastOf=()=>items.filter(i=>isPlan(i)&&perm()==='w'&&(i.date||'')<today()).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 let planEd=null,confirming=null;
+/* Proposte dei tecnici (raccolta Firebase «lezioniProposte», non passa da Telegram): il tecnico (Lezioni in sola lettura) propone una nuova prossima lezione o una modifica a una condivisa;
+   l'admin la accetta, la modifica o la rifiuta. Stati: attesa → accettata | modificata | rifiutata. */
+const tec=()=>perm()==='r';
+let props=[],propSub=false,propEd=null,propLez='',revProp=null;
+const planData=(date,master,type,ore,piano,cond)=>({stato:'prog',date,day:dayOf(date),master,type,ore,piano,cond,title:'Lezione programmata '+fmtD(date)+' – '+type,note:master+(ore>0?' · '+fmtOre(ore):'')+(piano?' · '+piano.replace(/\s+/g,' ').slice(0,160):'')});
+const lblSalva=()=>tec()?'Invia proposta':'Salva programma';
 const attsOf=id=>items.filter(i=>i.kind==='file'&&i.lesson===id).sort((a,b)=>((a.at&&a.at.seconds)??Infinity)-((b.at&&b.at.seconds)??Infinity)||a.title.localeCompare(b.title,'it'));
 const note=(t,ms=8000)=>{const p=$('#prog');if(!p)return;p.style.display='block';p.textContent=t;setTimeout(()=>{p.style.display='none'},ms)};
 
 /* Struttura della pagina: il modulo viene creato una sola volta, così quello che scrivi non si perde quando l'elenco si aggiorna */
 function shell(){
-  const w=perm()==='w';shellFor=perm();
+  const w=perm()==='w',t=tec();shellFor=perm();
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca nelle lezioni" aria-label="Cerca nelle lezioni" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div><h2 style="margin:0">Lezioni</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div></div>
-  ${proxHtml(w)}
+  ${proxHtml(w,t)}
   ${w?`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 id="ft" style="margin:0">Nuova lezione</h3><button class="btn sm" id="ftg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="fb" aria-label="Apri il modulo della lezione">+</button></div>
     <div id="fb" hidden>
     <div class="two"><div><label for="dt">Data</label><input id="dt" type="date"></div><div><label for="dy">Giorno</label><input id="dy" type="text" readonly tabindex="-1" aria-live="polite"></div></div>
@@ -75,7 +83,12 @@ function shell(){
   ['#od','#oa'].forEach(s=>$(s).onchange=renderOre);$('#oq').oninput=renderOre;
   $('#orst').onclick=()=>{$('#od').value='';$('#oa').value='';renderOre()};
   $('#ol').onclick=e=>{const b=e.target.closest('[data-oa]');if(!b)return;const id=b.dataset.oa;if(oreOpen.has(id))oreOpen.delete(id);else oreOpen.add(id);renderOre()};
+  if(t){
+    $('#ptg').onclick=()=>setPlan($('#pb').hidden);
+    $('#pdt').value=today();$('#pdy').value=dayOf($('#pdt').value);$('#pdt').oninput=()=>{$('#pdy').value=dayOf($('#pdt').value)};
+    $('#psv').onclick=savePlan;$('#pcx').onclick=resetPlan;$('#mp').onclick=onMyPropClick}
   if(w){
+    $('#ppc').onclick=onPropAdmin;
     $('#ftg').onclick=()=>setForm($('#fb').hidden);
     $('#dt').value=today();$('#dy').value=dayOf($('#dt').value);
     $('#dt').oninput=()=>{$('#dy').value=dayOf($('#dt').value)};
@@ -224,7 +237,7 @@ function renderList(){
   if(w){const uniq=k=>[...new Set(lessonsOf().map(i=>i[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'it'));
     $('#lm').innerHTML=uniq('master').map(v=>`<option value="${esc(v)}">`).join('');
     $('#lt').innerHTML=uniq('type').map(v=>`<option value="${esc(v)}">`).join('')}
-  renderOre();renderPlans()
+  renderOre();renderPlans();renderProp()
 }
 function menu(it){
   const o=document.createElement('div');o.className='mnu-ov';
@@ -251,35 +264,107 @@ async function doAct(act,id){
 function onListClick(e){const b=e.target.closest('[data-act]');if(b)doAct(b.dataset.act,b.dataset.id)}
 
 /* ---------- Prossima lezione: prepari il programma, lo condividi con i tecnici, a data passata lo confermi con ciò che è stato fatto ---------- */
-const proxHtml=w=>`<div class="card" style="margin-bottom:12px"><div class="fh"><h3 style="margin:0">Prossima lezione</h3>${w?`<button class="btn sm" id="ptg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="pb" aria-label="Apri il modulo della prossima lezione">+</button>`:''}</div>
-  ${w?`<div id="pb" hidden>
+const proxHtml=(w,t)=>`${w?'<div class="card" id="ppc" style="margin-bottom:12px" hidden></div>':''}<div class="card" style="margin-bottom:12px"><div class="fh"><h3 style="margin:0">Prossima lezione</h3>${w||t?`<button class="btn sm" id="ptg" style="min-width:44px;font-size:1.2rem" aria-expanded="false" aria-controls="pb" aria-label="${t?'Apri il modulo per proporre una lezione':'Apri il modulo della prossima lezione'}">+</button>`:''}</div>
+  ${w||t?`<div id="pb" hidden>
+    ${t?'<p class="mu" style="margin:6px 0 0">Le lezioni che proponi arrivano all’admin, che le accetta, le modifica o le rifiuta: ti avvisiamo dell’esito.</p>':''}
     <div class="two"><div><label for="pdt">Data</label><input id="pdt" type="date"></div><div><label for="pdy">Giorno</label><input id="pdy" type="text" readonly tabindex="-1" aria-live="polite"></div></div>
     <label for="pms">Maestro</label><input id="pms" type="text" list="lm" autocomplete="off">
     <label for="ptp">Tipologia lezione</label><input id="ptp" type="text" list="lt" autocomplete="off">
     <label for="por">N. ore lezione (facoltativo)</label><select id="por"><option value="">Seleziona…</option>${ORE.map(n=>`<option value="${n}">${fmtOre(n)}</option>`).join('')}</select>
     <label for="ppn">Programma della lezione</label><textarea id="ppn" placeholder="Cosa vuoi fare: riscaldamento, tecniche, esercizi, obiettivi…"></textarea>
-    <label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="pcd" style="width:auto;min-height:0"> Condividi con i tecnici</label>
+    ${w?'<label class="mu" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="pcd" style="width:auto;min-height:0"> Condividi con i tecnici</label>':''}
     <p class="err" id="per" role="alert"></p>
-    <div class="acts"><button class="btn" id="psv">Salva programma</button><button class="btn ghost" id="pcx" hidden>Annulla modifica</button></div></div>`:''}
-  <div id="pl" style="margin-top:8px"></div></div>
+    <div class="acts"><button class="btn" id="psv">${t?'Invia proposta':'Salva programma'}</button><button class="btn ghost" id="pcx" hidden>Annulla modifica</button></div></div>`:''}
+  <div id="pl" style="margin-top:8px"></div>${t?'<div id="mp" style="margin-top:10px"></div>':''}</div>
   <div class="card" id="dc" style="margin-bottom:12px" hidden></div>`;
 function setPlan(o){const b=$('#pb'),t=$('#ptg');if(!b)return;b.hidden=!o;t.textContent=o?'−':'+';t.setAttribute('aria-expanded',String(o))}
 function resetPlan(){
-  planEd=null;setPlan(false);$('#pdt').value=today();$('#pdy').value=dayOf($('#pdt').value);
-  ['#pms','#ptp','#ppn'].forEach(s=>{$(s).value=''});$('#por').value='';$('#pcd').checked=false;$('#per').textContent='';$('#psv').textContent='Salva programma';$('#pcx').hidden=true}
+  planEd=null;propEd=null;propLez='';revProp=null;setPlan(false);$('#pdt').value=today();$('#pdy').value=dayOf($('#pdt').value);
+  ['#pms','#ptp','#ppn'].forEach(s=>{$(s).value=''});$('#por').value='';if($('#pcd'))$('#pcd').checked=false;$('#per').textContent='';$('#psv').textContent=lblSalva();$('#pcx').hidden=true}
+/* esito dell'avviso ai tecnici, mostrato in basso */
+const dettaglioAvviso=r=>r?(r.inviate?'Avviso inviato a '+r.inviate+(r.inviate===1?' tecnico':' tecnici')+' per mail.':'')+(r.nota?(r.inviate?' ':'')+r.nota:''):'';
 async function savePlan(){
   const date=$('#pdt').value,master=$('#pms').value.trim(),type=$('#ptp').value.trim(),piano=$('#ppn').value.trim(),er=$('#per'),ore=parseFloat($('#por').value)||0;
   if(!date){er.textContent='Inserisci la data.';return}
   if(!master){er.textContent='Inserisci il maestro.';return}
   if(!type){er.textContent='Inserisci la tipologia della lezione.';return}
-  const data={stato:'prog',date,day:dayOf(date),master,type,ore,piano,cond:$('#pcd').checked,title:'Lezione programmata '+fmtD(date)+' – '+type,note:master+(ore>0?' · '+fmtOre(ore):'')+(piano?' · '+piano.replace(/\s+/g,' ').slice(0,160):'')};
+  if(tec())return saveProposal({date,master,type,piano,ore},er);
+  const cond=$('#pcd').checked,data={...planData(date,master,type,ore,piano,cond),...(cond?{agg:Date.now(),aggTipo:planEd?'modifica':'nuova'}:{})};
   $('#psv').disabled=true;er.textContent='Salvataggio…';
+  const rp=revProp,tipo=planEd?'modifica':'nuova';let it=null;
   try{
-    if(planEd)await updateDoc(doc(db,'sections',SEC,'items',planEd),data);
-    else await addDoc(col,{...data,by:uid,at:serverTimestamp()});
-    resetPlan()
+    if(planEd){await updateDoc(doc(db,'sections',SEC,'items',planEd),data);it={...(items.find(x=>x.id===planEd)||{}),...data,id:planEd}}
+    else{const r=await addDoc(col,{...data,by:uid,at:serverTimestamp()});it={...data,id:r.id}}
+    if(rp)await chiudiProposta(rp,'modificata');
+    resetPlan();
+    if(cond){const r=await avvisaTecnici(db,{tipo,it,da:rp?rp.byName:''});const t=dettaglioAvviso(r);if(t)note(t)}
   }catch(e){console.error(e);er.textContent='Salvataggio non riuscito. Controlla i permessi e riprova.'}
   $('#psv').disabled=false}
+
+/* ---------- proposte dei tecnici ---------- */
+async function saveProposal(v,er){
+  const b=$('#psv');b.disabled=true;er.textContent='Invio…';
+  try{
+    if(propEd)await fupd(fdoc(db,'lezioniProposte',propEd),{date:v.date,day:dayOf(v.date),master:v.master,type:v.type,ore:v.ore,piano:v.piano,stato:'attesa',ts:Date.now(),motivo:'',risolta:0,mailAdm:false});
+    else await fadd(fcol(db,'lezioniProposte'),{tipo:propLez?'modifica':'nuova',lez:propLez||'',date:v.date,day:dayOf(v.date),master:v.master,type:v.type,ore:v.ore,piano:v.piano,by:uid,byName:me.name||me.email||'',stato:'attesa',ts:Date.now(),mailAdm:false,risolta:0,motivo:''});
+    resetPlan();note('Proposta inviata: l’admin la valuterà e ti avviserà dell’esito.')}
+  catch(e){console.error(e);er.textContent='Invio non riuscito'+(e&&e.code==='permission-denied'?' (l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'. Riprova.'}
+  b.disabled=false}
+function proponiModifica(it){
+  setPlan(true);propEd=null;propLez=it.id;$('#psv').textContent='Invia proposta di modifica';$('#pcx').hidden=false;$('#per').textContent='';
+  $('#pdt').value=it.date||today();$('#pdy').value=dayOf($('#pdt').value);$('#pms').value=it.master||'';$('#ptp').value=it.type||'';$('#por').value=it.ore>0?String(it.ore):'';$('#ppn').value=it.piano||'';
+  $('#pdt').scrollIntoView({behavior:'smooth',block:'center'})}
+function editProp(p){
+  setPlan(true);propEd=p.id;propLez=p.tipo==='modifica'?p.lez:'';$('#psv').textContent='Reinvia proposta';$('#pcx').hidden=false;$('#per').textContent='';
+  $('#pdt').value=p.date||today();$('#pdy').value=dayOf($('#pdt').value);$('#pms').value=p.master||'';$('#ptp').value=p.type||'';$('#por').value=p.ore>0?String(p.ore):'';$('#ppn').value=p.piano||'';
+  $('#pdt').scrollIntoView({behavior:'smooth',block:'center'})}
+const STATO_P={attesa:['In attesa dell’admin','warn'],accettata:['Accettata','ok'],modificata:['Accettata con modifiche','ok'],rifiutata:['Rifiutata','bad']};
+const campiP=[['Data',x=>fmtD(x.date)],['Maestro',x=>x.master],['Tipologia',x=>x.type],['Ore',x=>x.ore>0?fmtOre(x.ore):''],['Programma',x=>x.piano]];
+function myPropRow(p){
+  const [t,c]=STATO_P[p.stato]||['',''],mod=p.stato==='attesa'||p.stato==='rifiutata';
+  return `<div class="les" style="flex-wrap:wrap;align-items:flex-start"><div class="inf" style="flex:1 1 100%"><div><b>${esc(fmtD(p.date))}</b> · ${esc(p.day||dayOf(p.date))} · <span class="mu">${p.tipo==='modifica'?'proposta di modifica':'nuova lezione'}</span> <span class="chip ${c}" style="font-size:.72rem;padding:2px 8px;border:1px solid var(--ln);border-radius:99px">${esc(t)}</span></div><div class="mu">${esc(p.master||'—')}${p.type?' · '+esc(p.type):''}${p.ore>0?' · '+esc(fmtOre(p.ore)):''}</div>${p.stato==='rifiutata'&&p.motivo?`<div class="mu">Motivo: ${esc(p.motivo)}</div>`:''}</div>${mod?`<div class="acts"><button class="btn ghost sm" data-mp="edit" data-id="${esc(p.id)}">${p.stato==='rifiutata'?'Correggi e reinvia':'Modifica'}</button><button class="btn ghost sm" data-mp="del" data-id="${esc(p.id)}">Elimina</button></div>`:''}</div>`}
+function propAdminRow(p){
+  const o=p.tipo==='modifica'?items.find(x=>x.id===p.lez):null,orfana=p.tipo==='modifica'&&!o;
+  const righe=campiP.map(([l,f])=>{const v=f(p),a=o?f(o):'',ch=o&&String(v||'')!==String(a||'');if(!v&&!ch)return '';return `<div style="${l==='Programma'?'white-space:pre-wrap;overflow-wrap:anywhere':''}"><span class="mu">${l}:</span> ${esc(v||'—')}${ch?` <span class="mu">(prima: ${esc(a||'—')})</span>`:''}</div>`}).join('');
+  return `<div class="les" style="flex-wrap:wrap;align-items:flex-start"><div class="inf" style="flex:1 1 100%"><div><b>${esc(p.byName||'Un tecnico')}</b> · <span class="mu">${p.tipo==='modifica'?'propone una modifica':'propone una nuova lezione'}</span></div>${righe}${orfana?'<div class="err">La lezione originale non esiste più: puoi solo rifiutare.</div>':''}</div>
+    <div class="acts"><button class="btn sm" data-pp="ok" data-id="${esc(p.id)}"${orfana?' disabled':''}>Accetta</button><button class="btn ghost sm" data-pp="mod" data-id="${esc(p.id)}"${orfana?' disabled':''}>Modifica…</button><button class="btn ghost sm" data-pp="no" data-id="${esc(p.id)}">Rifiuta</button></div></div>`}
+function renderProp(){
+  if(perm()==='w'){
+    const c=$('#ppc');if(!c)return;const a=props.filter(p=>p.stato==='attesa').sort((x,y)=>(x.ts||0)-(y.ts||0));
+    c.hidden=!a.length;c.innerHTML=a.length?`<h3 style="margin:0 0 4px">Proposte dei tecnici (${a.length})</h3><div class="mu" style="margin-bottom:6px">Accettale così come sono, modificale prima di accettare oppure rifiutale: i tecnici vengono avvisati.</div>`+a.map(propAdminRow).join(''):''}
+  else if(tec()){
+    const c=$('#mp');if(!c)return;const l=[...props].sort((x,y)=>(y.ts||0)-(x.ts||0)).slice(0,15);
+    c.innerHTML=l.length?`<h3 style="margin:0 0 4px;font-size:1rem">Le mie proposte</h3>`+l.map(myPropRow).join(''):''}}
+function onMyPropClick(e){
+  const b=e.target.closest('[data-mp]');if(!b)return;const p=props.find(x=>x.id===b.dataset.id);if(!p)return;
+  if(b.dataset.mp==='edit')editProp(p);
+  else if(b.dataset.mp==='del'&&confirm('Eliminare questa proposta?'))fdel(fdoc(db,'lezioniProposte',p.id)).catch(x=>{console.error(x);alert('Eliminazione non riuscita.')})}
+async function chiudiProposta(p,stato,motivo=''){
+  await fupd(fdoc(db,'lezioniProposte',p.id),{stato,risolta:Date.now(),risoltaDa:uid,motivo});
+  avvisaUtente(db,p.by,{esito:stato,p,motivo}).catch(()=>{})}
+async function accettaProp(p){
+  const o=p.tipo==='modifica'?items.find(x=>x.id===p.lez):null;
+  if(p.tipo==='modifica'&&!o){alert('La lezione originale non esiste più.');return}
+  const data={...planData(p.date,p.master,p.type,p.ore||0,p.piano||'',true),agg:Date.now(),aggTipo:p.tipo==='modifica'?'modifica':'nuova',daTecnico:p.byName||''};
+  let it;
+  if(o){await updateDoc(doc(db,'sections',SEC,'items',o.id),data);it={...o,...data}}
+  else{const r=await addDoc(col,{...data,by:uid,at:serverTimestamp()});it={...data,id:r.id}}
+  await chiudiProposta(p,'accettata');
+  const r=await avvisaTecnici(db,{tipo:p.tipo==='modifica'?'modifica':'nuova',it,da:p.byName});const t=dettaglioAvviso(r);note('Proposta accettata.'+(t?' '+t:''))}
+function revisiona(p){
+  const o=p.tipo==='modifica'?items.find(x=>x.id===p.lez):null;
+  if(p.tipo==='modifica'&&!o){alert('La lezione originale non esiste più.');return}
+  if(o)editPlan(o);else{resetPlan();setPlan(true)}
+  revProp=p;$('#psv').textContent='Salva e accetta';$('#pcx').hidden=false;$('#per').textContent='';
+  $('#pdt').value=p.date||today();$('#pdy').value=dayOf($('#pdt').value);$('#pms').value=p.master||'';$('#ptp').value=p.type||'';$('#por').value=p.ore>0?String(p.ore):'';$('#ppn').value=p.piano||'';$('#pcd').checked=true;
+  $('#pdt').scrollIntoView({behavior:'smooth',block:'center'})}
+async function onPropAdmin(e){
+  const b=e.target.closest('[data-pp]');if(!b)return;const p=props.find(x=>x.id===b.dataset.id);if(!p)return;
+  try{
+    if(b.dataset.pp==='ok'){b.disabled=true;await accettaProp(p)}
+    else if(b.dataset.pp==='mod')revisiona(p);
+    else if(b.dataset.pp==='no'){const m=prompt('Motivo del rifiuto (facoltativo, lo leggerà il tecnico):','');if(m===null)return;await chiudiProposta(p,'rifiutata',m.trim());note('Proposta rifiutata: il tecnico è stato avvisato.')}}
+  catch(x){console.error(x);alert('Operazione non riuscita. Controlla la connessione e i permessi'+(x&&x.code==='permission-denied'?' (l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.')}}
 function editPlan(it){
   setPlan(true);planEd=it.id;$('#psv').textContent='Salva modifiche';$('#pcx').hidden=false;$('#per').textContent='';
   $('#pdt').value=it.date||today();$('#pdy').value=dayOf($('#pdt').value);$('#pms').value=it.master||'';$('#ptp').value=it.type||'';
@@ -293,7 +378,7 @@ function confirmEdit(it){
 function planRow(i,conf){
   const w=perm()==='w',ore=i.ore>0?' · '+esc(fmtOre(i.ore)):'';
   const act=conf?`<button class="btn sm" data-pa="conf" data-id="${esc(i.id)}" style="white-space:nowrap">Conferma</button>`:`<button class="btn ghost sm" data-pa="open" data-id="${esc(i.id)}" style="white-space:nowrap">Programma</button>`;
-  const mn=w?`<button class="btn ghost sm mn" data-pa="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione programmata" title="Azioni">⋯</button>`:'';
+  const mn=w?`<button class="btn ghost sm mn" data-pa="mnu" data-id="${esc(i.id)}" aria-label="Azioni sulla lezione programmata" title="Azioni">⋯</button>`:(tec()&&!conf?`<button class="btn ghost sm mn" data-pa="prop" data-id="${esc(i.id)}" aria-label="Proponi una modifica a questa lezione" title="Proponi una modifica">✎</button>`:'');
   return `<div class="les"><div class="inf"><div><b>${esc(fmtD(i.date))}</b> · ${esc(i.day||dayOf(i.date))}${i.cond&&w?' · <span class="mu">condivisa</span>':''}</div><div class="mu">${esc(i.master||'—')}${i.type?' · '+esc(i.type):''}${ore}</div></div>${act}${mn}</div>`}
 function renderPlans(){
   const pl=$('#pl');if(!pl)return;const w=perm()==='w',f=futureOf(),p=pastOf(),dc=$('#dc');
@@ -314,13 +399,13 @@ function planMenu(it){
 async function planAct(act,it){
   if(act==='conf')confirmEdit(it);
   else if(act==='edit')editPlan(it);
-  else if(act==='share'){try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{cond:!it.cond})}catch(e){console.error(e);alert('Operazione non riuscita.')}}
+  else if(act==='share'){try{const on=!it.cond;await updateDoc(doc(db,'sections',SEC,'items',it.id),{cond:on,...(on?{agg:Date.now(),aggTipo:'nuova'}:{})});if(on&&(it.date||'')>=today()){const r=await avvisaTecnici(db,{tipo:'nuova',it});const t=dettaglioAvviso(r);if(t)note(t)}}catch(e){console.error(e);alert('Operazione non riuscita.')}}
   else if(act==='del'){
     if(!confirm('Eliminare la lezione programmata del '+fmtD(it.date)+'? Va nel Cestino e resta recuperabile per 30 giorni.'))return;
     try{await deleteDoc(doc(db,'sections',SEC,'items',it.id));if(planEd===it.id)resetPlan()}catch(e){console.error(e);alert('Eliminazione non riuscita.')}}}
 function onPlanClick(e){
   const b=e.target.closest('[data-pa]');if(!b)return;const it=items.find(x=>x.id===b.dataset.id);if(!it)return;
-  if(b.dataset.pa==='open')openPlan(it);else if(b.dataset.pa==='mnu')planMenu(it);else if(b.dataset.pa==='conf')confirmEdit(it)}
+  if(b.dataset.pa==='open')openPlan(it);else if(b.dataset.pa==='mnu')planMenu(it);else if(b.dataset.pa==='conf')confirmEdit(it);else if(b.dataset.pa==='prop')proponiModifica(it)}
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
@@ -328,13 +413,16 @@ else{
   onAuthStateChanged(auth,u=>{
     unsubs.forEach(f=>f());unsubs=[];
     if(!u){location.href='index.html';return}
-    uid=u.uid;arch=archivio(db,SEC,uid);atlSub=false;
+    uid=u.uid;arch=archivio(db,SEC,uid);atlSub=false;propSub=false;props=[];
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');shellFor='';if(memo)memo.setAccess('n',false);return}
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);
       if(shellFor!==perm())shell();
-      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},()=>{}));
+      if(unsubs.length<2)unsubs.push(onSnapshot(col,s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));if(tec()){try{localStorage.setItem('pfm_lez_vis_'+uid,String(Date.now()))}catch(e){}}renderList();renderProp()},()=>{}));
+      if(!propSub&&(perm()==='w'||perm()==='r')){propSub=true;
+        const qp=perm()==='w'?query(fcol(db,'lezioniProposte'),where('stato','==','attesa')):query(fcol(db,'lezioniProposte'),where('by','==',uid));
+        unsubs.push(fon(qp,s=>{props=s.docs.map(d=>({id:d.id,...d.data()}));if(tec()){try{localStorage.setItem('pfm_lez_vis_'+uid,String(Date.now()))}catch(e){}}renderProp();if(perm()==='w'&&me.admin)mailProposteAdmin(db)},()=>{props=[];renderProp()}))}
       if(!atlSub){atlSub=true;        /* l'elenco atleti serve anche al conteggio ore (chi non ha la lettura su Atleti vede solo chi compare nelle lezioni) */
         unsubs.push(seguiCorsi(onSnapshot,collection(db,'sections','corsi','items')));
         unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),s=>{atl=s.docs.map(d=>({id:d.id,...d.data()})).filter(a=>(!a.kind||a.kind==='atleta')&&(a.nome||a.cognome||a.title));atlErr=false;renderAtl();renderOre()},()=>{atl=[];atlErr=true;renderAtl();renderOre()}))}
