@@ -10,7 +10,8 @@ export const GRADI=[
   {liv:5,nome:'2 kyu',cint:'blu',bg:'#2F80ED'},
   {liv:6,nome:'1 kyu',cint:'marrone',bg:'#8B5A2B'},
   ...[1,2,3,4,5].map((n,i)=>({liv:7+i,nome:n+' dan',cint:'nera',bg:'#111111'})),
-  ...[6,7,8,9,10].map((n,i)=>({liv:12+i,nome:n+' dan',cint:'bianco rossa',bg:BIANCA_ROSSA}))
+  ...[6,7,8,9].map((n,i)=>({liv:12+i,nome:n+' dan',cint:'bianco rossa',bg:BIANCA_ROSSA})),
+  {liv:16,nome:'10 dan',cint:'rossa',bg:'#D93025'}      /* il 10° dan ha la cintura solo rossa */
 ];
 export const gradoLabel=g=>g.nome+' - '+g.cint;
 export const GRADI_LAB=GRADI.map(gradoLabel);
