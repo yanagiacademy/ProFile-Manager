@@ -23,6 +23,7 @@ tick();setInterval(tick,15000);
    Gli atleti non hanno la sessione Telegram: leggono solo i contenuti con la copia su Firebase (fb:true), per questo la casella è spuntata di default. */
 const SEC='esami',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 let auth,db,col,uid=null,me=null,items=[],cat=0,flt='all',q='',unsubs=[],memo=null;
+let ordAsc=false;
 let subMode='',subOff=null,restricted=false,livMax=16,errRead=false,fbNew=true,attList=null;
 const perm=()=>me?(me.admin?'w':(((me.perms||{})[SEC]||'n')==='u'?'r':((me.perms||{})[SEC]||'n'))):'n';
 const solo=()=>!!(me&&!me.admin&&(me.perms||{})[SEC]==='u');      /* «Solo dati utente»: vede le categorie fino al proprio grado; con Lettura o Scrittura vede tutto */
@@ -100,11 +101,14 @@ function render(){
     const n=l=>all.filter(i=>i.liv===l).length;
     body+=attBtn+`<div class="cats">${visCats().map(x=>`<button class="cat" data-act="cat" data-id="${x.liv}">${belt(x)}<span class="nm"><b>${esc(x.nome)}</b><span class="mu">${esc(x.cint)}</span></span><span class="n">${n(x.liv)||''}</span></button>`).join('')}</div>`}
   else{
-    const inCat=all.filter(i=>i.liv===cat),cnt=k=>k==='all'?inCat.length:inCat.filter(i=>tipoOf(i)===k).length;
-    const list=inCat.filter(i=>flt==='all'||tipoOf(i)===flt).sort((a,b)=>(a.title||'').localeCompare(b.title||'','it',{numeric:true}));
+    /* aprendo una cintura compaiono i documenti di tutte le cinture fino a quella, divisi per cintura (prima quella aperta, poi le precedenti) */
+    const inCat=all.filter(i=>i.liv<=cat),cnt=k=>k==='all'?inCat.length:inCat.filter(i=>tipoOf(i)===k).length;
+    const sorted=l=>l.sort((a,b)=>(a.title||'').localeCompare(b.title||'','it',{numeric:true}));
+    const secs=(l=>ordAsc?l:l.reverse())(GRADI.filter(x=>x.liv<=cat)).map(x=>({g:x,list:sorted(inCat.filter(i=>i.liv===x.liv&&(flt==='all'||tipoOf(i)===flt)))}));
+    const listHtml=secs.filter(x=>x.g.liv===cat||x.list.length).map(x=>`<div class=\"bh\">${belt(x.g,'beltS')}<b>${esc(x.g.nome)} - ${esc(x.g.cint)}</b>${x.g.liv===cat?' <span class=\"mu\">(questa cintura)</span>':''}<span class=\"n\">${x.list.length||''}</span></div>${x.list.length?x.list.map(i=>row(i,false)).join(''):'<div class=\"mu\" style=\"padding:6px 0\">'+(inCat.some(i=>i.liv===cat)?'Nessun elemento di questo tipo.':'Nessun materiale in questa cintura.'+(w?' Carica file o aggiungi un link.':''))+'</div>'}`).join('');
     body+=`${w?`<div class="tools"><button class="btn sm" data-act="upf">Carica file</button><button class="btn ghost sm" data-act="addlink">Aggiungi link</button><label class="mu" style="display:inline-flex;gap:6px;align-items:center;font-size:.85rem"><input type="checkbox" data-act="fbn" ${fbNew?'checked':''}> Visibile agli atleti (copia su Firebase)</label><input type="file" id="uf" multiple hidden></div>`:''}
-    <div class="seg2" role="group" aria-label="Tipo di materiale">${Object.entries(TIPI).map(([k,l])=>`<button data-act="flt" data-id="${k}" aria-pressed="${flt===k}">${l}${cnt(k)?' · '+cnt(k):''}</button>`).join('')}</div>
-    <div class="card">${list.length?list.map(i=>row(i,false)).join(''):'<div class="mu">'+(inCat.length?'Nessun elemento di questo tipo.':'Categoria vuota.'+(w?' Carica file o aggiungi un link.':''))+'</div>'}</div>`}
+    <div class="seg2" role="group" aria-label="Tipo di materiale">${Object.entries(TIPI).map(([k,l])=>`<button data-act="flt" data-id="${k}" aria-pressed="${flt===k}">${l}${cnt(k)?' · '+cnt(k):''}</button>`).join('')}<button data-act="ord" aria-label="Inverti l’ordine delle cinture">${ordAsc?'↑ Dalla prima cintura':'↓ Dalla cintura aperta'}</button></div>
+    <div class="card">${listHtml}</div>`}
   const crumb=`<nav class="crumb" aria-label="Percorso"><button data-act="cat" data-id="0">Esami</button>${g?`<span aria-hidden="true">/</span><button data-act="cat" data-id="${g.liv}">${esc(g.nome)} - ${esc(g.cint)}</button>`:''}</nav>`;
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><input id="q" type="search" placeholder="Cerca in Esami" aria-label="Cerca" value="${esc(q)}"><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
   <div class="wrap"><div class="bar"><h2>${g?belt(g,'beltS')+esc(g.nome)+' - '+esc(g.cint):'Esami'}</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div>
@@ -171,6 +175,7 @@ function act(a,id){
   const it=id?byId(id):null;
   if(a==='cat'){cat=+id||0;flt='all';q='';render()}
   else if(a==='flt'){flt=id;render()}
+  else if(a==='ord'){ordAsc=!ordAsc;render()}
   else if(a==='upf')$('#uf').click();
   else if(a==='addlink')linkModal(null);
   else if(a==='att')attModal();
