@@ -10,6 +10,7 @@ import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {isD,fmtD,giorni} from "./atleti-scadenze.js";
 import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
 import * as ext from "./eventi-esterni.js";
+import {archiviaEvento} from "./eventi-archivio.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -367,11 +368,16 @@ function openDetail(id){
       else if(a==='apri'&&isAdmin())await patchEv(ev,{chiuso:false,chiusoMotivo:''});
       else if(a==='edit'&&isAdmin()){close();edit(ev)}
       else if(a==='del'&&isAdmin()){
-        if(!confirm('Eliminare “'+ev.nome+'”? L’evento e i suoi file vanno nel Cestino (30 giorni), ma le iscrizioni e i bonifici caricati vengono cancellati subito e non si recuperano. Se l’evento ha il link per gli esterni, anche le loro iscrizioni, i bonifici, i coupon e i check-in vengono cancellati. Se vuoi solo fermare le iscrizioni usa “Chiudi iscrizioni”.'))return;
+        if(!confirm('Eliminare “'+ev.nome+'”?\n\n• L’evento e i suoi file vanno nel Cestino (30 giorni).\n• I bonifici (interni ed esterni) e un elenco degli iscritti, divisi tra interni ed esterni, con quote e utilizzo dei coupon, passano in Archivio per 10 anni; chi ha accesso a Commercialista riceve una notifica.\n• Poi iscrizioni, coupon e check-in vengono cancellati e non si recuperano.\n\nSe vuoi solo fermare le iscrizioni usa “Chiudi iscrizioni”.'))return;
+        const bd=b,bt=bd.textContent;bd.disabled=true;
+        let es;
+        try{es=await archiviaEvento(db,ev,{uid,interni:righeInterne(ev),utenti:users,catL,say:t=>{bd.textContent=t}})}
+        catch(x){console.error(x);bd.disabled=false;bd.textContent=bt;alert('Archiviazione dei bonifici non riuscita: '+(x&&x.message==='EMPTY'?'una copia di bonifico non è leggibile':x&&x.code==='permission-denied'?'permessi (l’admin deve pubblicare le regole di Firestore aggiornate)':(x&&x.message)||x)+'.\n\nL’evento NON è stato eliminato: riprova (i file già archiviati non vengono duplicati).');return}
         for(const r of iscOf(ev.id)){try{for(const f of bonificiOf(r))await delChunks(r.id,f);await fdel(fdoc(db,'iscrizioni',r.id))}catch(x){console.error(x)}}
         try{await ext.purge(db,ev)}catch(x){console.error(x)}
         for(const it of items.filter(x=>x.evento===ev.id)){try{await arch.remove(it)}catch(x){console.error(x)}}
-        await deleteDoc(doc(db,'sections',SEC,'items',ev.id));if(editing===ev.id)resetForm(false);close()}
+        await deleteDoc(doc(db,'sections',SEC,'items',ev.id));if(editing===ev.id)resetForm(false);close();
+        if(!es.vuoto)alert('Evento eliminato.\nArchiviati '+es.archiviati+' file (elenco iscritti e bonifici) in Archivio, tipologia «Eventi».'+(es.notifica.inviate?'\nNotifica inviata a '+es.notifica.inviate+(es.notifica.inviate===1?' account':' account')+' con accesso a Commercialista.':'')+(es.notifica.nota?'\n'+es.notifica.nota:''))}
     }catch(x){console.error(x);alert('Operazione non riuscita. Controlla la connessione e i permessi'+(x&&x.code==='permission-denied'?' (l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.')}});
   detail={id,o};document.body.append(o);paintDetail();
   o.querySelector('[data-a="x"]').focus()}
@@ -419,6 +425,9 @@ function paintDetail(){
     ${info}${mine}${rep}${exb}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
+
+/* righe degli iscritti interni (partecipanti) per l'elenco archiviato quando si elimina l'evento */
+const righeInterne=ev=>iscOf(ev.id).filter(r=>r.partecipa==='si').map(r=>{const d=dovuto(ev,r);return {r,nome:r.nome||'',peso:r.peso||'',persE:pE(ev,r),persH:pH(ev,r),e:d.e,h:d.h,tot:d.tot,verificato:!!r.pagatoOk,bonifici:bonificiOf(r)}});
 
 function csv(ev){
   const rows=[['Nome','Partecipa','Peso previsto (kg)','Persone all’evento','Persone in hotel','Quota attesa (€)','Bonifico caricato','Pagamento verificato']];

@@ -131,7 +131,7 @@ else{
         /* ricevute dei pagamenti tolte dall'elenco o sostituite: 10 anni (se non hai la lettura su Ricevute, non compaiono) */
         unsubs.push(onSnapshot(collection(db,'sections','ricevute','items'),s=>{itemsRic=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsRic=[];merge();render()}));
         /* ricevute ASD (copia verde) archiviate dalla scheda Commercialista: 10 anni (se non hai la lettura su Commercialista, non compaiono) */
-        unsubs.push(onSnapshot(collection(db,'sections','commercialista','items'),s=>{itemsCom=s.docs.map(d=>({id:d.id,...d.data()}));merge();render()},()=>{itemsCom=[];merge();render()}))}
+        unsubs.push(onSnapshot(collection(db,'sections','commercialista','items'),s=>{itemsCom=s.docs.map(d=>({id:d.id,...d.data()}));if(itemsCom.some(i=>i.daEvento)){try{localStorage.setItem('pfm_ev_vis_'+uid,String(Date.now()))}catch(e){}}merge();render()},()=>{itemsCom=[];merge();render()}))}
       if(!memo)memo=memoBar({db,sec:MINE,uid});memo.setAccess(perm(),!!me.admin);render();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });

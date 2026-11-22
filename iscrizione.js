@@ -4,10 +4,10 @@
    Dati letti: eventiPubblici/<evento> (copia pubblica dei soli dati dell'evento, scritta dall'admin) ed eventiCoupon/<evento>_<CODICE> (solo get).
    Dati scritti: iscrizioniEsterne/<id> (stato «attesa») e iscrizioniEsterne/<id>/chunks (copia del bonifico). Regole in firestore.rules. */
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,arrayUnion,Bytes} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,arrayUnion,writeBatch,Bytes} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {qrCanvas,qrPng} from "./qr.js";
-import {calcola,couponId,couponOk,normCoupon,couponTxt,euroTxt,fmtData,nomeP,newId,isTec,quotaRuolo} from "./eventi-esterni-core.js";
+import {calcola,couponId,couponOk,couponEsaurito,normCoupon,couponTxt,euroTxt,fmtData,nomeP,newId,isTec,quotaRuolo} from "./eventi-esterni-core.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -17,6 +17,7 @@ const top=body=>`<div class="wrap"><div class="hd"><span class="lgbox"><img src=
 const msg=(t,m)=>{app.innerHTML=top(`<div class="card"><h2>${esc(t)}</h2><div class="mu">${esc(m)}</div></div>`)};
 let db=null,m=null,atl=[{cognome:'',nome:'',peso:''}],tec=[],cp=null,cpCod='';
 
+const num0=v=>{const n=parseFloat(v);return isFinite(n)&&n>0?n:0};
 const chiusa=x=>!!x.chiuso||(x.chiudeMs>0&&Date.now()>x.chiudeMs);
 const nv=p=>!!((p.cognome||'').trim()||(p.nome||'').trim());
 const persone=()=>[...atl.filter(nv).map(p=>({ruolo:'atleta',cognome:p.cognome.trim(),nome:p.nome.trim(),...(m.gara?{peso:String(p.peso||'').trim().replace(',','.')}:{})})),
@@ -55,6 +56,7 @@ async function applicaCoupon(){
   try{
     const s=await getDoc(doc(db,'eventiCoupon',couponId(EV,cod))),d=s.exists()?s.data():null,v=couponOk(d);
     if(!v.ok){cp=null;cpCod='';o.textContent=v.motivo||'Coupon non valido.';o.className='err'}
+    else if(couponEsaurito(d,d.usi)){cp=null;cpCod='';o.textContent='Questo coupon è esaurito.';o.className='err'}
     else{cp=d;cpCod=cod;o.textContent='Coupon applicato: '+couponTxt(d)+'.';o.className='ok-t'}}
   catch(e){console.error(e);cp=null;cpCod='';o.textContent='Impossibile verificare il coupon. Riprova.';o.className='err'}
   paintTot()}
@@ -75,8 +77,16 @@ async function invia(){
   if(chiusa(m)){er.textContent='Le iscrizioni sono chiuse.';return}
   b.disabled=true;er.textContent='Invio in corso…';
   const id=newId();
-  try{await setDoc(doc(db,'iscrizioniEsterne',id),{evento:EV,assoc:assoc.slice(0,120),email:email.slice(0,120),referente:ref.slice(0,80),tel:tel.slice(0,40),persone:pe,coupon:cpCod,importo:c.totale,nota:nota.slice(0,1000),stato:'attesa',bonifici:[],ts:Date.now()})}
-  catch(e){console.error(e);er.textContent=e&&e.code==='permission-denied'?'Non è stato possibile inviare: le iscrizioni potrebbero essere chiuse.':'Invio non riuscito. Controlla la connessione e riprova.';b.disabled=false;return}
+  const payload={evento:EV,assoc:assoc.slice(0,120),email:email.slice(0,120),referente:ref.slice(0,80),tel:tel.slice(0,40),persone:pe,coupon:cpCod,importo:c.totale,nota:nota.slice(0,1000),stato:'attesa',bonifici:[],ts:Date.now()};
+  try{
+    /* coupon con limite: il contatore (usi) sale di 1 nello stesso invio; le regole lo accettano solo se il limite non è superato, quindi due iscrizioni insieme non possono passare entrambe sull'ultimo posto */
+    for(let t=0;;t++){
+      if(!(cp&&num0(cp.max)>0)){await setDoc(doc(db,'iscrizioniEsterne',id),payload);break}
+      const cr=doc(db,'eventiCoupon',couponId(EV,cpCod)),fresco=(await getDoc(cr)).data()||{};
+      if(!couponOk(fresco).ok||couponEsaurito(fresco,fresco.usi)){const e=new Error('COUPON');e.coupon=true;throw e}
+      try{const bt=writeBatch(db);bt.set(doc(db,'iscrizioniEsterne',id),payload);bt.update(cr,{usi:(+fresco.usi||0)+1});await bt.commit();break}
+      catch(e){if(e&&e.code==='permission-denied'&&t<3)continue;throw e}}}
+  catch(e){console.error(e);er.textContent=e&&e.coupon?'Il coupon è appena stato esaurito o non è più valido: toglilo e riprova.':e&&e.code==='permission-denied'?'Non è stato possibile inviare: le iscrizioni potrebbero essere chiuse.':'Invio non riuscito. Controlla la connessione e riprova.';if(e&&e.coupon){cp=null;cpCod='';$('#cp').value='';$('#cpm').textContent='';paintTot()}b.disabled=false;return}
   let ko=false;
   if(file){try{await caricaBonifico(id,file,p=>{er.textContent='Caricamento della copia del bonifico '+p+'%'})}catch(e){console.error(e);ko=true}}
   location.replace(location.pathname+'?r='+id+(ko?'&u=1':''))}

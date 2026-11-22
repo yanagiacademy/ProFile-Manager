@@ -118,7 +118,13 @@ service cloud.firestore {
     }
     match /eventiCoupon/{id} {
       allow get: if true;
-      allow list, write: if evScrive();
+      allow list, create, delete: if evScrive();
+      /* chi si iscrive con un coupon a utilizzi limitati può solo alzare di 1 il contatore «usi», e solo entro il limite «max» */
+      allow update: if evScrive()
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usi'])
+            && request.resource.data.usi == resource.data.get('usi', 0) + 1
+            && resource.data.get('max', 0) > 0
+            && request.resource.data.usi <= resource.data.max);
     }
     match /iscrizioniEsterne/{id} {
       allow get: if true;

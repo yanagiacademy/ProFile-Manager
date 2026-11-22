@@ -8,7 +8,7 @@
 import {collection as fcol,doc as fdoc,onSnapshot as fon,setDoc as fset,updateDoc as fupd,deleteDoc as fdel,getDocs as fget,getDoc as fgetDoc,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {qrPng} from "./qr.js";
-import {calcola,couponOk,couponTxt,couponId,normCoupon,euroTxt,fmtData,nomeP,ruoloTxt,isTec,nuovoCodice,normCodice,ALFA,num} from "./eventi-esterni-core.js";
+import {calcola,couponOk,couponEsaurito,couponTxt,couponId,normCoupon,euroTxt,fmtData,nomeP,ruoloTxt,isTec,nuovoCodice,normCodice,ALFA,num} from "./eventi-esterni-core.js";
 
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const isD=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
@@ -85,7 +85,10 @@ function live(db,evId,quali,ridisegna){
   return S}
 const bonificiOf=r=>[...((r&&r.bonifici)||[])].sort((a,b)=>(a.t||0)-(b.t||0));
 /* importo dovuto: ricalcolato con quota dell'evento e coupon vero (un coupon disattivato dopo l'invio non annulla lo sconto già concordato; la scadenza si guarda alla data di invio) */
-const cpDi=(S,r)=>{const c=S.cps.find(x=>x.codice===r.coupon);return c?{...c,attivo:true}:null};
+/* con un limite di utilizzi il coupon vale per le prime iscrizioni arrivate (per data di invio): chi arriva dopo il limite paga l'importo intero */
+const cpRaw=(S,r)=>S.cps.find(x=>x.codice===r.coupon)||null;
+const cpOltre=(S,r)=>{const c=cpRaw(S,r);if(!c||!(num(c.max)>0))return false;return S.regs.filter(x=>x.coupon===c.codice).findIndex(x=>x.id===r.id)>=num(c.max)};
+const cpDi=(S,r)=>{const c=cpRaw(S,r);return c&&!cpOltre(S,r)?{...c,attivo:true}:null};
 const dovutoDi=(ev,S,r)=>calcola(ev,r.persone||[],cpDi(S,r),r.ts||Date.now());
 const confermata=r=>r.stato==='confermata';
 async function delChunks(db,rid,f){await Promise.all(Array.from({length:f.n||1},(_,k)=>fdel(fdoc(db,'iscrizioniEsterne',rid,'chunks',f.id+'k'+k)).catch(()=>{})))}
@@ -168,6 +171,7 @@ export function apriEsterni(db,ev,{uid}){
     if(!confirm('Eliminare l’iscrizione di «'+r.assoc+'»? Si cancellano anche la copia del bonifico e gli eventuali ingressi registrati. Non si recupera.'))return;
     for(const f of bonificiOf(r))await delChunks(db,r.id,f);
     for(const p of (r.persone||[])){const c=p.codice&&S.chk.get(p.codice);if(c)await fdel(fdoc(db,'eventiCheckin',c.id)).catch(()=>{})}
+    const cc=r.coupon&&cpRaw(S,r);if(cc&&num(cc.max)>0&&(+cc.usi||0)>0)await fupd(fdoc(db,'eventiCoupon',cc.id),{usi:(+cc.usi||0)-1}).catch(x=>console.warn(x));
     await fdel(fdoc(db,'iscrizioniEsterne',r.id))}
   function csv(){
     const rows=[['Associazione','Mail','Referente','Telefono','Ruolo','Cognome','Nome','Peso (kg)','Codice','Iscrizione','Coupon','Importo dovuto (€)','Ingresso']];
@@ -180,11 +184,11 @@ export function apriEsterni(db,ev,{uid}){
 
   function riga(r){
     const d=dovutoDi(ev,S,r),bs=bonificiOf(r),conf=confermata(r),pe=r.persone||[],atl=pe.filter(p=>!isTec(p)),tec=pe.filter(isTec);
-    const cp=r.coupon?cpDi(S,r):null,diff=Math.abs(d.totale-(+r.importo||0))>0.005;
+    const cp=r.coupon?cpDi(S,r):null,oltre=r.coupon&&cpOltre(S,r),diff=Math.abs(d.totale-(+r.importo||0))>0.005;
     const grp=(t,a)=>a.length?`<div class="mu" style="margin-top:4px"><b>${t} (${a.length}):</b> ${a.map(p=>esc(nomeP(p))+(p.peso?' · '+esc(p.peso)+' kg':'')+(p.codice?` <span class="chip ${S.chk.has(p.codice)?'ok':''}">${esc(p.codice)}${S.chk.has(p.codice)?' ✔ entrato':''}</span>`:'')).join('<br>')}</div>`:'';
     const ap=aperto.has(r.id);
     return `<div class="ir"><div class="l1"><b>${esc(r.assoc||'—')}</b><span class="chip ${conf?'ok':'warn'}">${conf?'Confermata':'In attesa'}</span></div>
-      <div class="l2"><span class="chip">${atl.length} atleti</span><span class="chip">${tec.length} tecnici</span><span class="chip">${d.totale>0?esc(euroTxt(d.totale)):'nulla da pagare'}</span>${r.coupon?`<span class="chip ${cp?'ok':'bad'}">coupon ${esc(r.coupon)}${cp?' · '+esc(couponTxt(cp)):' non trovato'}</span>`:''}${diff?`<span class="chip bad" title="Importo scritto dall’associazione nel modulo">modulo: ${esc(euroTxt(r.importo))}</span>`:''}${d.totale>0&&!bs.length?'<span class="chip bad">nessun bonifico</span>':''}${conf&&r.mailErr?`<span class="chip bad">mail non inviata</span>`:''}${conf&&r.mailTs&&!r.mailErr?`<span class="chip ok">codici inviati ${esc(hhmm(r.mailTs))}</span>`:''}</div>
+      <div class="l2"><span class="chip">${atl.length} atleti</span><span class="chip">${tec.length} tecnici</span><span class="chip">${d.totale>0?esc(euroTxt(d.totale)):'nulla da pagare'}</span>${r.coupon?`<span class="chip ${cp?'ok':'bad'}">coupon ${esc(r.coupon)}${cp?' · '+esc(couponTxt(cp)):oltre?' oltre il limite: importo intero':' non trovato'}</span>`:''}${diff?`<span class="chip bad" title="Importo scritto dall’associazione nel modulo">modulo: ${esc(euroTxt(r.importo))}</span>`:''}${d.totale>0&&!bs.length?'<span class="chip bad">nessun bonifico</span>':''}${conf&&r.mailErr?`<span class="chip bad">mail non inviata</span>`:''}${conf&&r.mailTs&&!r.mailErr?`<span class="chip ok">codici inviati ${esc(hhmm(r.mailTs))}</span>`:''}</div>
       <div class="mu" style="margin-top:4px;overflow-wrap:anywhere">${esc(r.referente||'')}${r.tel?' · '+esc(r.tel):''} · ${esc(r.email||'')} · inviata ${esc(hhmm(r.ts))}</div>
       ${r.nota?`<div class="mu" style="margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere">Nota: ${esc(r.nota)}</div>`:''}
       ${ap||conf?grp('Atleti',atl)+grp('Tecnici',tec):''}
@@ -213,7 +217,7 @@ export function apriCoupon(db,ev,{uid}){
     <fieldset><legend>Nuovo coupon</legend>
       <label for="cpc">Codice</label><div class="fr"><input id="cpc" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn ghost sm" data-a="gen" type="button">Genera</button></div>
       <div class="two"><div><label for="cpt">Tipo</label><select id="cpt"><option value="gratis">Gratuito (non paga)</option><option value="perc">Sconto in %</option><option value="euro">Sconto in €</option></select></div><div id="cpw" hidden><label for="cpv">Valore</label><input id="cpv" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 20"></div></div>
-      <label for="cps">Valido fino al (facoltativo)</label><input id="cps" type="date">
+      <div class="two"><div><label for="cps">Valido fino al (facoltativo)</label><input id="cps" type="date"></div><div><label for="cpm">Utilizzi massimi (facoltativo)</label><input id="cpm" type="text" inputmode="numeric" autocomplete="off" placeholder="vuoto = illimitati"></div></div>
       <p id="cpe" class="err" role="alert"></p>
       <div class="acts"><button class="btn" data-a="add" type="button">Crea coupon</button></div></fieldset>`;
   M.body.addEventListener('click',async e=>{
@@ -222,24 +226,26 @@ export function apriCoupon(db,ev,{uid}){
     try{
       if(a==='gen'){const x=new Uint8Array(6);crypto.getRandomValues(x);q('#cpc').value=Array.from(x,v=>ALFA[v%32]).join('')}
       else if(a==='add')await aggiungi();
+      else if(a==='lim'&&c){const v=prompt('Utilizzi massimi del coupon «'+c.codice+'» (vuoto o 0 = illimitati):',num(c.max)>0?String(num(c.max)):'');if(v===null)return;const t=v.trim();if(t&&!/^\d{1,6}$/.test(t)){say('Scrivi un numero intero.',true);return}await fupd(fdoc(db,'eventiCoupon',c.id),{max:+t||0,usi:S.regs.filter(r=>r.coupon===c.codice).length});say('')}
       else if(a==='on'&&c)await fupd(fdoc(db,'eventiCoupon',c.id),{attivo:c.attivo===false});
       else if(a==='del'&&c&&confirm('Eliminare il coupon «'+c.codice+'»? Le iscrizioni già inviate con questo coupon restano, ma l’importo tornerebbe intero.'))await fdel(fdoc(db,'eventiCoupon',c.id))}
     catch(x){console.error(x);say('Operazione non riuscita. '+(x&&x.code==='permission-denied'?PERM:''),true)}});
   M.body.addEventListener('change',e=>{if(e.target.id==='cpt')q('#cpw').hidden=e.target.value==='gratis'});
   async function aggiungi(){
     say('');
-    const g=id=>q('#'+id).value.trim(),cod=normCoupon(g('cpc')),tipo=g('cpt'),val=num(g('cpv')),sc=g('cps');
+    const g=id=>q('#'+id).value.trim(),cod=normCoupon(g('cpc')),tipo=g('cpt'),val=num(g('cpv')),sc=g('cps'),mx=g('cpm');
     if(cod.length<3){say('Scrivi un codice di almeno 3 caratteri (lettere e numeri) o premi «Genera».',true);return}
     if(tipo==='perc'&&!(val>0&&val<=100)){say('Indica la percentuale di sconto (da 1 a 100).',true);return}
     if(tipo==='euro'&&!(val>0)){say('Indica l’importo dello sconto in euro.',true);return}
     if(sc&&!isD(sc)){say('La scadenza non è valida.',true);return}
+    if(mx&&!/^[1-9]\d{0,5}$/.test(mx)){say('Gli utilizzi massimi devono essere un numero intero (1 o più), oppure lascia vuoto.',true);return}
     const id=couponId(ev.id,cod);
     if((await fgetDoc(fdoc(db,'eventiCoupon',id))).exists()){say('Esiste già un coupon con questo codice.',true);return}
-    await fset(fdoc(db,'eventiCoupon',id),{evento:ev.id,codice:cod,tipo,valore:tipo==='gratis'?0:val,scadenzaMs:sc?new Date(sc+'T23:59:59').getTime():0,attivo:true,by:uid,ts:Date.now()});
-    q('#cpc').value='';q('#cpv').value='';q('#cps').value='';say('Coupon «'+cod+'» creato.')}
+    await fset(fdoc(db,'eventiCoupon',id),{evento:ev.id,codice:cod,tipo,valore:tipo==='gratis'?0:val,scadenzaMs:sc?new Date(sc+'T23:59:59').getTime():0,max:mx?+mx:0,usi:0,attivo:true,by:uid,ts:Date.now()});
+    q('#cpc').value='';q('#cpv').value='';q('#cps').value='';q('#cpm').value='';say('Coupon «'+cod+'» creato.')}
   function disegna(){
     const usi=c=>S.regs.filter(r=>r.coupon===c.codice).length,l=q('#lst');if(!l)return;
-    l.innerHTML=(S.err?`<p class="err">${esc(S.err)}</p>`:'')+(S.cps.length?S.cps.map(c=>{const sc=c.scadenzaMs&&Date.now()>c.scadenzaMs,n=usi(c);return `<div class="ir"><div class="l1"><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b><span><span class="chip ${c.attivo===false||sc?'bad':'ok'}">${c.attivo===false?'disattivato':sc?'scaduto':'attivo'}</span><span class="chip">${esc(couponTxt(c))}</span></span></div><div class="l2"><span class="mu">${c.scadenzaMs?'Valido fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):'Senza scadenza'} · usato ${n} ${n===1?'volta':'volte'}</span></div><div class="l2"><button class="btn ghost sm" data-a="on" data-i="${esc(c.id)}">${c.attivo===false?'Riattiva':'Disattiva'}</button><button class="btn ghost sm" data-a="del" data-i="${esc(c.id)}">Elimina</button></div></div>`}).join(''):'<div class="mu" style="padding:6px 0">Nessun coupon per questo evento.</div>')}
+    l.innerHTML=(S.err?`<p class="err">${esc(S.err)}</p>`:'')+(S.cps.length?S.cps.map(c=>{const sc=c.scadenzaMs&&Date.now()>c.scadenzaMs,n=usi(c),es=couponEsaurito(c,n);return `<div class="ir"><div class="l1"><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b><span><span class="chip ${c.attivo===false||sc||es?'bad':'ok'}">${c.attivo===false?'disattivato':sc?'scaduto':es?'esaurito':'attivo'}</span><span class="chip">${esc(couponTxt(c))}</span></span></div><div class="l2"><span class="mu">${c.scadenzaMs?'Valido fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):'Senza scadenza'} · usato ${n}${num(c.max)>0?' su '+num(c.max):''} ${num(c.max)>0?'':n===1?'volta':'volte'}${couponEsaurito(c,n)?' · <b>esaurito</b>':''}</span></div><div class="l2"><button class="btn ghost sm" data-a="lim" data-i="${esc(c.id)}">Limite utilizzi</button><button class="btn ghost sm" data-a="on" data-i="${esc(c.id)}">${c.attivo===false?'Riattiva':'Disattiva'}</button><button class="btn ghost sm" data-a="del" data-i="${esc(c.id)}">Elimina</button></div></div>`}).join(''):'<div class="mu" style="padding:6px 0">Nessun coupon per questo evento.</div>')}
   disegna()}
 
 /* ---------- check-in ---------- */

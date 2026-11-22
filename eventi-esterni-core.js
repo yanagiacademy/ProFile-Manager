@@ -29,6 +29,8 @@ export function normCodice(s){
 export const normCoupon=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9_-]/g,'').slice(0,24);
 export const couponId=(ev,codice)=>ev+'_'+normCoupon(codice);
 export const couponTxt=c=>!c?'':c.tipo==='gratis'?'Gratuito':c.tipo==='perc'?'Sconto '+(+c.valore||0)+'%':'Sconto '+euroTxt(c.valore);
+/* coupon con limite di utilizzi (max > 0): esaurito quando gli usi hanno raggiunto il limite */
+export const couponEsaurito=(c,usi)=>!!c&&num(c.max)>0&&(+usi||0)>=num(c.max);
 /* un coupon vale se è attivo e non scaduto (alla data indicata) */
 export function couponOk(c,adesso=Date.now()){
   if(!c)return {ok:false,motivo:'Coupon non valido.'};
