@@ -150,7 +150,7 @@ async function openItem(it){
   else if(it.kind==='text')editText(it);
   else preview(it)}
 async function getBlob(it,say=()=>{}){
-  if(it.kind==='text')return new Blob([it.text||''],{type:'text/plain'});
+  if(it.kind==='text')return new Blob(['\uFEFF'+(it.text||'')],{type:'text/plain;charset=utf-8'});
   if(it.tg&&!(it.chunks&&tgConfigured()&&!hasSession())){try{
     say('Collegamento a Telegram…');
     const {client}=await tgClient();const ent=await tgEntity(TG_FILES);const [m]=await client.getMessages(ent,{ids:[it.tg]});

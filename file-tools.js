@@ -11,6 +11,41 @@ export function saveBlob(blob,name){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),60000)}
 
+/* ---------- Testo → PDF (Helvetica, A4, a capo automatico; i caratteri fuori da WinAnsi diventano “?”) ---------- */
+const WIN={'€':0x80,'…':0x85,'•':0x95,'‘':0x91,'’':0x92,'“':0x93,'”':0x94,'–':0x96,'—':0x97};
+const wa=s=>[...s].map(c=>{const n=c.codePointAt(0);return WIN[c]!==undefined?String.fromCharCode(WIN[c]):n===9?'  ':(n>=32&&n<256&&!(n>=0x7F&&n<=0x9F))?c:'?'}).join('');
+const hx=s=>'<'+[...s].map(c=>c.charCodeAt(0).toString(16).padStart(2,'0')).join('')+'>';
+export function textToPdf(text,title=''){
+  const W=595,H=842,M=56,FS=11,LD=15,cx=document.createElement('canvas').getContext('2d');
+  const wid=(s,fs,b)=>{cx.font=(b?'bold ':'')+fs+'px Helvetica, Arial, sans-serif';return cx.measureText(s).width},MAXW=W-2*M,L=[];
+  if(title)L.push({t:wa(title),b:1,fs:14,ld:24});
+  for(const para of String(text).replace(/\r/g,'').split('\n').map(wa)){
+    if(!para.trim()){L.push({t:'',fs:FS,ld:LD});continue}
+    let cur='';
+    for(let w of para.split(/ +/)){
+      while(wid(w,FS)>MAXW){let k=w.length;while(k>1&&wid(w.slice(0,k),FS)>MAXW)k--;if(cur){L.push({t:cur,fs:FS,ld:LD});cur=''}L.push({t:w.slice(0,k),fs:FS,ld:LD});w=w.slice(k)}
+      const t=cur?cur+' '+w:w;
+      if(cur&&wid(t,FS)>MAXW){L.push({t:cur,fs:FS,ld:LD});cur=w}else cur=t}
+    L.push({t:cur,fs:FS,ld:LD})}
+  const pages=[];let cs='',y=H-M;
+  for(const l of L){
+    if(y-l.ld<M){pages.push(cs);cs='';y=H-M}
+    y-=l.ld;if(l.t)cs+=`BT /${l.b?'F2':'F1'} ${l.fs} Tf 1 0 0 1 ${M} ${y.toFixed(1)} Tm ${hx(l.t)} Tj ET\n`}
+  pages.push(cs);
+  const o=[];o[1]='<< /Type /Catalog /Pages 2 0 R >>';
+  o[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  o[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  const kids=[];
+  pages.forEach((p,i)=>{const pn=5+i*2,cn=pn+1;kids.push(pn+' 0 R');
+    o[pn]=`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${cn} 0 R >>`;
+    o[cn]=`<< /Length ${p.length} >>\nstream\n${p}endstream`});
+  o[2]=`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${kids.length} >>`;
+  let out='%PDF-1.4\n';const off=[];
+  for(let i=1;i<o.length;i++){off[i]=out.length;out+=i+' 0 obj\n'+o[i]+'\nendobj\n'}
+  const xr=out.length;
+  out+=`xref\n0 ${o.length}\n0000000000 65535 f \n`+off.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n \n').join('')+`trailer\n<< /Size ${o.length} /Root 1 0 R >>\nstartxref\n${xr}\n%%EOF`;
+  return new Blob([out],{type:'application/pdf'})}
+
 let zp=null;
 function loadZip(){return zp||(zp=new Promise((res,rej)=>{
   if(window.JSZip)return res(window.JSZip);
@@ -99,7 +134,15 @@ export function showPreview({title,mime,load,extra=[],errText,fileName}){
         catch(x){console.warn('anteprima PDF con pdf.js non riuscita',x);body.innerHTML='';const f=document.createElement('iframe');f.src=url;f.title=title;body.append(f)}}
       else if(type.startsWith('video/')){const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;body.append(v)}
       else if(type.startsWith('audio/')){const a=document.createElement('audio');a.src=url;a.controls=true;body.append(a)}
-      else if(type.startsWith('text/')){const t=await blob.text(),pre=document.createElement('pre');pre.textContent=t.length>300000?t.slice(0,300000)+'\n\n[…anteprima troncata: scarica il file per leggerlo tutto]':t;body.append(pre)}
+      else if(type.startsWith('text/')){
+        /* file di testo: “Scarica…” propone il formato (TXT o PDF) */
+        const nm=fileName||title,ext=((nm.split('.').pop()||'txt').toUpperCase()).slice(0,4);
+        dl.textContent='Scarica…';
+        dl.onclick=()=>{const b1=document.createElement('button'),b2=document.createElement('button');b1.className=b2.className='btn sm';b1.textContent=ext;b2.textContent='PDF';
+          b1.onclick=()=>saveBlob(blob,nm);
+          b2.onclick=async()=>{try{saveBlob(textToPdf(await blob.text(),title),nm.replace(/\.[^.]*$/,'')+'.pdf')}catch(x){console.error(x)}};
+          dl.replaceWith(b1,b2)};
+        const t=await blob.text(),pre=document.createElement('pre');pre.textContent=t.length>300000?t.slice(0,300000)+'\n\n[…anteprima troncata: scarica il file per leggerlo tutto]':t;body.append(pre)}
       else{const p=document.createElement('p');p.className='mu';p.textContent='Anteprima non disponibile per questo tipo di file. Usa “Scarica” per aprirlo con la sua app.';body.append(p)}
     }catch(e){console.error(e);const p=document.createElement('p');p.className='err';p.setAttribute('role','alert');p.textContent=errText?errText(e):'Impossibile aprire il file.';body.innerHTML='';body.append(p)}
   })();

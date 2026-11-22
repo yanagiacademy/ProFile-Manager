@@ -207,7 +207,7 @@ function edit(it){
 function openReport(it){
   const w=perm()==='w',txt=`${it.day||dayOf(it.date)} ${fmtD(it.date)}\nMaestro: ${it.master||''}\nTipologia: ${it.type||''}${it.ore?'\nOre lezione: '+fmtOre(it.ore):''}${(it.presenti||[]).length?'\nPresenti ('+it.presenti.length+'): '+(it.presentiN||[]).filter(Boolean).join(', '):''}\n\nRapporto della lezione\n${it.report||'(nessun rapporto inserito)'}`;
   const extra=w?[{label:'Modifica',fn:()=>{pv.close();edit(it)}},{label:'Aggiungi file',fn:()=>{pv.close();addTarget=it.id;$('#addf').click()}}]:[];
-  const pv=showPreview({title:'Lezione '+fmtD(it.date),fileName:'Lezione '+it.date+'.txt',mime:'text/plain',load:async()=>new Blob([txt],{type:'text/plain'}),extra});
+  const pv=showPreview({title:'Lezione '+fmtD(it.date),fileName:'Lezione '+it.date+'.txt',mime:'text/plain',load:async()=>new Blob(['\uFEFF'+txt],{type:'text/plain;charset=utf-8'}),extra});
 }
 function openAtt(a){
   const w=perm()==='w';let pv;
@@ -390,7 +390,7 @@ setInterval(()=>{renderPlans()},60000);
 function openPlan(it){
   const w=isAdm(),txt=`${it.day||dayOf(it.date)} ${fmtD(it.date)}\nMaestro: ${it.master||''}\nTipologia: ${it.type||''}${it.ore>0?'\nOre lezione: '+fmtOre(it.ore):''}\n\nProgramma della lezione\n${it.piano||'(nessun programma inserito)'}`;
   const extra=w?[{label:'Modifica',fn:()=>{pv.close();editPlan(it)}}]:(tec()?[{label:'Proponi una modifica',fn:()=>{pv.close();proponiModifica(it)}}]:[]);
-  const pv=showPreview({title:'Lezione programmata '+fmtD(it.date),fileName:'Programma lezione '+it.date+'.txt',mime:'text/plain',load:async()=>new Blob([txt],{type:'text/plain'}),extra})}
+  const pv=showPreview({title:'Lezione programmata '+fmtD(it.date),fileName:'Programma lezione '+it.date+'.txt',mime:'text/plain',load:async()=>new Blob(['\uFEFF'+txt],{type:'text/plain;charset=utf-8'}),extra})}
 function planMenu(it){
   const late=(it.date||'')<today(),o=document.createElement('div');o.className='mnu-ov';
   o.innerHTML=`<div class="card mnu" role="dialog" aria-modal="true" aria-label="Azioni sulla lezione programmata"><b>Lezione del ${esc(fmtD(it.date))}</b><div class="acts">${late?'<button class="btn" data-a="conf">Conferma lezione svolta</button>':''}<button class="btn ghost" data-a="edit">Modifica programma</button><button class="btn ghost" data-a="share">${it.cond?'Smetti di condividere con i tecnici':'Condividi con i tecnici'}</button><button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="x">Chiudi</button></div></div>`;
