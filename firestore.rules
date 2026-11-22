@@ -97,12 +97,12 @@ service cloud.firestore {
       }
     }
 
-    /* Lezioni → proposte dei tecnici per la «Prossima lezione» (raccolta Firebase, non passa da Telegram).
-       Tecnico = Lezioni in «Lettura»: crea proposte a proprio nome (stato «attesa»), le corregge o le elimina finché sono in attesa o rifiutate e legge solo le proprie.
-       Chi scrive su Lezioni (admin compreso) le legge tutte e le accetta, modifica o rifiuta. */
+    /* Lezioni → proposte per la «Prossima lezione» (raccolta Firebase, non passa da Telegram). L'admin autorizza tutto.
+       Tecnico con scrittura su Lezioni (non admin): crea proposte a proprio nome (stato «attesa»), le corregge o le elimina finché sono in attesa o rifiutate e legge solo le proprie.
+       Solo l'admin le legge tutte e le accetta, modifica o rifiuta. */
     match /lezioniProposte/{id} {
-      allow read: if hasAccount() && (level('lezioni') == 'w' || resource.data.by == request.auth.uid);
-      allow create: if hasAccount() && level('lezioni') == 'r'
+      allow read: if hasAccount() && (isAdmin() || resource.data.by == request.auth.uid);
+      allow create: if hasAccount() && level('lezioni') == 'w'
         && request.resource.data.keys().hasOnly(['tipo', 'lez', 'date', 'day', 'master', 'type', 'ore', 'piano', 'by', 'byName', 'stato', 'ts', 'mailAdm', 'risolta', 'motivo'])
         && request.resource.data.by == request.auth.uid
         && request.resource.data.stato == 'attesa'
@@ -111,12 +111,12 @@ service cloud.firestore {
         && request.resource.data.master is string && request.resource.data.master.size() <= 120
         && request.resource.data.type is string && request.resource.data.type.size() <= 120
         && request.resource.data.piano is string && request.resource.data.piano.size() <= 5000;
-      allow update: if hasAccount() && (level('lezioni') == 'w'
-        || (level('lezioni') == 'r' && resource.data.by == request.auth.uid && resource.data.stato in ['attesa', 'rifiutata']
+      allow update: if isAdmin()
+        || (hasAccount() && level('lezioni') == 'w' && resource.data.by == request.auth.uid && resource.data.stato in ['attesa', 'rifiutata']
             && request.resource.data.stato == 'attesa'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'day', 'master', 'type', 'ore', 'piano', 'stato', 'ts', 'motivo', 'risolta', 'mailAdm'])));
-      allow delete: if hasAccount() && (level('lezioni') == 'w'
-        || (level('lezioni') == 'r' && resource.data.by == request.auth.uid && resource.data.stato in ['attesa', 'rifiutata']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'day', 'master', 'type', 'ore', 'piano', 'stato', 'ts', 'motivo', 'risolta', 'mailAdm']));
+      allow delete: if isAdmin()
+        || (hasAccount() && level('lezioni') == 'w' && resource.data.by == request.auth.uid && resource.data.stato in ['attesa', 'rifiutata']);
     }
 
     /* Eventi → iscrizioni per gli ESTERNI (altre associazioni), senza login.

@@ -1,6 +1,6 @@
 /* Lezioni → avvisi per la «Prossima lezione» (mail dal Gmail dell'ASD, stesso ponte delle altre notifiche: ponte-mail.gs non cambia).
    • avvisaTecnici: l'admin aggiunge, modifica, accetta o modifica-e-accetta una lezione condivisa → mail a tutti i tecnici
-     (tecnico = account non admin con Lezioni in «Lettura», che ha una mail).
+     (tecnici = quelli della scheda Tecnici, con mail e un account che accede a Lezioni).
    • avvisaUtente: esito di una proposta (accettata, modificata, rifiutata) → mail al tecnico che l'aveva fatta.
    • mailProposteAdmin: i tecnici non possono usare il ponte (è solo per l'admin), quindi le proposte nuove o modificate restano «da avvisare»
      e la mail agli indirizzi admin parte alla prima apertura della suite (Home o Lezioni) da parte dell'admin. Nell'app l'avviso è subito visibile (Home e pagina Lezioni).
@@ -26,16 +26,22 @@ async function motore(){
   return (await m.mailPronta())?m:null}
 const manda=async(db,m,to,subject,text,chiave)=>{try{const es=await m.inviaDiretta(db,{key:chiave+':'+to+':'+Date.now(),to,subject,text});return !!es.ok}catch(e){console.warn('Mail lezioni:',e&&e.message);return false}};
 
-/* tecnici = account non admin con Lezioni in sola lettura (chi può scrivere è come l'admin) */
-export async function elencoTecnici(db){
-  const s=await getDocs(collection(db,'users'));
-  return s.docs.map(d=>({id:d.id,...d.data()})).filter(u=>!u.admin&&(u.perms||{}).lezioni==='r'&&RX.test(String(u.email||'').trim()))}
+/* tecnici = quelli registrati nella scheda Tecnici (la loro mail sta in tecniciMail/<idTecnico>, leggibile solo dall'admin) che hanno un account con accesso a Lezioni
+   (lettura o scrittura). Chi ha chiesto/proposto la lezione si può escludere (riceve già la mail di esito). */
+export async function elencoTecnici(db,escludiUid=''){
+  const [tm,us]=await Promise.all([getDocs(collection(db,'tecniciMail')),getDocs(collection(db,'users'))]);
+  const mail=new Set(tm.docs.map(d=>String(d.data().email||'').trim().toLowerCase()).filter(e=>RX.test(e)));
+  const out=new Map();
+  us.docs.map(d=>({id:d.id,...d.data()})).forEach(u=>{
+    const e=String(u.email||'').trim().toLowerCase();
+    if(!u.admin&&u.id!==escludiUid&&['r','w'].includes((u.perms||{}).lezioni)&&mail.has(e))out.set(e,u)});
+  return [...out.values()]}
 
 /* tipo: 'nuova' | 'modifica'; da = nome del tecnico che l'ha proposta (facoltativo) */
-export async function avvisaTecnici(db,{tipo,it,da=''}){
+export async function avvisaTecnici(db,{tipo,it,da='',escludi=''}){
   try{
     const m=await motore();if(!m)return {inviate:0,ko:0,nota:'Mail non collegata: i tecnici vedono l’avviso nell’app.'};
-    const t=await elencoTecnici(db);if(!t.length)return {inviate:0,ko:0,nota:'Nessun tecnico con una mail da avvisare.'};
+    const t=await elencoTecnici(db,escludi);if(!t.length)return {inviate:0,ko:0,nota:'Nessun tecnico (scheda Tecnici con mail e account su Lezioni) da avvisare.'};
     const nuova=tipo==='nuova',sub=(nuova?'Nuova lezione in programma: ':'Lezione aggiornata: ')+fmtD(it.date)+(it.type?' – '+it.type:'');
     const text=`Buongiorno,\n\n${nuova?'è stata programmata una nuova lezione':'è stata modificata una lezione in programma'}${da?' (su proposta di '+da+')':''}.\n\n${testoLezione(it)}\n\nLa trovi in Lezioni → Prossima lezione.\n\n— Yanagi Academy`;
     let ok=0,ko=0;for(const u of t){(await manda(db,m,String(u.email).trim().toLowerCase(),sub,text,'lezt:'+it.id))?ok++:ko++}
