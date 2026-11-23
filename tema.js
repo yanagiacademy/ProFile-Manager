@@ -60,7 +60,7 @@
     if(t.chiaro)s+=blocco(':root[data-theme="light"]',t.chiaro);
     if(t.font)s+='body{font-family:"'+t.font+'",system-ui,sans-serif}';
     if(r!=null)s+='.card,.tile,.acc,.dlg,.ib,.alert{border-radius:'+r+'px}.btn,input[type=text],input[type=password],input[type=search],input[type=date],input[type=number],input[type=email],select,textarea{border-radius:'+Math.max(0,r-2)+'px}';
-    if(t.logoSfondo)s+='.lgbox,.brand .lg,.lgb{background:'+t.logoSfondo+'}';
+    if(t.logoSfondo)s+='.lgbox,.brand .lg,.lgb,.lt.ls{background:'+t.logoSfondo+' !important}.lt.ls{border-color:'+t.logoSfondo+' !important}';
     if(t.css)s+=t.css.replace(/<\/?style/gi,'');
     return s}
 
