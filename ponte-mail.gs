@@ -35,6 +35,7 @@ function doPost(e){
   var out;
   try{
     var b=JSON.parse(e.postData.contents);
+    if(b.a==='iscr-notifica'){out=iscrNotifica_(b);out.ok=true;return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON)}   /* pubblica: nessun login (gli esterni non ne hanno) */
     var u=utente_(b.t);
     out=azione_(b,u);out.ok=true;
   }catch(err){out={ok:false,e:String((err&&err.message)||err)}}
@@ -181,4 +182,54 @@ function inviaCoda(){
       catch(err){o.v.n=(o.v.n||0)+1;if(o.v.n>=3)p.deleteProperty(o.k);else p.setProperty(o.k,JSON.stringify(o.v))}
     }
   }finally{lock.releaseLock()}
+}
+
+
+/* ---------- avviso di una nuova iscrizione di un esterno (pagina pubblica iscrizione.html) ----------
+   Chiamata senza login: lo script NON si fida di ciò che riceve. Rilegge l'iscrizione da Firestore (lettura pubblica per id, l'id è casuale),
+   accetta solo iscrizioni recenti, manda UNA mail per iscrizione (e una per ogni copia di bonifico) all'indirizzo dell'ASD,
+   e allega la copia del bonifico solo se il file è dichiarato dall'iscrizione stessa (fid in «bonifici»). */
+function fsVal_(v){
+  if(!v)return '';
+  if(v.stringValue!==undefined)return v.stringValue;
+  if(v.integerValue!==undefined)return Number(v.integerValue);
+  if(v.doubleValue!==undefined)return Number(v.doubleValue);
+  if(v.booleanValue!==undefined)return v.booleanValue;
+  if(v.arrayValue)return (v.arrayValue.values||[]).map(fsVal_);
+  if(v.mapValue){var o={},f=v.mapValue.fields||{};Object.keys(f).forEach(function(k){o[k]=fsVal_(f[k])});return o}
+  return '';
+}
+function fsGet_(path){
+  var r=UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/'+PROJECT_ID+'/databases/(default)/documents/'+path,{muteHttpExceptions:true});
+  if(r.getResponseCode()!==200)return null;
+  var f=JSON.parse(r.getContentText()).fields||{},o={};Object.keys(f).forEach(function(k){o[k]=fsVal_(f[k])});return o;
+}
+function iscrNotifica_(b){
+  var id=String(b.id||'');
+  if(!/^[a-z0-9]{20}$/.test(id))throw new Error('Iscrizione non valida.');
+  var r=fsGet_('iscrizioniEsterne/'+id);
+  if(!r)throw new Error('Iscrizione non trovata.');
+  if(Date.now()-Number(r.ts||0)>2*3600*1000)throw new Error('Iscrizione non recente.');
+  var fid=String(b.fid||''),bon=null;
+  if(fid){(r.bonifici||[]).forEach(function(x){if(x&&x.id===fid)bon=x});if(!bon)throw new Error('Bonifico non dichiarato nell’iscrizione.')}
+  var prop=PropertiesService.getScriptProperties(),k='NI|'+id+'|'+(fid||'new');
+  if(prop.getProperty(k))return {gia:true};
+  prop.setProperty(k,String(Date.now()));
+  try{
+    var ev=fsGet_('eventiPubblici/'+r.evento)||{},pe=r.persone||[],atl=pe.filter(function(p){return p.ruolo!=='tecnico'}),tec=pe.filter(function(p){return p.ruolo==='tecnico'});
+    var nome=function(p){return ((p.cognome||'')+' '+(p.nome||'')).trim()+(p.peso?' ('+p.peso+' kg)':'')};
+    var imp=Number(r.importo||0);
+    var t=(fid?'Copia del bonifico ricevuta':'Nuova iscrizione')+' – '+(r.assoc||'—')+'\n\nEvento: '+(ev.nome||r.evento)+'\nAssociazione: '+(r.assoc||'—')+'\nReferente: '+(r.referente||'—')+(r.tel?' · '+r.tel:'')+'\nMail: '+(r.email||'—')
+      +'\nAtleti: '+atl.length+' · Tecnici: '+tec.length+'\nImporto indicato: '+(imp>0?imp.toFixed(2).replace('.',',')+' €':'nulla da pagare')+(r.coupon?' (coupon '+r.coupon+')':'')
+      +(atl.length?'\n\nATLETI\n'+atl.map(function(p){return '• '+nome(p)}).join('\n'):'')+(tec.length?'\n\nTECNICI\n'+tec.map(function(p){return '• '+nome(p)}).join('\n'):'')
+      +(r.nota?'\n\nNota: '+r.nota:'')
+      +'\n\n'+(fid?'La copia del bonifico è in allegato. ':'')+'Per confermare e inviare i codici: ProFile Manager → Eventi → '+(ev.nome||'evento')+' → Elenco e conferme.';
+    var at=[];
+    if(fid&&b.file&&b.file.data){
+      if(String(b.file.data).length>14000000)throw new Error('Allegato troppo grande.');
+      at=blobs_([{name:String(b.file.name||'bonifico').replace(/[\\/:*?"<>|]/g,' ').slice(0,120),type:/^(image\/|application\/pdf)/.test(String(b.file.type||''))?b.file.type:'application/octet-stream',data:b.file.data}]);
+    }
+    manda_(EMAIL_ASD,(fid?'Bonifico ricevuto: ':'Nuova iscrizione esterna: ')+(r.assoc||'—')+' – '+(ev.nome||'evento'),t,at);
+  }catch(err){prop.deleteProperty(k);throw err}
+  return {};
 }

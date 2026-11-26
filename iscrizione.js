@@ -4,7 +4,7 @@
    Dati letti: eventiPubblici/<evento> (copia pubblica dei soli dati dell'evento, scritta dall'admin) ed eventiCoupon/<evento>_<CODICE> (solo get).
    Dati scritti: iscrizioniEsterne/<id> (stato «attesa») e iscrizioniEsterne/<id>/chunks (copia del bonifico). Regole in firestore.rules. */
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,arrayUnion,writeBatch,Bytes} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {getFirestore,doc,collection,getDoc,getDocs,setDoc,updateDoc,deleteDoc,arrayUnion,writeBatch,Bytes} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {qrCanvas,qrPng} from "./qr.js";
 import {calcola,couponId,couponOk,couponEsaurito,normCoupon,couponTxt,euroTxt,fmtData,nomeP,newId,isTec,quotaRuolo} from "./eventi-esterni-core.js";
@@ -23,6 +23,36 @@ const nv=p=>!!((p.cognome||'').trim()||(p.nome||'').trim());
 const persone=()=>[...atl.filter(nv).map(p=>({ruolo:'atleta',cognome:p.cognome.trim(),nome:p.nome.trim(),...(m.gara?{peso:String(p.peso||'').trim().replace(',','.')}:{})})),
   ...tec.filter(nv).map(p=>({ruolo:'tecnico',cognome:p.cognome.trim(),nome:p.nome.trim()}))];
 
+
+/* ---------- locandina dell'evento (copia pubblica a blocchi) ---------- */
+const locBtn=(l,cl='btn ghost sm')=>l&&l.n?`<p style="margin:10px 0 0"><button type="button" class="${cl}" data-loc>Scarica la locandina${l.nome?' ('+esc(l.nome)+')':''}</button> <span class="mu" id="locm" role="status"></span></p>`:'';
+function bindLoc(l){
+  const b=document.querySelector('[data-loc]');if(!b||!l)return;
+  b.onclick=async()=>{
+    const o=$('#locm');b.disabled=true;if(o)o.textContent='Preparazione…';
+    try{
+      const s=await getDocs(collection(db,'eventiPubblici',l.evento,'chunks')),
+        parts=s.docs.map(d=>d.data()).sort((a,b)=>a.i-b.i).map(x=>x.data.toUint8Array());
+      if(!parts.length)throw new Error('EMPTY');
+      const bl=new Blob(parts,{type:l.mime||'application/octet-stream'}),a=document.createElement('a');
+      a.href=URL.createObjectURL(bl);a.download=l.nome||'locandina';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+      if(o)o.textContent=''}
+    catch(e){console.error(e);if(o)o.textContent='Impossibile scaricare la locandina. Riprova tra poco.'}
+    b.disabled=false}}
+
+/* ---------- avviso all'organizzazione (mail dal Gmail dell'ASD, ponte-mail.gs, azione pubblica «iscr-notifica») ----------
+   Il ponte rilegge l'iscrizione da Firestore (non si fida di ciò che gli arriva) e manda UNA mail per iscrizione e per bonifico, con la copia del bonifico in allegato. Se fallisce, l'iscrizione resta valida: l'admin la vede comunque nella suite. */
+const b64=blob=>new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]||'');r.onerror=()=>ko(new Error('lettura'));r.readAsDataURL(blob)});
+async function avvisa(id,fid,file){
+  try{
+    const {MAIL_URL}=await import('./mail-config.js');
+    if(!MAIL_URL||MAIL_URL==='INSERISCI')return;
+    const body={a:'iscr-notifica',id};
+    if(fid)body.fid=fid;
+    if(file&&file.size<=MAXB)body.file={name:file.name.slice(0,120),type:file.type||'application/octet-stream',data:await b64(file)};
+    await fetch(MAIL_URL,{method:'POST',body:JSON.stringify(body),redirect:'follow'})}
+  catch(e){console.warn('Avviso all’organizzazione non inviato:',e&&e.message)}}
+
 /* ---------- copia del bonifico (a blocchi, come nel resto della suite) ---------- */
 async function caricaBonifico(id,file,onP){
   const fid=newId(8),n=Math.max(1,Math.ceil(file.size/CH)),meta={id:fid,nome:file.name.slice(0,120),size:file.size,mime:file.type||'',n,t:Date.now()};
@@ -31,7 +61,7 @@ async function caricaBonifico(id,file,onP){
       const buf=new Uint8Array(await file.slice(k*CH,(k+1)*CH).arrayBuffer());
       await setDoc(doc(db,'iscrizioniEsterne',id,'chunks',fid+'k'+k),{f:fid,i:k,data:Bytes.fromUint8Array(buf)});
       if(onP)onP(Math.round((k+1)/n*100))}
-    await updateDoc(doc(db,'iscrizioniEsterne',id),{bonifici:arrayUnion(meta)})}
+    await updateDoc(doc(db,'iscrizioniEsterne',id),{bonifici:arrayUnion(meta)});return fid}
   catch(e){await Promise.all(Array.from({length:n},(_,k)=>deleteDoc(doc(db,'iscrizioniEsterne',id,'chunks',fid+'k'+k)).catch(()=>{})));throw e}}
 
 /* ---------- modulo ---------- */
@@ -88,7 +118,10 @@ async function invia(){
       catch(e){if(e&&e.code==='permission-denied'&&t<3)continue;throw e}}}
   catch(e){console.error(e);er.textContent=e&&e.coupon?'Il coupon è appena stato esaurito o non è più valido: toglilo e riprova.':e&&e.code==='permission-denied'?'Non è stato possibile inviare: le iscrizioni potrebbero essere chiuse.':'Invio non riuscito. Controlla la connessione e riprova.';if(e&&e.coupon){cp=null;cpCod='';$('#cp').value='';$('#cpm').textContent='';paintTot()}b.disabled=false;return}
   let ko=false;
-  if(file){try{await caricaBonifico(id,file,p=>{er.textContent='Caricamento della copia del bonifico '+p+'%'})}catch(e){console.error(e);ko=true}}
+  let fidB='';
+  if(file){try{fidB=await caricaBonifico(id,file,p=>{er.textContent='Caricamento della copia del bonifico '+p+'%'})}catch(e){console.error(e);ko=true}}
+  er.textContent='Invio dell’avviso all’organizzazione…';
+  await avvisa(id,fidB,fidB?file:null);
   location.replace(location.pathname+'?r='+id+(ko?'&u=1':''))}
 
 function vistaModulo(){
@@ -96,7 +129,7 @@ function vistaModulo(){
   app.innerHTML=top(`<div class="card"><h2 style="margin:0">${esc(m.nome)}</h2>
     <div class="mu" style="margin:2px 0 8px">${esc(m.cat||'')}${m.data?' · '+esc(fmtData(m.data)):''}</div>
     ${m.scadReg?`<span class="chip warn">Iscrizioni entro il ${esc(fmtData(m.scadReg))}</span>`:''}${q>0?`<span class="chip">Quota atleti ${esc(euroTxt(q))}</span>`:'<span class="chip">Atleti: gratuito</span>'}${q>0||qt>0?`<span class="chip">Quota tecnici ${qt>0?esc(euroTxt(qt)):'gratis'}</span>`:''}
-    ${m.nota?`<div style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px">${esc(m.nota)}</div>`:''}</div>
+    ${m.nota?`<div style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px">${esc(m.nota)}</div>`:''}${locBtn(m.locandina)}</div>
   <div class="card" id="fm" style="margin-top:12px">
     <fieldset><legend>Associazione</legend>
       <label for="as">Nome dell’associazione / società</label><input id="as" type="text" maxlength="120" autocomplete="organization">
@@ -110,6 +143,7 @@ function vistaModulo(){
       <div id="tot" style="margin-top:8px"></div>
       <div class="mu" style="margin:10px 0 4px">Pagate con bonifico alle coordinate qui sotto, poi allegate la copia: l’iscrizione resta <b>in attesa</b> finché non verifichiamo l’accredito.</div>
       <div class="pay">${m.pagamento?esc(m.pagamento):'Le coordinate di pagamento non sono ancora state indicate: contatta l’organizzazione.'}</div>
+      ${m.causale?`<div class="mu" style="margin:10px 0 4px"><b>Causale e indicazioni</b></div><div class="pay">${esc(m.causale)}</div>`:''}
       <div id="flw"><label for="fl">Copia del bonifico (immagine o PDF, max 10 MB)</label><input id="fl" type="file" accept="image/*,application/pdf"></div>
     </fieldset>
     <label for="nt">Note per l’organizzazione (facoltative)</label><textarea id="nt" maxlength="1000"></textarea>
@@ -126,6 +160,7 @@ function vistaModulo(){
     if(e.target.closest('#ap')){applicaCoupon();return}
     if(e.target.closest('#sv'))invia()});
   $('#cp').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();applicaCoupon()}});
+  bindLoc(m.locandina&&{...m.locandina,evento:EV});
   paintRows()}
 
 /* ---------- stato dell'iscrizione ---------- */
@@ -143,11 +178,13 @@ async function vistaStato(id){
     <p style="margin:8px 0 0">${conf?`I codici di ingresso sono stati inviati a <b>${esc(r.email)}</b> e sono qui sotto: uno per ogni partecipante. Mostrate il QR code (o dite il codice) all’ingresso.`:`Abbiamo ricevuto l’iscrizione di <b>${esc(r.assoc)}</b>. Appena verifichiamo ${r.importo>0?'il bonifico':'i dati'} riceverete i codici di ingresso a <b>${esc(r.email)}</b>. Conservate questo link per controllare lo stato.`}</p>
     ${r.importo>0?`<div class="mu" style="margin-top:6px">Importo indicato: ${esc(euroTxt(r.importo))}${r.coupon?' · coupon '+esc(r.coupon):''}</div>`:''}
     ${lista('Atleti',atls)}${lista('Tecnici',tecs)}
+    ${ev?locBtn(ev.locandina):''}
     <div style="margin-top:12px"><button class="btn ghost sm" id="rf">Aggiorna lo stato</button></div></div>
-  ${serve?`<div class="card" style="margin-top:12px"><h2 style="margin:0 0 4px">Allega la copia del bonifico</h2>${P.get('u')?'<p class="err" style="margin:0">Il caricamento precedente non è riuscito: riprova.</p>':''}${ev&&ev.pagamento?`<div class="pay" style="margin:8px 0">${esc(ev.pagamento)}</div>`:''}<label for="fl">Immagine o PDF, max 10 MB</label><input id="fl" type="file" accept="image/*,application/pdf"><p class="err" id="er" role="alert"></p><button class="btn" id="up">Invia la copia del bonifico</button></div>`:''}
+  ${serve?`<div class="card" style="margin-top:12px"><h2 style="margin:0 0 4px">Allega la copia del bonifico</h2>${P.get('u')?'<p class="err" style="margin:0">Il caricamento precedente non è riuscito: riprova.</p>':''}${ev&&ev.pagamento?`<div class="pay" style="margin:8px 0">${esc(ev.pagamento)}</div>`:''}${ev&&ev.causale?`<div class="mu" style="margin:6px 0 4px"><b>Causale e indicazioni</b></div><div class="pay" style="margin:0 0 8px">${esc(ev.causale)}</div>`:''}<label for="fl">Immagine o PDF, max 10 MB</label><input id="fl" type="file" accept="image/*,application/pdf"><p class="err" id="er" role="alert"></p><button class="btn" id="up">Invia la copia del bonifico</button></div>`:''}
   ${conf?`<div class="card" style="margin-top:12px"><h2 style="margin:0 0 4px">Codici di ingresso</h2><div class="qrs">${pe.filter(p=>p.codice).map(p=>`<div class="qc"><b>${esc(nomeP(p))}</b><div class="mu" style="color:#5B6780">${esc(ruoloT(p))}</div><div data-qr="${esc(p.codice)}"></div><div class="cd">${esc(p.codice)}</div><button class="btn ghost sm" data-dl="${esc(p.codice)}" style="margin-top:6px;color:#14213D;border-color:#D3D9E3">Scarica il QR</button></div>`).join('')}</div></div>`:''}`);
   document.querySelectorAll('[data-qr]').forEach(d=>{d.append(qrCanvas(d.dataset.qr,{px:440}))});
   $('#rf').onclick=()=>vistaStato(id);
+  if(ev&&ev.locandina)bindLoc({...ev.locandina,evento:r.evento});
   document.querySelectorAll('[data-dl]').forEach(b=>b.onclick=async()=>{
     const p=pe.find(x=>x.codice===b.dataset.dl);if(!p)return;
     const bl=await qrPng(p.codice,{titolo:nomeP(p),sotto:p.codice}),a=document.createElement('a');
@@ -158,7 +195,7 @@ async function vistaStato(id){
     if(!f){er.textContent='Scegli il file della copia del bonifico.';return}
     if(f.size>MAXB){er.textContent='Il file supera 10 MB.';return}
     up.disabled=true;
-    try{await caricaBonifico(id,f,p=>{er.textContent='Caricamento '+p+'%'});history.replaceState(null,'',location.pathname+'?r='+id);vistaStato(id)}
+    try{const fidB=await caricaBonifico(id,f,p=>{er.textContent='Caricamento '+p+'%'});await avvisa(id,fidB,f);history.replaceState(null,'',location.pathname+'?r='+id);vistaStato(id)}
     catch(e){console.error(e);er.textContent='Caricamento non riuscito. Riprova.';up.disabled=false}}}
 const ruoloT=p=>isTec(p)?'Tecnico':'Atleta';
 

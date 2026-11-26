@@ -32,7 +32,7 @@ const money=v=>{const n=parseFloat(String(v??'').replace(',','.'));return isFini
 const dlTxt=g=>g<0?'scaduta da '+(-g)+(g===-1?' giorno':' giorni'):g===0?'scade oggi':g===1?'scade domani':'scade tra '+g+' giorni';
 
 /* copia pubblica degli eventi con link per esterni (solo l'admin la scrive; si riallinea da sola quando cambiano evento o «Come pagare») */
-const syncPub=()=>{if(isAdmin()&&payOk&&items.length)ext.sync(db,evs(),pay,catL)};
+const syncPub=()=>{if(isAdmin()&&payOk&&items.length)ext.sync(db,evs(),pay,catL,docOf)};
 
 /* ---------- dati ---------- */
 const evs=()=>items.filter(i=>i.kind==='evento');
@@ -179,6 +179,8 @@ function shell(){
         <div class="mu" style="margin:2px 0 6px">Il link compare nella scheda dell’evento dopo il salvataggio. Gli esterni iscrivono atleti e tecnici (separati), applicano un eventuale coupon, leggono le coordinate di «Come pagare» e allegano la copia del bonifico. Restano in attesa finché non confermi la ricezione.</div>
         <label for="qtt">Quota tecnici (€, facoltativa)</label><input id="qtt" type="text" inputmode="decimal" autocomplete="off" placeholder="vuoto = come gli atleti · 0 = gratis">
         <label for="nes">Messaggio per gli esterni (facoltativo)</label><textarea id="nes"></textarea>
+        <label for="pes">Causale e indicazioni per il bonifico (facoltative)</label><textarea id="pes" placeholder="es. Causale: Iscrizione Stage Judo 12/12 – nome associazione. Inviare la copia del bonifico entro il…"></textarea>
+        <div class="mu" style="margin:2px 0 6px">Compare nel riquadro «Pagamento» del modulo, sotto le coordinate di «Come pagare». Il documento che alleghi all’evento (locandina) è scaricabile anche dagli esterni.</div>
       </div>
     </fieldset>
     <fieldset><legend>Documento e nota per gli atleti</legend>
@@ -208,7 +210,7 @@ function shell(){
     gruppiBind($('#dsel'),{atleti:()=>atl,getSel:()=>sel,dopo:()=>renderDest()});
     $('#dls').onchange=e=>{const c=e.target.closest('[data-d]');if(!c)return;c.checked?sel.add(c.dataset.d):sel.delete(c.dataset.d);$('#dn').textContent=contaSel()}}
 }
-const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['qh','quotaHotel'],['nt','nota'],['qtt','quotaTecnico'],['nes','notaEsterni']];
+const FF=[['nm','nome'],['ct','cat'],['ca','catAltro'],['dt','data'],['sr','scadReg'],['qt','quota'],['sh','scadHotel'],['qh','quotaHotel'],['nt','nota'],['qtt','quotaTecnico'],['nes','notaEsterni'],['pes','causaleEsterni']];
 function togCa(){const a=$('#ct').value==='altro';$('#caw').hidden=!a;if(!a)$('#ca').value=''}
 function setForm(o){const b=$('#fb'),t=$('#ftg');if(!b)return;b.hidden=!o;t.setAttribute('aria-expanded',String(o));t.textContent=o?'− Chiudi':'+ Nuovo evento'}
 function resetForm(open){
@@ -233,7 +235,7 @@ function canUpload(){
 
 async function save(){
   const g=id=>$('#'+id).value.trim(),er=$('#er');
-  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',quotaPP:$('#qpp').checked,accompEv:$('#ape').checked,accompHotel:$('#ht').checked&&$('#aph').checked,quotaHotel:$('#ht').checked?g('qh').replace(',','.'):'',hotelPP:$('#ht').checked&&$('#hpp').checked,nota:g('nt'),esterni:$('#esx').checked,quotaTecnico:$('#esx').checked?g('qtt').replace(',','.'):'',notaEsterni:$('#esx').checked?g('nes'):''};
+  const v={nome:g('nm'),cat:g('ct'),catAltro:g('ct')==='altro'?g('ca'):'',data:g('dt'),scadReg:g('sr'),quota:g('qt').replace(',','.'),hotel:$('#ht').checked,scadHotel:$('#ht').checked?g('sh'):'',quotaPP:$('#qpp').checked,accompEv:$('#ape').checked,accompHotel:$('#ht').checked&&$('#aph').checked,quotaHotel:$('#ht').checked?g('qh').replace(',','.'):'',hotelPP:$('#ht').checked&&$('#hpp').checked,nota:g('nt'),esterni:$('#esx').checked,quotaTecnico:$('#esx').checked?g('qtt').replace(',','.'):'',notaEsterni:$('#esx').checked?g('nes'):'',causaleEsterni:$('#esx').checked?g('pes'):''};
   if(!v.nome){er.textContent='Inserisci il nome dell’evento.';return}
   if(v.cat==='altro'&&!v.catAltro){er.textContent='Specifica di che tipo di evento si tratta (Altro).';return}
   if(!isD(v.data)){er.textContent='Indica la data dell’evento.';return}

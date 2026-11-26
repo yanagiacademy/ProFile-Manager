@@ -27,30 +27,47 @@ export async function condividiLink(ev){
   if(navigator.share){try{await navigator.share({title:ev.nome,text:'Iscrizione a «'+ev.nome+'»',url:l});return}catch(e){if(e&&e.name==='AbortError')return}}
   await copiaLink(ev)}
 /* le iscrizioni si chiudono a fine giornata della scadenza (o dell'evento, se non c'è scadenza) */
-export function mirrorDi(ev,{cat='',pagamento=''}={}){
+export function mirrorDi(ev,{cat='',pagamento='',locandina=null}={}){
   const fine=isD(ev.scadReg)?ev.scadReg:(isD(ev.data)?ev.data:'');
   return {esterni:true,nome:ev.nome||'',cat,data:ev.data||'',scadReg:ev.scadReg||'',chiudeMs:fine?new Date(fine+'T23:59:59').getTime():0,
-    chiuso:!!ev.chiuso,chiusoMotivo:ev.chiuso?(ev.chiusoMotivo||''):'',quota:String(ev.quota||''),quotaTecnico:String(ev.quotaTecnico??''),gara:ev.cat==='gara',nota:ev.notaEsterni||'',pagamento:pagamento||''}}
-const CHIAVI=['esterni','nome','cat','data','scadReg','chiudeMs','chiuso','chiusoMotivo','quota','quotaTecnico','gara','nota','pagamento'];
+    chiuso:!!ev.chiuso,chiusoMotivo:ev.chiuso?(ev.chiusoMotivo||''):'',quota:String(ev.quota||''),quotaTecnico:String(ev.quotaTecnico??''),gara:ev.cat==='gara',nota:ev.notaEsterni||'',pagamento:pagamento||'',causale:ev.causaleEsterni||'',locandina:locandina||null}}
+const CHIAVI=['esterni','nome','cat','data','scadReg','chiudeMs','chiuso','chiusoMotivo','quota','quotaTecnico','gara','nota','pagamento','causale','locandina'];
 const uguale=(a,b)=>CHIAVI.every(k=>JSON.stringify(a[k]??null)===JSON.stringify(b[k]??null));
 let pubs=new Map(),pubOk=false,ctx=null;const tent=new Map();
 export function seguiPubblici(db){
   return fon(fcol(db,'eventiPubblici'),s=>{pubs=new Map(s.docs.map(d=>[d.id,d.data()]));pubOk=true;ripubblica()},e=>console.warn('Copia pubblica eventi:',e&&e.message,PERM))}
-export function sync(db,eventi,pagamento,catL){ctx={db,eventi,pagamento,catL};ripubblica()}
+export function sync(db,eventi,pagamento,catL,docOf){ctx={db,eventi,pagamento,catL,docOf};ripubblica()}
+
+/* Locandina (documento allegato all'evento): per gli esterni, che non hanno login, se ne tiene una copia a blocchi in eventiPubblici/<evento>/chunks
+   (si copiano i blocchi già salvati su Firebase dall'admin: non serve Telegram). Max 20 MB, come il documento. */
+const locDi=d=>d&&d.chunks>0&&d.size<=20*1024*1024?{id:d.id,nome:String(d.title||'locandina').slice(0,120),mime:d.mime||'',size:d.size||0,n:d.chunks}:null;
+async function delLoc(db,evId,l){if(l)await Promise.all(Array.from({length:l.n||0},(_,k)=>fdel(fdoc(db,'eventiPubblici',evId,'chunks','c'+k)).catch(()=>{})))}
+async function copiaLoc(db,evId,l,vecchia){
+  await delLoc(db,evId,vecchia);
+  for(let k=0;k<l.n;k++){
+    const s=await fgetDoc(fdoc(db,'sections','eventi','items',l.id,'chunks','c'+k));
+    if(!s.exists())throw new Error('Blocco '+k+' della locandina non trovato su Firebase');
+    await fset(fdoc(db,'eventiPubblici',evId,'chunks','c'+k),{i:k,data:s.data().data})}}
+
 function ripubblica(){
   if(!ctx||!pubOk)return;
-  const {db,eventi,pagamento,catL}=ctx;
+  const {db,eventi,pagamento,catL,docOf}=ctx;
   for(const ev of eventi){
     const pub=pubs.get(ev.id);
     if(ev.esterni){
-      const m=mirrorDi(ev,{cat:catL(ev),pagamento}),k=JSON.stringify(m);
+      const loc=locDi(docOf&&docOf(ev)),m=mirrorDi(ev,{cat:catL(ev),pagamento,locandina:loc}),k=JSON.stringify(m);
       if(pub&&uguale(m,pub))continue;
       if(tent.get(ev.id)===k)continue;
       tent.set(ev.id,k);
-      fset(fdoc(db,'eventiPubblici',ev.id),m).catch(e=>{tent.delete(ev.id);console.warn('Copia pubblica non scritta:',e&&e.message,PERM)})}
+      (async()=>{
+        const vecchia=pub&&pub.locandina||null;
+        if(loc&&(!vecchia||vecchia.id!==loc.id||vecchia.n!==loc.n))await copiaLoc(db,ev.id,loc,vecchia);
+        else if(!loc&&vecchia)await delLoc(db,ev.id,vecchia);
+        await fset(fdoc(db,'eventiPubblici',ev.id),m)})()
+      .catch(e=>{tent.delete(ev.id);console.warn('Copia pubblica non scritta:',e&&e.message,PERM)})}
     else if(pub&&pub.esterni&&!tent.has('d'+ev.id)){
       tent.set('d'+ev.id,1);
-      fdel(fdoc(db,'eventiPubblici',ev.id)).catch(e=>{tent.delete('d'+ev.id);console.warn(e&&e.message)})}}}
+      delLoc(db,ev.id,pub.locandina).then(()=>fdel(fdoc(db,'eventiPubblici',ev.id))).catch(e=>{tent.delete('d'+ev.id);console.warn(e&&e.message)})}}}
 
 /* elimina tutto ciò che riguarda l'evento tra gli esterni (iscrizioni, copie dei bonifici, coupon, check-in, copia pubblica) */
 export async function purge(db,ev){
@@ -61,6 +78,8 @@ export async function purge(db,ev){
     for(const f of (r.bonifici||[]))await delChunks(db,d.id,f);
     await fdel(d.ref)}
   for(const c of ['eventiCoupon','eventiCheckin']){const s=await fget(q(c));for(const d of s.docs)await fdel(d.ref)}
+  const pb=await fgetDoc(fdoc(db,'eventiPubblici',ev.id)).catch(()=>null);
+  if(pb&&pb.exists())await delLoc(db,ev.id,pb.data().locandina);
   await fdel(fdoc(db,'eventiPubblici',ev.id)).catch(()=>{})}
 
 /* ---------- finestra di dialogo ---------- */

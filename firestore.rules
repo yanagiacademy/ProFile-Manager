@@ -120,7 +120,7 @@ service cloud.firestore {
     }
 
     /* Eventi → iscrizioni per gli ESTERNI (altre associazioni), senza login.
-       eventiPubblici/<evento> = copia pubblica dei soli dati che servono al modulo (nome, data, quote, coordinate di pagamento…), scritta dall'admin quando l'evento ha il link per esterni.
+       eventiPubblici/<evento> = copia pubblica dei soli dati che servono al modulo (nome, data, quote, coordinate di pagamento, causale, locandina in /chunks…), scritta dall'admin quando l'evento ha il link per esterni.
          Solo «get» (l'id è casuale: non si può elencare); chi ha scrittura su Eventi la gestisce e la elenca.
        eventiCoupon/<evento>_<CODICE> = coupon (gratis, % o €): solo «get» per chi conosce il codice; elenco e scrittura solo con scrittura su Eventi.
        iscrizioniEsterne/<id> = iscrizione di un'associazione (persone: atleti e tecnici). L'id è casuale e funge da «chiave» del link di stato: get pubblico, elenco solo per chi vede tutte le iscrizioni.
@@ -137,6 +137,11 @@ service cloud.firestore {
     match /eventiPubblici/{id} {
       allow get: if true;
       allow list, write: if evScrive();
+      /* locandina dell'evento (copia a blocchi del documento allegato): la scarica chiunque abbia il link dell'evento; la scrive solo chi ha scrittura su Eventi */
+      match /chunks/{c} {
+        allow read: if true;
+        allow write: if evScrive();
+      }
     }
     match /eventiCoupon/{id} {
       allow get: if true;

@@ -551,3 +551,10 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - ZIP e miniature dei PDF caricano strumenti da cdnjs (serve la connessione). L'anteprima PDF su telefono può mostrare solo la prima pagina: c'è "Apri in una scheda".
 - Il promemoria di tutte le pagine lo modifica solo l'admin; File importanti richiede anche la lettura su Documenti.
 - Le nuove versioni dei file possono restare in cache: dopo ogni aggiornamento aprire la pagina con ?x=N in fondo all'indirizzo.
+
+## Eventi per esterni: causale, locandina, avvisi (aggiornamento)
+- «Causale e indicazioni per il bonifico»: nuovo campo nel riquadro «Iscrizione per esterni» del modulo evento (causaleEsterni). Compare nel riquadro Pagamento di iscrizione.html e nella pagina di stato, sotto le coordinate di «Come pagare».
+- LOCANDINA: il documento allegato all'evento è ora scaricabile anche dagli esterni (pulsante «Scarica la locandina» nel modulo e nella pagina di stato). L'admin ne tiene una copia pubblica a blocchi in eventiPubblici/<evento>/chunks, creata/aggiornata da sola quando apre Eventi (vale anche per gli eventi già esistenti). Solo documenti con copia su Firebase (max 20 MB).
+- AVVISI: (1) Home: riquadro Eventi con badge «N iscrizioni esterne da confermare» e voce in «Da controllare» (admin e chi ha Eventi in lettura/scrittura). (2) Mail al Gmail dell'ASD a ogni nuova iscrizione esterna e a ogni copia del bonifico, con il bonifico in allegato (azione pubblica «iscr-notifica» di ponte-mail.gs).
+- DA FARE UNA VOLTA: 1) ripubblicare firestore.rules (nuovo blocco chunks di eventiPubblici); 2) incollare ponte-mail.gs aggiornato in Apps Script e fare Distribuisci → Gestisci distribuzioni → Modifica → Nuova versione (stesso URL /exec); 3) aprire Eventi come admin per far partire la copia della locandina. Numeri di versione NON aggiornati.
+- FILE MODIFICATI: eventi.js, eventi-esterni.js, iscrizione.js, index.html, firestore.rules, ponte-mail.gs, RESOCONTO.md.
