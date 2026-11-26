@@ -7,7 +7,7 @@
    Limite di Gmail: circa 100 destinatari al giorno per un account personale (una mail a 3 persone = 3). */
 
 /* ---- DA COMPILARE (stessi valori di firebase-config.js) ---- */
-const FIREBASE_API_KEY='AIzaSyBVr0b95h44RnE6oop1zB04F0CNPAQ102A';
+const FIREBASE_API_KEY='AIzaSyBVrOb95h44RnE6oop1zB04F0CNPAQl02A';
 const PROJECT_ID='yanagi-academy-profile-manager';
 /* ------------------------------------------------------------ */
 const NOME_MITTENTE='Yanagi Academy';
