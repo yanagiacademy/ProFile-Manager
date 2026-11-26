@@ -193,9 +193,9 @@ else{fa=initializeApp(firebaseConfig);auth=getAuth(fa);db=getFirestore(fa);
     unsubMe=onSnapshot(doc(db,'users',uid),sn=>{me=sn.exists()?{id:uid,...sn.data()}:null;onMe()},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')})})}
 
 function box(t,m,extra=''){return`<div class="wrap"><div class="card login"><span class="lgb"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><h1>ProFile Manager</h1><h2 style="margin-top:12px">${esc(t)}</h2><div class="mu">${esc(m)}</div>${extra}</div></div>`}
-function cleanup(){cal=[];evU=[];calCfg=null;calPronto=false;miProfili=[];mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;esN=0;lezPropN=0;lezMie=[];bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
+function cleanup(){cal=[];evU=[];calCfg=null;calPronto=false;miProfili=[];mio=false;mioTec=false;mioN=0;modN=0;ricN=0;ordN=0;esN=0;bvN=0;lezPropN=0;lezMie=[];bk=undefined;setupFatto=false;unsubs.forEach(f=>f());unsubs=[];if(unsubMe)unsubMe();if(unsubUsers)unsubUsers();unsubMe=unsubUsers=null;items={};accounts=[];accReg={};accRegOk=false}
 let cal=[],evU=[],calCfg=null,calPronto=false,miProfili=[];     /* Calendario: voci per questo account, eventi (account «Solo dati utente») e pausa delle routine → prossimo appuntamento sotto il saluto */
-let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,ordN=0,esN=0,lezPropN=0,lezMie=[],bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
+let mio=false,mioTec=false,mioN=0,modN=0,ricN=0,ordN=0,esN=0,bvN=0,lezPropN=0,lezMie=[],bk;     /* bk: ultimo backup (solo admin): undefined = non ancora letto, null = mai fatto, numero = millisecondi */
 let setupFatto=false;
 const nomeAcc=id=>{const a=accounts.find(z=>z.id===id);return a?(a.name||a.email||id):id};
 /* atleta con tessera: l'email dell'account coincide con quella inserita dall'admin nella scheda Atleti */
@@ -222,6 +222,8 @@ function onMe(){
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
   /* ordini nuovi degli atleti: li vede chi ha Ordini in lettura o scrittura */
   if(me.admin||['r','w'].includes((me.perms||{}).ordini))unsubs.push(onSnapshot(collection(db,'ordiniInviati'),sn=>{ordN=sn.docs.filter(d=>d.data().stato==='inviato').length;render()},()=>{ordN=0}));
+  /* bonifici degli atleti (interni) caricati e ancora da verificare */
+  if(me.admin||['r','w'].includes((me.perms||{}).eventi))unsubs.push(fon(fcol(db,'iscrizioni'),sn=>{bvN=sn.docs.filter(d=>{const r=d.data();return r.partecipa==='si'&&Array.isArray(r.bonifici)&&r.bonifici.length&&!r.pagatoOk}).length;render()},()=>{bvN=0}));
   /* iscrizioni di esterni (altre associazioni) in attesa di conferma: le vede chi ha Eventi in lettura o scrittura */
   if(me.admin||['r','w'].includes((me.perms||{}).eventi))unsubs.push(fon(query(fcol(db,'iscrizioniEsterne'),where('stato','==','attesa')),sn=>{esN=sn.size;render()},()=>{esN=0}));
   /* admin: file e dati caricati da atleti e tecnici in attesa di approvazione (pagina Richieste) */
@@ -334,6 +336,7 @@ function alertsHtml(){
   if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(!me.admin&&perm('Commercialista')!=='n'&&perm('Archivio')!=='n'){let vis=0;try{vis=+localStorage.getItem('pfm_ev_vis_'+auth.currentUser.uid)||0}catch(e){}const n=(items.commercialista||[]).filter(i=>i.daEvento&&i.archiviatoIl&&(i.at&&i.at.toMillis?i.at.toMillis():0)>vis).length;if(n)a.push(['Archivio',n+(n===1?' nuovo file da un evento eliminato (bonifico o elenco iscritti)':' nuovi file da eventi eliminati (bonifici ed elenco iscritti)')])}
   if(perm('Archivio')!=='n'){const k=[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
+  if(bvN&&(me.admin||['r','w'].includes((me.perms||{}).eventi)))a.push(['Eventi',bvN+(bvN===1?' bonifico di un atleta da verificare':' bonifici di atleti da verificare')]);
   if(esN&&(me.admin||['r','w'].includes((me.perms||{}).eventi)))a.push(['Eventi',esN+(esN===1?' iscrizione di un\'associazione esterna da confermare (bonifico da verificare)':' iscrizioni di associazioni esterne da confermare (bonifici da verificare)')]);
   if(me.admin&&bkDaFare())a.push(['Backup',bk===null?'Nessun backup eseguito finora':'Ultimo backup '+giorniDa(bk)+' giorni fa']);
   const ric=me.admin?ricTot():0;
@@ -350,13 +353,14 @@ function tile(s){
     nt=k==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,
     ne=k==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,
     ntes=k==='tessere'?(items.tessere||[]).filter(tesseraAlert).length:0,
-    nm=k==='atleti'&&me.admin?modN:0,no=k==='ordini'?ordN:0,nes=k==='eventi'?esN:0,nsc=k==='documenti-in-scadenza'?n:0;
+    nm=k==='atleti'&&me.admin?modN:0,no=k==='ordini'?ordN:0,nes=k==='eventi'?esN:0,nbv=k==='eventi'?bvN:0,nsc=k==='documenti-in-scadenza'?n:0;
   if(nsc)pills.push(['',nsc+' in scadenza']);
   if(ntes)pills.push(['',ntes+' in scadenza']);
   if(ne)pills.push(['',ne+' in scadenza']);
   if(nt)pills.push(['',nt+' test da fare']);
   if(nm)pills.push(['am',nm+' da rivedere']);
   if(no)pills.push(['am',no+(no===1?' nuovo ordine':' nuovi ordini')]);
+  if(nbv)pills.push(['am',nbv+(nbv===1?' bonifico da verificare':' bonifici da verificare')]);
   if(nes)pills.push(['am',nes+(nes===1?' iscrizione esterna da confermare':' iscrizioni esterne da confermare')]);
   if(ver)pills.push(['am',ver+' da verificare']);
   const hot=pills.some(x=>x[0]===''),mod=pills.some(x=>x[0]==='am');

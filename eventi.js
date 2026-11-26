@@ -42,6 +42,7 @@ const iscOf=id=>iscr.filter(r=>r.evento===id);
 /* account con 2+ atleti collegati: un'iscrizione per ogni atleta (id = evento_uid_idAtleta; la vecchia evento_uid resta del primo atleta) */
 let ml=[],att=null;
 const multi=()=>ml.length>1&&!!att;
+const secAperte=new Map();   /* sezioni aperte/chiuse del resoconto: si ricordano tra un ridisegno e l'altro */
 const myIsc=id=>multi()?(iscr.find(r=>r.id===id+'_'+uid+'_'+att.id)||(att.id===ml[0].id?iscr.find(r=>r.id===id+'_'+uid):undefined)):iscr.find(r=>r.id===id+'_'+uid);
 const selA=()=>isAdmin()?'':selettore(ml,att);
 const bonificiOf=r=>[...((r&&r.bonifici)||[])].sort((a,b)=>(a.t||0)-(b.t||0));
@@ -442,11 +443,30 @@ function paintDetail(){
   if(adm){
     const all=iscOf(ev.id).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it')),yes=all.filter(r=>r.partecipa==='si'),nos=all.filter(r=>r.partecipa==='no'),sen=senzaRisposta(ev);
     const paid=yes.filter(r=>bonificiOf(r).length).length,ok=yes.filter(r=>r.pagatoOk).length,tp=yes.reduce((t,r)=>t+pE(ev,r),0),th=yes.reduce((t,r)=>t+pH(ev,r),0),att=money(yes.reduce((t,r)=>t+dovuto(ev,r).tot,0));
+    const rigaI=(r,k)=>{
+      const bs=bonificiOf(r),d0=dovuto(ev,r),oggi=ricEv.has(ev.id+'_'+r.uid);
+      const ch=`${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip ${d0.tot>0?'warn':'ok'}">${d0.tot>0?esc(money(d0.tot)):'nulla da pagare'}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:''}`;
+      const bon=bs.map((f,j)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(j+1):''}</button>`).join('');
+      const ric=r.pagatoOk?(oggi?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(d0.tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):'';
+      const az=!hasQ?'':k==='verif'?bon+`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}">✔ Verifica pagamento</button>`
+        :k==='manca'?`<button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}" title="Per un pagamento arrivato in altro modo (contanti…)">Segna come pagato</button>`
+        :bon+(r.pagatoOk?`<span class="chip ok">✔ verificato</span><button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}">Annulla verifica</button>${ric}`:'');
+      return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b></div><div class="l2">${ch}</div>${az?`<div class="l2">${az}</div>`:''}</div>`};
+    const ok2=r=>r.pagatoOk||dovuto(ev,r).tot<=0;
+    const daV=hasQ?yes.filter(r=>!ok2(r)&&bonificiOf(r).length):[],manca=hasQ?yes.filter(r=>!ok2(r)&&!bonificiOf(r).length):[],aPosto=hasQ?yes.filter(ok2):[];
+    const aperta=(k,def)=>secAperte.has(ev.id+k)?secAperte.get(ev.id+k):def;
+    const sez=(k,titolo,lista,sub,def,cl,corpo)=>lista.length?`<details class="sez" data-k="${k}" ${aperta(k,def)?'open':''}><summary><span class="t">${titolo}</span><span class="chip ${cl||''}">${lista.length}</span></summary>${sub?`<div class="sub">${sub}</div>`:''}<div class="corpo">${corpo||lista.map(r=>rigaI(r,k)).join('')}</div></details>`:'';
+    const tile=(n,l,hot)=>`<div${hot?' class="hot"':''}><b>${n}</b><small>${l}</small></div>`;
     rep=`<h3>Resoconto iscritti<button class="btn ghost sm" data-a="csv">Scarica CSV</button></h3>
-      <div class="kpi"><span>✔ Partecipano: <b>${yes.length}</b></span><span>👥 Persone all’evento: <b>${tp}</b></span>${ev.hotel?`<span>🏨 Persone in hotel: <b>${th}</b></span>`:''}<span>✖ Non partecipano: <b>${nos.length}</b></span>${users.length?`<span>… Senza risposta: <b>${sen.length}</b></span>`:''}${hasQ?`<span>Bonifici caricati: <b>${paid}/${yes.length}</b></span><span>Verificati: <b>${ok}/${yes.length}</b></span>`:''}${att?`<span>Quota attesa: <b>${esc(att)}</b></span>`:''}</div>
-      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip">${esc(money(dovuto(ev,r).tot))}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(hasQ?'<span class="chip warn">nessun bonifico</span>':'')}${hasQ?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${hasQ&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(dovuto(ev,r).tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
-      ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
-      ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
+      <div class="tiles">${tile(yes.length,'Partecipano')}${tile(tp,'Persone all’evento')}${ev.hotel?tile(th,'In hotel'):''}${tile(nos.length,'Non partecipano')}${users.length?tile(sen.length,'Senza risposta'):''}${hasQ?tile(ok+'/'+yes.length,'Pagamenti verificati',daV.length>0):''}${hasQ&&att?tile(esc(att),'Quota attesa'):''}</div>
+      ${hasQ?sez('verif','Da verificare',daV,'Il bonifico è stato caricato: aprilo, controlla l’importo e premi «Verifica pagamento».',true,'warn')
+        +sez('manca','In attesa del bonifico',manca,'Non hanno ancora caricato la copia del bonifico.',true,'bad')
+        +sez('ok','Pagamenti a posto',aPosto,'Verificati o con nulla da pagare.',false,'ok')
+        :sez('ok','Partecipano',yes,'',true,'ok')}
+      ${yes.length?'':'<div class="mu">Nessun atleta ha ancora confermato la partecipazione.</div>'}
+      ${sez('no','Non partecipano',nos,'',false,'',`<div class="mu" style="padding:2px 0 6px">${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`)}
+      ${users.length?sez('sen','Senza risposta',sen,'Non hanno ancora risposto all’invito.',false,'',`<div class="mu" style="padding:2px 0 6px">${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`):''}`;
+  }
   const exb=adm&&ev.esterni?`<h3>Iscrizioni per esterni<button class="btn ghost sm" data-a="ext">Elenco e conferme</button></h3>
     <div class="mu" style="margin:2px 0 6px">Link del modulo da inviare alle altre associazioni:</div>
     <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(ext.linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo per gli esterni" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>
@@ -456,6 +476,7 @@ function paintDetail(){
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
     ${info}${mine}${rep}${exb}${cpx}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
+  c.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>secAperte.set(ev.id+d.dataset.k,d.open));
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
 
 /* righe degli iscritti interni (partecipanti) per l'elenco archiviato quando si elimina l'evento */

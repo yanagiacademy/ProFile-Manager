@@ -7,8 +7,8 @@
    Limite di Gmail: circa 100 destinatari al giorno per un account personale (una mail a 3 persone = 3). */
 
 /* ---- DA COMPILARE (stessi valori di firebase-config.js) ---- */
-const FIREBASE_API_KEY='AIzaSyBVrOb95h44RnE6oop1zB04F0CNPAQl02A';
-const PROJECT_ID='yanagi-academy-profile-manager';
+const FIREBASE_API_KEY='INSERISCI';
+const PROJECT_ID='INSERISCI';
 /* ------------------------------------------------------------ */
 const NOME_MITTENTE='Yanagi Academy';
 const EMAIL_ASD='info.judoyanagi@gmail.com';          /* la casella da cui partono le mail: lo script va creato con QUESTO account */
@@ -200,8 +200,9 @@ function fsVal_(v){
   return '';
 }
 function fsGet_(path){
-  var r=UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/'+PROJECT_ID+'/databases/(default)/documents/'+path,{muteHttpExceptions:true});
-  if(r.getResponseCode()!==200)return null;
+  /* senza chiave API Google rifiuta le richieste anonime (403): la chiave è la stessa del progetto Firebase */
+  var r=UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/'+PROJECT_ID+'/databases/(default)/documents/'+path+'?key='+encodeURIComponent(FIREBASE_API_KEY),{muteHttpExceptions:true});
+  if(r.getResponseCode()!==200){Logger.log('Firestore '+path+' → '+r.getResponseCode()+' '+r.getContentText().slice(0,200));return null}
   var f=JSON.parse(r.getContentText()).fields||{},o={};Object.keys(f).forEach(function(k){o[k]=fsVal_(f[k])});return o;
 }
 function iscrNotifica_(b){

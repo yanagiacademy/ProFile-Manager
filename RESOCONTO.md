@@ -586,3 +586,10 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Con «Tutti» e almeno un account «Solo dati utente» l'upload salva SEMPRE anche la copia su Firebase (serve per aprire il file).
 - DA FARE: ripubblicare firestore.rules. I file caricati PRIMA con «Tutti» non hanno perTutti: apri «Visibilità» su ciascuno e conferma «Tutti» (o ricaricali). Non ho voluto renderli pubblici in automatico, perché prima «Tutti» escludeva chi ha «Solo dati utente».
 - File: documenti.js, firestore.rules, RESOCONTO.md.
+
+## Eventi: alert, verifica iscritti in sezioni ordinate
+- ALERT/MAIL NUOVE ISCRIZIONI ESTERNE: la mail non partiva perché ponte-mail.gs leggeva l'iscrizione da Firestore senza chiave API (Google risponde 403 alle richieste anonime). Ora usa FIREBASE_API_KEY; gli errori finiscono nel Log esecuzione di Apps Script. Va ripubblicato (Distribuisci → Gestisci distribuzioni → matita → Nuova versione).
+- HOME: nel riquadro Eventi e in «Da controllare» compaiono anche «N bonifici di atleti da verificare» (atleti interni con bonifico caricato e pagamento non verificato), oltre alle iscrizioni esterne da confermare.
+- RESOCONTO ISCRITTI (interni): riepilogo a tessere + sezioni apribili e ordinate: Da verificare (bonifico caricato: Bonifico + «Verifica pagamento»), In attesa del bonifico (con «Segna come pagato» per contanti ecc.), Pagamenti a posto (verifica annullabile, ricevuta), Non partecipano, Senza risposta. Le sezioni vuote non compaiono e ricordano se erano aperte o chiuse.
+- ELENCO E CONFERME (esterni): stesso schema: tessere, poi Da confermare / In attesa del bonifico / Mail dei codici non partita / Confermate; il link per le associazioni è in una sezione a parte (aperta solo se non ci sono iscrizioni).
+- File: eventi.js, eventi-esterni.js, eventi.html (stili), index.html, ponte-mail.gs, RESOCONTO.md.

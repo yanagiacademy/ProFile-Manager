@@ -147,7 +147,7 @@ async function inviaCodici(db,ev,r){
 
 /* ---------- elenco delle iscrizioni esterne ---------- */
 export function apriEsterni(db,ev,{uid}){
-  let filtro='tutte',aperto=new Set(),busy=false,msg='';
+  let filtro='tutte',aperto=new Set(),sezOp=new Map(),busy=false,msg='';
   const M=modal('Iscrizioni esterne · '+ev.nome,()=>S.stop());
   const S=live(db,ev.id,{reg:true,cpn:true,chk:true},disegna);
   M.body.addEventListener('click',async e=>{
@@ -217,13 +217,20 @@ export function apriEsterni(db,ev,{uid}){
     const all=S.regs,at=all.filter(r=>!confermata(r)),cf=all.filter(confermata),pe=all.flatMap(r=>r.persone||[]),
       na=pe.filter(p=>!isTec(p)).length,nt=pe.filter(isTec).length,ent=[...S.chk.values()].length,
       inc=cf.reduce((t,r)=>t+dovutoDi(ev,S,r).totale,0),att=at.reduce((t,r)=>t+dovutoDi(ev,S,r).totale,0);
-    const lista=filtro==='attesa'?at:filtro==='conf'?cf:all;
-    M.body.innerHTML=`<div class="mu" style="margin:6px 0 4px">Link da inviare alle altre associazioni (nessun login):</div>
-      <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>
-      ${S.err?`<p class="err">${esc(S.err)}</p>`:''}${msg?`<p class="mu" role="status" style="margin:8px 0 0">${esc(msg)}</p>`:''}
-      <div class="kpi" style="margin-top:10px"><span>Associazioni: <b>${all.length}</b></span><span>Atleti: <b>${na}</b></span><span>Tecnici: <b>${nt}</b></span><span>In attesa: <b>${at.length}</b></span><span>Confermate: <b>${cf.length}</b></span><span>Entrati: <b>${ent}</b></span>${inc+att>0?`<span>Incassato: <b>${esc(euroTxt(inc))}</b></span><span>Da incassare: <b>${esc(euroTxt(att))}</b></span>`:''}</div>
-      <div class="tabs" role="group" aria-label="Filtro">${[['tutte','Tutte',all.length],['attesa','In attesa',at.length],['conf','Confermate',cf.length]].map(([k,l,n])=>`<button data-a="f" data-f="${k}" aria-pressed="${filtro===k}">${l} (${n})</button>`).join('')}<button data-a="csv" style="margin-left:auto">Scarica CSV</button></div>
-      ${lista.length?lista.map(riga).join(''):`<div class="mu" style="padding:8px 0">${all.length?'Nessuna iscrizione in questo elenco.':'Nessuna iscrizione ancora arrivata.'}</div>`}`}
+    const daConf=at.filter(r=>dovutoDi(ev,S,r).totale<=0||bonificiOf(r).length),senzaB=at.filter(r=>dovutoDi(ev,S,r).totale>0&&!bonificiOf(r).length),mailKo=cf.filter(r=>r.mailErr);
+    const op=(k,def)=>sezOp.has(k)?sezOp.get(k):def;
+    const sez=(k,titolo,lista,sub,def,cl)=>lista.length?`<details class="sez" data-k="${k}" ${op(k,def)?'open':''}><summary><span class="t">${titolo}</span><span class="chip ${cl||''}">${lista.length}</span></summary>${sub?`<div class="sub">${sub}</div>`:''}<div class="corpo">${lista.map(riga).join('')}</div></details>`:'';
+    const tile=(n,l,hot)=>`<div${hot?' class="hot"':''}><b>${n}</b><small>${l}</small></div>`;
+    M.body.innerHTML=`${S.err?`<p class="err">${esc(S.err)}</p>`:''}${msg?`<p class="mu" role="status" style="margin:8px 0 0">${esc(msg)}</p>`:''}
+      <div class="tiles">${tile(all.length,'Associazioni')}${tile(na,'Atleti')}${tile(nt,'Tecnici')}${tile(ent,'Entrati')}${inc+att>0?tile(esc(euroTxt(inc)),'Incassato')+tile(esc(euroTxt(att)),'Da incassare',att>0):''}</div>
+      <div class="acts" style="margin:0 0 6px"><button class="btn ghost sm" data-a="csv">Scarica CSV</button></div>
+      ${sez('daconf','Da confermare',daConf,'Bonifico ricevuto (o nulla da pagare): controlla e conferma per inviare i codici d’ingresso.',true,'warn')}
+      ${sez('senzab','In attesa del bonifico',senzaB,'Iscrizione arrivata, copia del bonifico non ancora caricata.',true,'bad')}
+      ${sez('mailko','Mail dei codici non partita',mailKo,'Confermate, ma la mail non è arrivata: usa «Reinvia codici».',true,'bad')}
+      ${sez('conf','Confermate',cf.filter(r=>!r.mailErr),'',false,'ok')}
+      ${all.length?'':'<div class="mu" style="padding:8px 0">Nessuna iscrizione ancora arrivata.</div>'}
+      <details class="sez" data-k="link" ${op('link',!all.length)?'open':''}><summary><span class="t">Link per le associazioni</span></summary><div class="sub">Da inviare alle altre associazioni (nessun login):</div><div class="corpo"><div class="fr" style="gap:6px"><input type="text" readonly value="${esc(linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div></div></details>`;
+    M.body.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>sezOp.set(d.dataset.k,d.open))}
   disegna()}
 
 /* ---------- coupon ---------- */
