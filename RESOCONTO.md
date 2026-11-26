@@ -579,3 +579,10 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Pallino di stato in alto: se è verde, un tocco lancia «Aggiornamento completo» + riallineamento; se è rosso riprova come prima.
 - Limite noto: gli account senza Telegram vedono solo i contenuti con fb:true (copia su Firebase). Per condividere un file con loro, la casella «Salva anche su Firebase» deve essere attiva.
 - File: fsx.js, stella.js, RESOCONTO.md.
+
+## Documenti con «Tutti» visibili anche a chi ha «Solo dati utente»
+- CAUSA: con la visibilità «Tutti» il file non aveva alcun campo di accesso (soloPer), e le regole facevano leggere a «Solo dati utente» solo i file col proprio uid in soloPer. Quindi quegli account non vedevano mai i file per «Tutti».
+- Ora «Tutti» scrive perTutti:true sul file (alla creazione e quando si cambia la visibilità); le regole lasciano leggere a «Solo dati utente» i file con perTutti:true (e i relativi blocchi). La pagina «Solo dati utente» ascolta due query: assegnati a me + condivisi con tutti. Vale anche per Video e Foto.
+- Con «Tutti» e almeno un account «Solo dati utente» l'upload salva SEMPRE anche la copia su Firebase (serve per aprire il file).
+- DA FARE: ripubblicare firestore.rules. I file caricati PRIMA con «Tutti» non hanno perTutti: apri «Visibilità» su ciascuno e conferma «Tutti» (o ricaricali). Non ho voluto renderli pubblici in automatico, perché prima «Tutti» escludeva chi ha «Solo dati utente».
+- File: documenti.js, firestore.rules, RESOCONTO.md.

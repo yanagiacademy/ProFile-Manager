@@ -237,35 +237,40 @@ function vistaMia(){
   const paint=()=>{
     const L=mie.filter(f=>f.kind==='file'||f.kind==='link').sort((a,b)=>ms(b.at)-ms(a.at));
     app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
-    <div class="wrap"><h2 style="margin:0 0 4px">${esc(NOME)}</h2><div class="mu" style="margin-bottom:12px">Qui trovi i file che ti sono stati assegnati.</div>
+    <div class="wrap"><h2 style="margin:0 0 4px">${esc(NOME)}</h2><div class="mu" style="margin-bottom:12px">Qui trovi i file assegnati a te e quelli condivisi con tutti.</div>
     ${err?`<div class="card" role="alert"><b>Non riesco a leggere i file</b><div class="mu">${esc(err)}</div></div>`:''}
     <div class="card" style="padding:4px 14px">${L.length?L.map(f=>`<div style="border-top:1px solid var(--ln);padding:10px 0"><b>${esc(f.title||'File')}</b><div class="mu">${esc([f.kind==='link'?'Collegamento':kbx(f.size),ms(f.at)?new Date(ms(f.at)).toLocaleDateString('it-IT'):''].filter(Boolean).join(' · '))}</div><div class="dact" style="justify-content:flex-start;margin-top:6px">${f.kind==='link'?`<a class="btn sm" href="${esc(f.url||'#')}" target="_blank" rel="noopener">Apri</a>`:(f.chunks?`<button class="btn sm" data-a="d" data-id="${esc(f.id)}">Scarica</button><button class="btn ghost sm" data-a="o" data-id="${esc(f.id)}">Apri</button>`:'<span class="mu">Il file non è disponibile online: chiedi di caricarlo di nuovo.</span>')}</div></div>`).join(''):'<div class="mu" style="padding:10px 0">Non ci sono file per te.</div>'}</div></div>`;
     document.getElementById('out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
     app.onclick=async e=>{const b=e.target.closest('[data-a]');if(!b)return;const f=mie.find(x=>x.id===b.dataset.id);if(!f)return;
       try{if(b.dataset.a==='d')saveBlob(await blobMio(f),f.title);else showPreview({title:f.title,mime:f.mime,load:()=>blobMio(f),errText:()=>'Impossibile aprire il file.',fileName:f.title})}
       catch(x){console.error(x);alert('Impossibile aprire il file. Controlla la connessione e riprova.')}}};
-  unsubs.push(ronSnapR(rqueryR(rcolR(db,'sections',SEC,'items'),rwhereR('soloPer','array-contains',uid)),s=>{mie=s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl);err='';paint()},e=>{console.error(e);err='Non ho il permesso di leggere questi file: l’admin deve ripubblicare le regole di Firestore.';paint()}));
+  /* due ascolti in tempo reale: i file assegnati a me (soloPer) e quelli condivisi con «Tutti» (perTutti) */
+  let dA=[],dB=[];
+  const unisci=()=>{const m=new Map();[...dA,...dB].forEach(d=>m.set(d.id,d));mie=[...m.values()].filter(i=>!i.archiviatoIl);err='';paint()};
+  const ko=e=>{console.error(e);err='Non ho il permesso di leggere questi file: l’admin deve ripubblicare le regole di Firestore.';paint()};
+  unsubs.push(ronSnapR(rqueryR(rcolR(db,'sections',SEC,'items'),rwhereR('soloPer','array-contains',uid)),x=>{dA=x.docs.map(d=>({id:d.id,...d.data()}));unisci()},ko));
+  unsubs.push(ronSnapR(rqueryR(rcolR(db,'sections',SEC,'items'),rwhereR('perTutti','==',true)),x=>{dB=x.docs.map(d=>({id:d.id,...d.data()}));unisci()},ko));
   paint()}
 
 /* Visibilità: soloPer = uid di chi può vedere (chi carica e l'admin vedono sempre). Gli account li legge solo l'admin: gli altri scelgono «Tutti» o «Solo io e l'admin». */
-const visX=()=>visMode==='sel'?{soloPer:[...new Set([...(me.admin?visSel:[]),uid])]}:{};
+const visX=()=>visMode==='sel'?{soloPer:[...new Set([...(me.admin?visSel:[]),uid])]}:{perTutti:true};   /* «Tutti» = anche chi ha «Solo dati utente» (campo perTutti letto dalle regole) */
 const accSez=()=>accs.filter(a=>!a.admin&&a.id!==uid&&['u','r','w'].includes((a.perms||{})[SEC])).sort((a,b)=>String(a.name||a.email||'').localeCompare(String(b.name||b.email||''),'it'));
 const checks=sel=>{const l=accSez();return l.length?`<div style="max-height:40vh;overflow:auto">${l.map(a=>`<label class="ck"><input type="checkbox" value="${esc(a.id)}" ${sel.has(a.id)?'checked':''}> ${esc(a.name||a.email||a.id)}${(a.perms||{})[SEC]==='u'?' <span class="mu">(solo dati utente)</span>':''}</label>`).join('')}</div>`:'<div class="mu">Nessun altro account ha accesso a questa sezione.</div>'};
 /* chi ha «Solo dati utente» non ha Telegram: legge solo i file con la copia su Firebase, che viene aggiunta da sola */
-const needFb=()=>visMode==='sel'&&[...visSel].some(id=>{const a=accs.find(x=>x.id===id);return a&&(a.perms||{})[SEC]==='u'});
+const needFb=()=>visMode==='sel'?[...visSel].some(id=>{const a=accs.find(x=>x.id===id);return a&&(a.perms||{})[SEC]==='u'}):(visMode==='all'&&!!me.admin&&accs.some(a=>(a.perms||{})[SEC]==='u'));   /* con «Tutti» e almeno un account «Solo dati utente», la copia su Firebase è obbligatoria: è l'unica che quegli account leggono */
 function pickVis(){
-  modal('Chi può vedere i file che carichi',`<div class="mu" style="margin-bottom:8px">Tu e l’admin li vedete sempre. «Tutti» vale per chi ha Lettura o Scrittura; chi ha «Solo dati utente» vede soltanto ciò che spunti qui.</div>${checks(visSel)}`,
+  modal('Chi può vedere i file che carichi',`<div class="mu" style="margin-bottom:8px">Tu e l’admin li vedete sempre. «Tutti» vale per chiunque abbia accesso alla sezione, anche con «Solo dati utente»; spuntando persone, lo vedono solo quelle (più tu e l’admin).</div>${checks(visSel)}`,
     [{label:'Annulla',cls:'ghost',fn:()=>{if(!visSel.size)visMode='all';render()}},{label:'Fatto',fn:o=>{visSel=new Set([...o.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value));render()}}])}
 function visModal(it){
   const adm=!!me.admin,cur=new Set(Array.isArray(it.soloPer)?it.soloPer:[]);
   const body=adm
-    ?`<label class="ck" style="margin-top:0"><input type="checkbox" id="vall" ${ristretto(it)?'':'checked'}> Visibile a tutti (chi ha accesso a ${NOME})</label><div class="mu" style="margin:8px 0">Altrimenti spunta chi può vederlo (tu e chi l’ha caricato lo vedete sempre).</div>${checks(cur)}${it.kind==='folder'?'<div class="mu" style="margin-top:8px">Vale anche per tutto ciò che c’è dentro la cartella.</div>':''}`
-    :`<label class="ck" style="margin-top:0"><input type="radio" name="vm2" value="all" ${ristretto(it)?'':'checked'}> Tutti (chi ha accesso a ${NOME})</label><label class="ck"><input type="radio" name="vm2" value="me" ${ristretto(it)?'checked':''}> Solo io e l’admin</label>`;
+    ?`<label class="ck" style="margin-top:0"><input type="checkbox" id="vall" ${ristretto(it)?'':'checked'}> Visibile a tutti (anche chi ha «Solo dati utente»)</label><div class="mu" style="margin:8px 0">Altrimenti spunta chi può vederlo (tu e chi l’ha caricato lo vedete sempre).</div>${checks(cur)}${it.kind==='folder'?'<div class="mu" style="margin-top:8px">Vale anche per tutto ciò che c’è dentro la cartella.</div>':''}`
+    :`<label class="ck" style="margin-top:0"><input type="radio" name="vm2" value="all" ${ristretto(it)?'':'checked'}> Tutti (anche chi ha «Solo dati utente»)</label><label class="ck"><input type="radio" name="vm2" value="me" ${ristretto(it)?'checked':''}> Solo io e l’admin</label>`;
   modal('Chi può vederlo – '+it.title,body,[cancel,{label:'Salva',fn:async o=>{
     const tutti=adm?o.querySelector('#vall').checked:o.querySelector('input[name=vm2]:checked').value==='all';
     const ids=adm?[...o.querySelectorAll('input[type=checkbox]:checked')].filter(c=>c.id!=='vall').map(c=>c.value):[];
     if(!tutti&&it.kind==='file'&&!it.chunks&&ids.some(id=>{const a=accs.find(x=>x.id===id);return a&&(a.perms||{})[SEC]==='u'}))return merr(o,'Questo file non ha la copia su Firebase: chi ha «Solo dati utente» non potrebbe aprirlo. Ricaricalo spuntando «Salva anche su Firebase».');
-    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),{soloPer:tutti?deleteField():[...new Set([...ids,it.by||uid,uid])]})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
+    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),tutti?{soloPer:deleteField(),perTutti:true}:{soloPer:[...new Set([...ids,it.by||uid,uid])],perTutti:deleteField()})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
 const fbx=()=>({...((fbNew||needFb())?{fb:true}:{}),...visX()});
 const mkFolder=(name,parent)=>addDoc(col,{title:name,kind:'folder',parent,note:'',by:uid,at:serverTimestamp(),...fbx()});
 function editText(it){const w=canW();

@@ -335,14 +335,17 @@ service cloud.firestore {
       allow read: if esamiVede(get(/databases/$(database)/documents/sections/esami/items/$(id)).data);
     }
 
-    /* Documenti, Video, Foto: con «Solo dati utente» si leggono SOLO i file in cui compare il proprio uid (campo soloPer, scelto da chi carica) e hanno la copia su Firebase.
+    /* Documenti, Video, Foto: con «Solo dati utente» si leggono i file in cui compare il proprio uid (campo soloPer, scelto da chi carica)
+       e quelli condivisi con «Tutti» (perTutti == true, messo da chi carica o da chi cambia la visibilità); solo se hanno la copia su Firebase.
        Chi ha la lettura o la scrittura segue le regole generiche qui sotto. */
     match /sections/{sec}/items/{id} {
-      allow read: if sec in ['documenti', 'video', 'foto'] && hasAccount() && level(sec) == 'u' && request.auth.uid in resource.data.soloPer;
+      allow read: if sec in ['documenti', 'video', 'foto'] && hasAccount() && level(sec) == 'u'
+        && (request.auth.uid in resource.data.get('soloPer', []) || resource.data.get('perTutti', false) == true);
     }
     match /sections/{sec}/items/{id}/chunks/{n} {
       allow read: if sec in ['documenti', 'video', 'foto'] && hasAccount() && level(sec) == 'u'
-        && request.auth.uid in get(/databases/$(database)/documents/sections/$(sec)/items/$(id)).data.soloPer;
+        && (request.auth.uid in get(/databases/$(database)/documents/sections/$(sec)/items/$(id)).data.get('soloPer', [])
+            || get(/databases/$(database)/documents/sections/$(sec)/items/$(id)).data.get('perTutti', false) == true);
     }
 
     match /sections/{sec}/items/{id} {
