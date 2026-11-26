@@ -77,7 +77,7 @@ function paintTot(){
   const r=(l,v,cl='')=>`<div class="tot ${cl}"><span>${l}</span><span>${v}</span></div>`;
   $('#tot').innerHTML=(qa>0||qt>0||c.lordo>0?r('Atleti: '+c.atl+(qa>0?' × '+euroTxt(qa):''),euroTxt(c.sa))+r('Tecnici: '+c.tec+(qt>0?' × '+euroTxt(qt):' (gratis)'),euroTxt(c.st)):r('Atleti: '+c.atl+' · Tecnici: '+c.tec,'gratuito'))
     +(c.sconto>0?r('Coupon '+esc(cpCod),'− '+euroTxt(c.sconto)):'')+r('Da versare',c.totale>0?euroTxt(c.totale):'nulla','big');
-  const f=$('#flw');if(f)f.hidden=!(c.totale>0)}
+  const l=$('#fll');if(l)l.textContent=c.totale>0?'Copia del bonifico (immagine o PDF, max 10 MB)':'Copia del bonifico (facoltativa: non c’è nulla da pagare; immagine o PDF, max 10 MB)'}
 async function applicaCoupon(){
   const cod=normCoupon($('#cp').value),o=$('#cpm');
   $('#cp').value=cod;o.className='mu';
@@ -144,7 +144,7 @@ function vistaModulo(){
       <div class="mu" style="margin:10px 0 4px">Pagate con bonifico alle coordinate qui sotto, poi allegate la copia: l’iscrizione resta <b>in attesa</b> finché non verifichiamo l’accredito.</div>
       <div class="pay">${m.pagamento?esc(m.pagamento):'Le coordinate di pagamento non sono ancora state indicate: contatta l’organizzazione.'}</div>
       ${m.causale?`<div class="mu" style="margin:10px 0 4px"><b>Causale e indicazioni</b></div><div class="pay">${esc(m.causale)}</div>`:''}
-      <div id="flw"><label for="fl">Copia del bonifico (immagine o PDF, max 10 MB)</label><input id="fl" type="file" accept="image/*,application/pdf"></div>
+      <div id="flw"><label for="fl" id="fll">Copia del bonifico (immagine o PDF, max 10 MB)</label><input id="fl" type="file" accept="image/*,application/pdf"></div>
     </fieldset>
     <label for="nt">Note per l’organizzazione (facoltative)</label><textarea id="nt" maxlength="1000"></textarea>
     <p class="err" id="er" role="alert"></p>
@@ -170,7 +170,7 @@ async function vistaStato(id){
   if(!s.exists()){msg('Iscrizione non trovata','Il link non è valido oppure l’iscrizione è stata eliminata dall’organizzazione.');return}
   const r=s.data();let ev=null;
   try{const e=await getDoc(doc(db,'eventiPubblici',r.evento));ev=e.exists()?e.data():null}catch(e){}
-  const conf=r.stato==='confermata',pe=r.persone||[],atls=pe.filter(p=>!isTec(p)),tecs=pe.filter(isTec),nb=(r.bonifici||[]).length,serve=!conf&&r.importo>0&&!nb;
+  const conf=r.stato==='confermata',pe=r.persone||[],atls=pe.filter(p=>!isTec(p)),tecs=pe.filter(isTec),nb=(r.bonifici||[]).length,serve=!conf&&r.importo>0&&!nb,puoi=!conf;
   const lista=(t,a)=>a.length?`<h3 style="margin:12px 0 4px;font-size:.85rem;color:var(--ac);text-transform:uppercase;letter-spacing:.04em">${t} (${a.length})</h3>${a.map(p=>`<div>${esc(nomeP(p))}${p.peso?` <span class="mu">· ${esc(p.peso)} kg</span>`:''}${conf&&p.codice?` <span class="chip ok">${esc(p.codice)}</span>`:''}</div>`).join('')}`:'';
   app.innerHTML=top(`<div class="card"><h2 style="margin:0">${esc(ev?ev.nome:'Evento')}</h2>
     <div class="mu" style="margin:2px 0 8px">${ev?esc((ev.cat||'')+(ev.data?' · '+fmtData(ev.data):'')):''}</div>
@@ -180,7 +180,7 @@ async function vistaStato(id){
     ${lista('Atleti',atls)}${lista('Tecnici',tecs)}
     ${ev?locBtn(ev.locandina):''}
     <div style="margin-top:12px"><button class="btn ghost sm" id="rf">Aggiorna lo stato</button></div></div>
-  ${serve?`<div class="card" style="margin-top:12px"><h2 style="margin:0 0 4px">Allega la copia del bonifico</h2>${P.get('u')?'<p class="err" style="margin:0">Il caricamento precedente non è riuscito: riprova.</p>':''}${ev&&ev.pagamento?`<div class="pay" style="margin:8px 0">${esc(ev.pagamento)}</div>`:''}${ev&&ev.causale?`<div class="mu" style="margin:6px 0 4px"><b>Causale e indicazioni</b></div><div class="pay" style="margin:0 0 8px">${esc(ev.causale)}</div>`:''}<label for="fl">Immagine o PDF, max 10 MB</label><input id="fl" type="file" accept="image/*,application/pdf"><p class="err" id="er" role="alert"></p><button class="btn" id="up">Invia la copia del bonifico</button></div>`:''}
+  ${puoi?`<div class="card" style="margin-top:12px"><h2 style="margin:0 0 4px">${serve?'Allega la copia del bonifico':'Allega una copia del bonifico (facoltativa)'}</h2>${P.get('u')?'<p class="err" style="margin:0">Il caricamento precedente non è riuscito: riprova.</p>':''}${ev&&ev.pagamento?`<div class="pay" style="margin:8px 0">${esc(ev.pagamento)}</div>`:''}${ev&&ev.causale?`<div class="mu" style="margin:6px 0 4px"><b>Causale e indicazioni</b></div><div class="pay" style="margin:0 0 8px">${esc(ev.causale)}</div>`:''}<label for="fl">Immagine o PDF, max 10 MB</label><input id="fl" type="file" accept="image/*,application/pdf"><p class="err" id="er" role="alert"></p><button class="btn" id="up">Invia la copia del bonifico</button></div>`:''}
   ${conf?`<div class="card" style="margin-top:12px"><h2 style="margin:0 0 4px">Codici di ingresso</h2><div class="qrs">${pe.filter(p=>p.codice).map(p=>`<div class="qc"><b>${esc(nomeP(p))}</b><div class="mu" style="color:#5B6780">${esc(ruoloT(p))}</div><div data-qr="${esc(p.codice)}"></div><div class="cd">${esc(p.codice)}</div><button class="btn ghost sm" data-dl="${esc(p.codice)}" style="margin-top:6px;color:#14213D;border-color:#D3D9E3">Scarica il QR</button></div>`).join('')}</div></div>`:''}`);
   document.querySelectorAll('[data-qr]').forEach(d=>{d.append(qrCanvas(d.dataset.qr,{px:440}))});
   $('#rf').onclick=()=>vistaStato(id);
