@@ -564,3 +564,11 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Il codice, il tipo e il valore si salvano nell'iscrizione dell'atleta (coupon, cpTipo, cpValore). Un coupon con utilizzi massimi usa lo stesso contatore degli esterni; l'admin può togliere il coupon a un atleta (✕ accanto al codice nel resoconto) e il posto si libera.
 - Il pulsante «Gestisci coupon» ora compare per l'admin in ogni evento, anche senza iscrizione per esterni. L'elenco coupon conta gli utilizzi di atleti ed esterni insieme; il CSV ha la colonna «Coupon».
 - File modificati: eventi.js, eventi-esterni.js, RESOCONTO.md. Nessuna regola nuova da pubblicare.
+
+## Account con più atleti (genitore + figlio, due figli…)
+- NUOVO atleta-attivo.js: per gli account collegati a 2 o più schede Atleti (stessa email) compare «Stai guardando: [atleta]» in Esami ed Eventi. La scelta resta nel dispositivo e vale per entrambe. Chi ha un solo atleta non vede cambiamenti.
+- ESAMI: le cinture e il materiale d'esame sono quelli del grado dell'atleta scelto (prima valeva il grado più alto tra tutti gli atleti dell'account). Le regole di lettura non cambiano.
+- EVENTI: ogni atleta ha la sua iscrizione (partecipa sì/no, peso, persone, hotel, coupon, bonifico), con id evento_uid_idScheda e campo aid. La vecchia iscrizione evento_uid resta del primo atleta. Nel resoconto admin ogni atleta compare col proprio nome.
+- DA FARE: ripubblicare firestore.rules (la creazione dell'iscrizione ora accetta anche l'id con idScheda se la scheda è collegata all'account).
+- Ricevute e Ordini avevano già la scelta dell'atleta. Altre sezioni che dipendono dall'atleta si possono collegare allo stesso selettore.
+- File: atleta-attivo.js (nuovo), esami.js, eventi.js, firestore.rules, RESOCONTO.md.

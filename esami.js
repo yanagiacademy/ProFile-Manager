@@ -9,6 +9,7 @@ import {TG_FILES} from "./telegram-config.js";
 import {memoBar} from "./promemoria.js";
 import {showPreview,saveBlob,guessMime,makeThumb,okThumb} from "./file-tools.js";
 import {GRADI,gradoLabel,gradoByLiv,livDaGrado} from "./gradi.js";
+import {attivoDi,impostaAttivo,selettore,nomeAt} from "./atleta-attivo.js";
 import {attestatoPdf,nomeFile,dataIT} from "./attestato.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -24,7 +25,7 @@ tick();setInterval(tick,15000);
 const SEC='esami',MAX=20*1024*1024,CH=900000,MAX_TG=500*1024*1024;
 let auth,db,col,uid=null,me=null,items=[],cat=0,flt='all',q='',unsubs=[],memo=null;
 let ordAsc=false;
-let subMode='',subOff=null,restricted=false,livMax=16,errRead=false,fbNew=true,attList=null;
+let qMax=16,subMode='',subOff=null,restricted=false,livMax=16,errRead=false,fbNew=true,attList=null,attSel=null;
 const perm=()=>me?(me.admin?'w':(((me.perms||{})[SEC]||'n')==='u'?'r':((me.perms||{})[SEC]||'n'))):'n';
 const solo=()=>!!(me&&!me.admin&&(me.perms||{})[SEC]==='u');      /* «Solo dati utente»: vede le categorie fino al proprio grado; con Lettura o Scrittura vede tutto */
 const canW=()=>perm()==='w';
@@ -53,10 +54,12 @@ async function subscribe(){
   if(mode==='w'){restricted=false;livMax=16;subOff=onSnapshot(col,cb,()=>{});return}
   restricted=false;livMax=16;
   try{const e=auth.currentUser&&auth.currentUser.email;
-    if(solo()){restricted=true;livMax=0;const k=e?await rgetDoc(rdoc(db,'atletiEmail',e.toLowerCase())):null;if(k&&k.exists())livMax=Number(k.data().liv)||0}}catch(x){console.error(x)}
+    if(solo()){restricted=true;livMax=0;const k=e?await rgetDoc(rdoc(db,'atletiEmail',e.toLowerCase())):null;if(k&&k.exists())livMax=Number(k.data().liv)||0
+      /* più atleti sullo stesso account: si legge fino al grado più alto (limite delle regole), ma si mostra solo fino al grado dell'atleta scelto */
+      qMax=livMax;const L=await loadAtt(true);attSel=attivoDi(L);if(L.length>1&&attSel)livMax=attSel.liv||0}}catch(x){console.error(x)}
   if(subMode!==mode)return;
   const rc=rcollection(db,'sections',SEC,'items');
-  subOff=ronSnapshot(restricted?rquery(rc,rwhere('liv','<=',livMax)):rc,cb,e=>{console.error(e);errRead=true;render()});
+  subOff=ronSnapshot(restricted?rquery(rc,rwhere('liv','<=',qMax)):rc,cb,e=>{console.error(e);errRead=true;render()});
   render()}
 
 const byId=id=>items.find(i=>i.id===id);
@@ -91,9 +94,10 @@ function render(){
   const all=visItems(),g=cat?gradoByLiv(cat):null;
   let body='';
   const attBtn=(w||(attList&&attList.length))?'<div class="tools" style="margin-bottom:10px"><button class="btn sm" data-act="att">Attestato di graduazione</button></div>':'';
-  if(!w&&restricted&&!livMax)body=`<div class="note">Il tuo grado non è ancora stato impostato nella scheda Atleti: chiedilo al tuo allenatore o all’admin per vedere il materiale d’esame.</div>`;
+  if(!w&&restricted&&!livMax)body=`<div class="note">${attList&&attList.length>1?'Il grado di '+esc(nomeAt(attSel))+' non è ancora stato impostato':'Il tuo grado non è ancora stato impostato'} nella scheda Atleti: chiedilo al tuo allenatore o all’admin per vedere il materiale d’esame.</div>`;
   else if(errRead)body=`<div class="note">Non riesco a leggere il materiale. Se l’admin ha appena aggiornato le regole o il tuo grado, riapri la pagina tra poco.</div>`;
-  const hdrNote=!w&&restricted&&livMax?`<div class="note">Vedi il materiale dalla prima categoria fino a <b>${esc(gradoLabel(gradoByLiv(livMax)))}</b>.</div>`:'';
+  const multiA=!w&&restricted&&attList&&attList.length>1,selAt=multiA?selettore(attList,attSel):'';
+  const hdrNote=selAt+(!w&&restricted&&livMax?`<div class="note">${multiA?esc(nomeAt(attSel))+': vedi':'Vedi'} il materiale dalla prima categoria fino a <b>${esc(gradoLabel(gradoByLiv(livMax)))}</b>.</div>`:'');
   if(t){
     const list=all.filter(i=>(i.title+' '+(i.note||'')+' '+(i.url||'')).toLowerCase().includes(t)).sort((a,b)=>a.liv-b.liv||(a.title||'').localeCompare(b.title||'','it',{numeric:true}));
     body+=`<div class="card">${list.length?list.map(i=>row(i,true)).join(''):'<div class="mu">Nessun risultato.</div>'}</div>`}
@@ -114,6 +118,7 @@ function render(){
   <div class="wrap"><div class="bar"><h2>${g?belt(g,'beltS')+esc(g.nome)+' - '+esc(g.cint):'Esami'}</h2><span class="badge">${w?'Lettura e scrittura':'Solo lettura'}</span></div>
   ${w&&!cat&&!t?'<div class="mu" style="margin-bottom:10px;font-size:.85rem">Un atleta vede il materiale dalla prima categoria fino al grado indicato nella sua scheda in Atleti.</div>':''}${hdrNote}${crumb}${body}</div>`;
   if(f){const i=$('#q');i.focus();i.setSelectionRange(q.length,q.length)}
+  const sa=app.querySelector('[data-atlsel]');if(sa)sa.onchange=()=>{impostaAttivo(sa.value);attSel=attList.find(a=>a.id===sa.value)||attSel;livMax=attSel.liv||0;if(cat>livMax)cat=0;render()};
   $('#q').oninput=e=>{q=e.target.value;render()};
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{if(b.dataset.act==='fbn'){fbNew=b.checked;return}act(b.dataset.act,b.dataset.id)});

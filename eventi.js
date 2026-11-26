@@ -10,6 +10,7 @@ import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {isD,fmtD,giorni} from "./atleti-scadenze.js";
 import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
 import * as ext from "./eventi-esterni.js";
+import {caricaAtleti,attivoDi,impostaAttivo,selettore,nomeAt as nomeAtl} from "./atleta-attivo.js";
 import {couponOk,couponTxt,couponId,couponEsaurito,normCoupon} from "./eventi-esterni-core.js";
 import {archiviaEvento} from "./eventi-archivio.js";
 
@@ -38,7 +39,11 @@ const syncPub=()=>{if(isAdmin()&&payOk&&items.length)ext.sync(db,evs(),pay,catL,
 /* ---------- dati ---------- */
 const evs=()=>items.filter(i=>i.kind==='evento');
 const iscOf=id=>iscr.filter(r=>r.evento===id);
-const myIsc=id=>iscr.find(r=>r.id===id+'_'+uid);
+/* account con 2+ atleti collegati: un'iscrizione per ogni atleta (id = evento_uid_idAtleta; la vecchia evento_uid resta del primo atleta) */
+let ml=[],att=null;
+const multi=()=>ml.length>1&&!!att;
+const myIsc=id=>multi()?(iscr.find(r=>r.id===id+'_'+uid+'_'+att.id)||(att.id===ml[0].id?iscr.find(r=>r.id===id+'_'+uid):undefined)):iscr.find(r=>r.id===id+'_'+uid);
+const selA=()=>isAdmin()?'':selettore(ml,att);
 const bonificiOf=r=>[...((r&&r.bonifici)||[])].sort((a,b)=>(a.t||0)-(b.t||0));
 const filesOf=(id,ruolo)=>items.filter(i=>i.kind==='file'&&i.evento===id&&i.ruolo===ruolo);
 const docOf=ev=>items.find(i=>i.id===ev.docId)||filesOf(ev.id,'doc')[0]||null;
@@ -280,9 +285,9 @@ async function save(){
 
 /* ---------- iscrizioni e bonifici (Firebase: raccolta "iscrizioni", un documento per atleta e per evento) ---------- */
 async function patchIsc(ev,p){
-  const id=ev.id+'_'+uid,ref=fdoc(db,'iscrizioni',id),ex=iscr.find(r=>r.id===id);
+  const ex=myIsc(ev.id),id=ex?ex.id:ev.id+'_'+uid+(multi()?'_'+att.id:''),ref=fdoc(db,'iscrizioni',id);
   if(ex){await fupd(ref,p);Object.assign(ex,p)}
-  else{const rec={evento:ev.id,uid,nome:meName(),...p};await fset(ref,{...rec,at:fts()});iscr.push({id,...rec})}
+  else{const rec={evento:ev.id,uid,nome:multi()?nomeAtl(att):meName(),...(multi()?{aid:att.id}:{}),...p};await fset(ref,{...rec,at:fts()});iscr.push({id,...rec})}
   paintDetail();renderList()}
 async function patchVerif(r){const v=!r.pagatoOk;await fupd(fdoc(db,'iscrizioni',r.id),{pagatoOk:v});r.pagatoOk=v;paintDetail()}
 async function patchEv(ev,p){await updateDoc(doc(db,'sections',SEC,'items',ev.id),p);Object.assign(ev,p);paintDetail();renderList()}
@@ -421,7 +426,7 @@ function paintDetail(){
   const info=`<dl>${dd('Categoria',esc(catL(ev)))}${dd('Data',isD(ev.data)?esc(fmtD(ev.data)):'')}${dd('Scadenza registrazione',sr)}${ev.hotel?dd('Hotel: scadenza registrazione',isD(ev.scadHotel)?esc(fmtD(ev.scadHotel))+' '+(ev.chiuso?'':dlWarn(ev.scadHotel)):'<span class="mu">da definire</span>'):''}${dd('Quota',esc(money(ev.quota))+(ev.quota&&ev.quotaPP?' <span class="chip">a persona</span>':''))}${ev.esterni&&String(ev.quotaTecnico??'').trim()!==''?dd('Quota tecnici (esterni)',esc(num(ev.quotaTecnico)>0?money(ev.quotaTecnico):'gratis')):''}${ev.hotel&&num(ev.quotaHotel)?dd('Quota hotel',esc(money(ev.quotaHotel))+(ev.hotelPP?' <span class="chip">a persona</span>':'')):''}${dd('Accompagnatori',esc((ev.accompEv?'ammessi all’evento':'non ammessi all’evento')+(ev.hotel?', '+(ev.accompHotel?'ammessi in hotel':'non ammessi in hotel'):'')))}${adm?dd('Destinatari',ristretto(ev)?esc(nomiDest(ev).join(', ')):'Tutti gli atleti'):''}${dd('Documento',d?`<button class="btn ghost sm" data-a="doc">${esc(d.title)}</button>`:'')}</dl>${ev.nota?`<h3>Nota per gli atleti</h3><div style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.92rem">${esc(ev.nota)}</div>`:''}`;
   /* parte dell'atleta */
   const si=my&&my.partecipa==='si',no=my&&my.partecipa==='no';
-  let mine=`<h3>La tua partecipazione</h3>${closed?`<div class="mu">${esc(motivoChiusura(ev))}.</div>`:''}
+  let mine=`<h3>La tua partecipazione${multi()?' · '+esc(nomeAtl(att)):''}</h3>${selA()}${closed?`<div class="mu">${esc(motivoChiusura(ev))}.</div>`:''}
     <div class="sel"><button class="btn ${si?'':'ghost'}" data-a="si" aria-pressed="${!!si}" ${closed?'disabled':''}>Partecipo</button><button class="btn ${no?'':'ghost'}" data-a="no" aria-pressed="${!!no}" ${closed?'disabled':''}>Non partecipo</button></div>`;
   if(gara&&si)mine+=`<label for="pw">Peso previsto per la gara (kg)</label><div class="fr"><input id="pw" type="text" inputmode="decimal" autocomplete="off" value="${esc(my.peso||'')}" ${closed?'disabled':''}><button class="btn sm" data-a="pw" ${closed?'disabled':''}>Salva peso</button></div>${my.peso?'':'<div class="err">Manca il peso previsto.</div>'}`;
   if(si&&(ev.accompEv||ev.hotel)){
@@ -482,7 +487,7 @@ function renderList(){
     else if(!chiusa(e)&&!adm)st='<span class="chip warn">Da rispondere</span>';
     const dl=e.chiuso?`<span class="chip bad">Chiuso${e.chiusoMotivo?': '+esc(e.chiusoMotivo):''}</span>`:isPast(e)?'':dlChip('Iscrizione',e.scadReg)+(e.hotel?dlChip('Hotel',e.scadHotel):'');
     return `<button class="tr${isPast(e)?' past':''}${e.chiuso?' off':''}${urgente(e)?' alarm':''}" data-id="${esc(e.id)}" aria-label="Apri ${esc(e.nome)}"><div class="inf"><div><b>${esc(e.nome)}</b></div><div class="mu">${esc(catL(e))} · ${esc(fmtD(e.data))}${money(e.quota)?' · '+esc(money(e.quota)):''}</div></div><div class="chips">${st}${dl}${adm&&e.esterni?'<span class="chip">Link esterni</span>':''}${adm&&ristretto(e)?`<span class="chip">Solo ${e.dest.length} atlet${e.dest.length===1?'a':'i'}</span>`:''}${adm?`<span class="chip">${n} iscritt${n===1?'o':'i'}</span>`:''}</div></button>`};
-  ls.innerHTML=tabs+(list.length?(up.map(row).join('')+(pa.length?`<div class="sep">Passati</div>`+pa.map(row).join(''):'')):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun evento in programma.'+(adm?' Crea il primo con “+ Nuovo evento”.':'')}</div>`);
+  ls.innerHTML=selA()+tabs+(list.length?(up.map(row).join('')+(pa.length?`<div class="sep">Passati</div>`+pa.map(row).join(''):'')):`<div class="mu" style="padding:8px 0">${all.length?'Nessun risultato.':'Nessun evento in programma.'+(adm?' Crea il primo con “+ Nuovo evento”.':'')}</div>`);
   paintDetail()}
 
 /* elenco degli account, per sapere chi non ha ancora risposto (lo può leggere solo l'admin) */
@@ -497,6 +502,7 @@ function listenIscr(){
   /* ricevute già caricate per questo evento (le scrive la sezione Ricevute con evId e ricUid): solo l'admin */
   if(isAdmin())unsubs.push(fon(fcol(db,'sections','ricevute','items'),s=>{ricEv=new Set(s.docs.map(d=>d.data()).filter(d=>d.evId&&d.ricUid&&!d.archiviatoIl).map(d=>d.evId+'_'+d.ricUid));if(detail)paintDetail()},()=>{ricEv=new Set()}))}
 
+document.addEventListener('change',e=>{const x=e.target.closest&&e.target.closest('[data-atlsel]');if(!x)return;impostaAttivo(x.value);att=ml.find(a=>a.id===x.value)||att;renderList()});
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);col=collection(db,'sections',SEC,'items');
@@ -524,7 +530,8 @@ else{
             unsubs.push(fon(fcol(db,'atletiMail'),s=>{mails={};s.docs.forEach(d=>mails[d.id]=d.data());mailsOk=true;renderDest();riallineaDest()},()=>{}))}}
         unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):'';payOk=true;syncPub()},()=>{}));
         if(isAdmin())unsubs.push(ext.seguiPubblici(db));
-        listenIscr()}
+        listenIscr();
+        if(!isAdmin())caricaAtleti(db,auth.currentUser&&auth.currentUser.email).then(l=>{ml=l;att=attivoDi(l);renderList()})}
       loadUsers();renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });

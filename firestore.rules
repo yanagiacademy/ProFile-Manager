@@ -60,7 +60,7 @@ service cloud.firestore {
              && protetto(get(/databases/$(database)/documents/sections/$(sec)/items/$(id)).data));
     }
     /* Eventi: iscrizioni e bonifici degli atleti stanno qui (non su Telegram), così funzionano anche per chi non ha Telegram.
-       Ogni atleta crea e modifica solo la propria iscrizione (id = idEvento_uidAtleta) e legge solo la propria; l'admin le legge e le modifica tutte.
+       Ogni atleta crea e modifica solo la propria iscrizione (id = idEvento_uidAtleta; con 2+ atleti collegati allo stesso account, una per atleta: idEvento_uidAtleta_idScheda con aid = idScheda) e legge solo la propria; l'admin le legge e le modifica tutte.
        Solo l'admin può segnare il pagamento come verificato (campo pagatoOk) ed eliminare. */
     function eventiOk() { return hasAccount() && level('eventi') in ['u', 'r', 'w']; }
     function eventiTutti() { return isAdmin() || level('eventi') in ['r', 'w']; }
@@ -83,7 +83,9 @@ service cloud.firestore {
     match /iscrizioni/{id} {
       allow read: if eventiOk() && (eventiTutti() || resource.data.uid == request.auth.uid);
       allow create: if eventiOk() && request.resource.data.uid == request.auth.uid
-        && id == request.resource.data.evento + '_' + request.auth.uid
+        && (id == request.resource.data.evento + '_' + request.auth.uid
+            || (request.resource.data.get('aid', '') != '' && id == request.resource.data.evento + '_' + request.auth.uid + '_' + request.resource.data.aid
+                && mioAtleta(request.resource.data.aid)))
         && request.resource.data.get('pagatoOk', false) == false
         && (level('eventi') in ['r', 'w'] || evPerMe(request.resource.data.evento));
       allow update: if eventiOk() && (isAdmin()
