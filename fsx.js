@@ -72,6 +72,7 @@ function ledInit(){
   ledEl.onclick=()=>{
     const t=ledMsg||LED[ledSt][1];
     if(ledSt==='err'){avviso(t+' Riprovo ora…');sync(false).then(()=>avviso('Sincronizzato.')).catch(()=>{})}
+    else if(ledSt==='ok'){avviso('Aggiornamento completo in corso…');sync(true).then(()=>riallineaCopie()).then(r=>avviso('Aggiornato.'+(r&&r.fix?' Copie su Firebase riallineate: '+r.fix+'.':''))).catch(e=>avviso('Aggiornamento non riuscito: '+tgErrText(e)))}
     else avviso(t)};
   ledPlace();ledShow();
   let raf=0;ledObs=new MutationObserver(()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;ledPlace()})});
@@ -103,12 +104,13 @@ async function kvSet(k,v){try{const d=await idb();await new Promise((res,rej)=>{
 /* ---------- stato: registro sommato ---------- */
 let auto=true;
 export const setAutoSync=v=>{auto=!!v};
-let C={v:1,lastId:0,full:0,recs:{}},loaded=false,firstDone=false,startP=null,syncP=null,timer=null;
+let C={v:1,lastId:0,full:0,recs:{}},loaded=false,firstDone=false,startP=null,syncP=null,timer=null,dirty=false;
 const subs=new Set();
 const recOf=(sec,id)=>(C.recs[sec]||{})[id];
 function apply(sec,rid,mid,o,d,enc){
   const S=C.recs[sec]||(C.recs[sec]={});let r=S[rid];
   if(r&&r.mids.includes(mid))return;
+  dirty=true;
   if(o==='set'){S[rid]={st:cleanSet(d||{}),mids:[mid],x:0,pl:enc?0:1};return}
   if(!r)r=S[rid]={st:{},mids:[],x:0,pl:0};
   r.mids.push(mid);if(!enc)r.pl=(r.pl||0)+1;
@@ -154,11 +156,14 @@ async function doSync(full,g){
     if(g!==gen)return;      /* sincronizzazione scaduta nel frattempo: il suo risultato si scarta */
     if(full)C=base;
     const miss=new Set(full?[]:(C.miss||[]));
+    dirty=false;
     for(const x of dec){if(!x)continue;if(x.noKey){miss.add(x.noKey);continue}apply(x.s,x.r,x.mid,x.o,x.d,x.enc)}
     C.miss=[...miss];
     C.lastId=Math.max(C.lastId||0,maxSeen);if(!C.full)C.full=Date.now();
     kvSet('cache:'+GRUPPO_DATI,C);
-    firstDone=true;fireAll();
+    const prima=firstDone;firstDone=true;
+    /* si ridisegna solo se qualcosa è davvero cambiato (o dopo un aggiornamento completo): così si può sincronizzare spesso senza far lampeggiare le pagine */
+    if(dirty||full||!prima)fireAll();
   }}
 /* Una chiamata di rete rimasta appesa non deve bloccare per sempre: dopo il tempo massimo si abbandona, si riapre la connessione e si ritenta. */
 function sync(full=false){
@@ -178,11 +183,23 @@ function startOnce(){
     if(saved&&saved.v===1&&saved.recs)C=saved;
     loaded=true;if(C.lastId>0)firstDone=true;
     if(firstDone)fireAll();
-    try{await sync(!C.full||Date.now()-C.full>FULL_MS)}
+    let sessFull=false;try{sessFull=sessionStorage.getItem('pfm_full')==='1'}catch(e){sessFull=true}
+    const subitoFull=!C.full||Date.now()-C.full>FULL_MS;
+    try{await sync(subitoFull)}
     catch(e){console.error(e);if(!firstDone){startP=null;throw e}avviso('Telegram non raggiungibile: vedi i dati dell’ultima sincronizzazione ('+tgErrText(e)+').')}
-    if(!timer)timer=setInterval(()=>{if(auto&&document.visibilityState==='visible'&&subs.size)sync(false).catch(e=>console.error(e))},20000);
+    if(!timer)timer=setInterval(()=>{if(auto&&document.visibilityState==='visible'&&subs.size){sync(false).catch(e=>console.error(e));ritentaCopie()}},20000);
+    /* a ogni accesso (una volta per sessione del browser): aggiornamento COMPLETO in secondo piano, poi allineamento delle copie su Firebase.
+       Si vede subito la cache con l'aggiornamento incrementale; il completo ricostruisce tutto (anche modifiche e cancellazioni che l'incrementale non vede). */
+    if(!sessFull){try{sessionStorage.setItem('pfm_full','1')}catch(e){}
+      if(subitoFull)riallineaCopie().catch(()=>{});
+      else sync(true).then(()=>riallineaCopie()).catch(e=>console.warn('Aggiornamento completo non riuscito:',e&&e.message))}
   })();
   return startP}
+/* appena la pagina torna visibile, riprende il focus o torna la rete: sincronizza subito (non si aspetta il giro dei 20 secondi: sul telefono in secondo piano il timer si ferma) */
+if(typeof document!=='undefined'){
+  let ultimo=0;
+  const kick=()=>{if(!auto||!subs.size||!firstDone||document.visibilityState!=='visible')return;const n=Date.now();if(n-ultimo<3000)return;ultimo=n;sync(false).catch(e=>console.warn('Sincronizzazione:',e&&e.message));ritentaCopie()};
+  document.addEventListener('visibilitychange',kick);window.addEventListener('focus',kick);window.addEventListener('online',kick);window.addEventListener('pageshow',kick)}
 export const caricaDati=startOnce;
 /* ricarica subito i dati da Telegram (usata quando cambia una stella) */
 export const syncNow=()=>startOnce().then(()=>sync(false));
@@ -255,12 +272,40 @@ const protetto=r=>{const t=r&&r.st&&r.st.conservaFinoTs;return !!(t&&typeof t.$t
 const errProt=()=>{const e=new Error('PROTETTO');e.code='permission-denied';return e};
 
 /* copia facoltativa su Firebase (stesso percorso): fb:true = salvato anche lì */
-async function mirror(ref,prevFb){
+const copieKo=new Map();      /* copie su Firebase non riuscite: si ritentano da sole */
+async function mirror(ref,prevFb,quiet){
+  const k=ref.sec+'/'+ref.id;
   try{
     const r=recOf(ref.sec,ref.id),d=sdkRef(ref);
     if(r&&!r.x&&r.st.fb)await SDK.setDoc(d,rev(r.st));
-    else if(prevFb)await SDK.deleteDoc(d)
-  }catch(e){console.error(e);avviso('Salvato su Telegram, ma la copia su Firebase non è riuscita'+(e&&e.code?' ('+e.code+')':'')+'.')}}
+    else if(prevFb||(copieKo.get(k)&&copieKo.get(k).prevFb))await SDK.deleteDoc(d);
+    copieKo.delete(k)
+  }catch(e){
+    console.error(e);if(!copieKo.has(k))copieKo.set(k,{ref,prevFb:!!prevFb,n:0});
+    if(!quiet)avviso('Salvato su Telegram, ma la copia su Firebase non è riuscita'+(e&&e.code?' ('+e.code+')':'')+'. Riprovo da solo.')}}
+async function ritentaCopie(){
+  for(const [k,v] of [...copieKo]){
+    if(++v.n>20){copieKo.delete(k);continue}
+    await mirror(v.ref,v.prevFb,true)}}
+/* Allinea le copie su Firebase al registro: ricrea le copie mancanti e corregge quelle diverse (chi non ha Telegram legge solo da lì).
+   Legge solo le sezioni con almeno un contenuto fb:true; si ferma se non ha il permesso di scrivere. */
+const ordina=v=>JSON.stringify(v,(k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.keys(x).sort().reduce((o,y)=>(o[y]=x[y],o),{}):x);
+export async function riallineaCopie(){
+  if(!hasSession()||!DB||!tgConfigured())return {fix:0,sezioni:0};
+  let fix=0,sez=0,negato=false;
+  for(const sec of Object.keys(C.recs)){
+    if(negato)break;
+    if(sec.startsWith('meta-')||sec==='cestino'||sec==='storico'||sec==='account')continue;
+    const S=C.recs[sec],ids=Object.keys(S).filter(id=>{const r=S[id];return !r.x&&r.st&&r.st.fb});
+    if(!ids.length)continue;
+    let have;try{const sn=await SDK.getDocs(SDK.collection(DB,'sections',sec,'items'));have=new Map(sn.docs.map(d=>[d.id,d.data()]))}catch(e){continue}
+    sez++;
+    for(const id of ids){
+      const dato=rev(S[id].st),cur=have.get(id);
+      if(cur&&ordina(ser(cur))===ordina(ser(dato)))continue;
+      try{await SDK.setDoc(SDK.doc(DB,'sections',sec,'items',id),dato);fix++}
+      catch(e){if(e&&e.code==='permission-denied'){negato=true;break}console.warn('Copia non allineata',sec,id,e&&e.message)}}}
+  return {fix,sezioni:sez,negato}}
 
 async function write(ref,o,d,noMirror){
   busyIn();
