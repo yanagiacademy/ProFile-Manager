@@ -572,3 +572,10 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - DA FARE: ripubblicare firestore.rules (la creazione dell'iscrizione ora accetta anche l'id con idScheda se la scheda è collegata all'account).
 - Ricevute e Ordini avevano già la scelta dell'atleta. Altre sezioni che dipendono dall'atleta si possono collegare allo stesso selettore.
 - File: atleta-attivo.js (nuovo), esami.js, eventi.js, firestore.rules, RESOCONTO.md.
+
+## Sincronizzazione tra account (Documenti, File importanti e tutte le sezioni su Telegram)
+- CAUSA TROVATA: stella.js spegneva la sincronizzazione automatica (setAutoSync(false)) in Documenti e File importanti: le modifiche degli altri account (file nuovi, stelle) arrivavano solo riaprendo la pagina o da una stella cambiata nello stesso browser. Ora è accesa.
+- fsx.js: (1) la pagina si ridisegna solo se i dati sono davvero cambiati, quindi si può sincronizzare spesso senza lampeggiare; (2) sincronizzazione immediata quando la pagina torna visibile, riprende il focus o torna la rete (sul telefono il timer di 20 s si ferma in secondo piano); (3) a ogni accesso (una volta per sessione del browser) aggiornamento COMPLETO in secondo piano, poi allineamento delle copie su Firebase; (4) le copie su Firebase non riuscite si ritentano da sole; (5) riallineaCopie(): ricrea le copie fb:true mancanti o diverse (chi non ha Telegram legge solo quelle).
+- Pallino di stato in alto: se è verde, un tocco lancia «Aggiornamento completo» + riallineamento; se è rosso riprova come prima.
+- Limite noto: gli account senza Telegram vedono solo i contenuti con fb:true (copia su Firebase). Per condividere un file con loro, la casella «Salva anche su Firebase» deve essere attiva.
+- File: fsx.js, stella.js, RESOCONTO.md.
