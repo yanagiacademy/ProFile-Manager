@@ -558,3 +558,9 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - AVVISI: (1) Home: riquadro Eventi con badge «N iscrizioni esterne da confermare» e voce in «Da controllare» (admin e chi ha Eventi in lettura/scrittura). (2) Mail al Gmail dell'ASD a ogni nuova iscrizione esterna e a ogni copia del bonifico, con il bonifico in allegato (azione pubblica «iscr-notifica» di ponte-mail.gs).
 - DA FARE UNA VOLTA: 1) ripubblicare firestore.rules (nuovo blocco chunks di eventiPubblici); 2) incollare ponte-mail.gs aggiornato in Apps Script e fare Distribuisci → Gestisci distribuzioni → Modifica → Nuova versione (stesso URL /exec); 3) aprire Eventi come admin per far partire la copia della locandina. Numeri di versione NON aggiornati.
 - FILE MODIFICATI: eventi.js, eventi-esterni.js, iscrizione.js, index.html, firestore.rules, ponte-mail.gs, RESOCONTO.md.
+
+## Coupon anche per gli atleti (Eventi)
+- Gli atleti scrivono il codice nella sezione «Pagamento» dell'evento (dopo «Partecipo») e premono «Applica»: l'importo si ricalcola (gratuito, % o €). Il coupon è lo stesso creato dall'admin con «Coupon».
+- Il codice, il tipo e il valore si salvano nell'iscrizione dell'atleta (coupon, cpTipo, cpValore). Un coupon con utilizzi massimi usa lo stesso contatore degli esterni; l'admin può togliere il coupon a un atleta (✕ accanto al codice nel resoconto) e il posto si libera.
+- Il pulsante «Gestisci coupon» ora compare per l'admin in ogni evento, anche senza iscrizione per esterni. L'elenco coupon conta gli utilizzi di atleti ed esterni insieme; il CSV ha la colonna «Coupon».
+- File modificati: eventi.js, eventi-esterni.js, RESOCONTO.md. Nessuna regola nuova da pubblicare.

@@ -227,11 +227,11 @@ export function apriEsterni(db,ev,{uid}){
   disegna()}
 
 /* ---------- coupon ---------- */
-export function apriCoupon(db,ev,{uid}){
+export function apriCoupon(db,ev,{uid,interni=()=>[]}){
   const M=modal('Coupon · '+ev.nome,()=>S.stop());
   const S=live(db,ev.id,{reg:true,cpn:true},disegna);
   const q=s=>M.body.querySelector(s),say=(t,ko)=>{const e=q('#cpe');if(e){e.textContent=t||'';e.className=ko?'err':'mu'}};
-  M.body.innerHTML=`<p class="mu" style="margin:6px 0">Chi si iscrive dal link scrive il codice nel modulo: l’importo si ricalcola da solo. Gratuito = nulla da pagare (la conferma resta tua).</p>
+  M.body.innerHTML=`<p class="mu" style="margin:6px 0">Gli atleti scrivono il codice nella sezione «Pagamento» dell’evento; gli esterni nel modulo del link. L’importo si ricalcola da solo. Gratuito = nulla da pagare (la conferma resta tua).</p>
     <div id="lst"></div>
     <fieldset><legend>Nuovo coupon</legend>
       <label for="cpc">Codice</label><div class="fr"><input id="cpc" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn ghost sm" data-a="gen" type="button">Genera</button></div>
@@ -245,7 +245,7 @@ export function apriCoupon(db,ev,{uid}){
     try{
       if(a==='gen'){const x=new Uint8Array(6);crypto.getRandomValues(x);q('#cpc').value=Array.from(x,v=>ALFA[v%32]).join('')}
       else if(a==='add')await aggiungi();
-      else if(a==='lim'&&c){const v=prompt('Utilizzi massimi del coupon «'+c.codice+'» (vuoto o 0 = illimitati):',num(c.max)>0?String(num(c.max)):'');if(v===null)return;const t=v.trim();if(t&&!/^\d{1,6}$/.test(t)){say('Scrivi un numero intero.',true);return}await fupd(fdoc(db,'eventiCoupon',c.id),{max:+t||0,usi:S.regs.filter(r=>r.coupon===c.codice).length});say('')}
+      else if(a==='lim'&&c){const v=prompt('Utilizzi massimi del coupon «'+c.codice+'» (vuoto o 0 = illimitati):',num(c.max)>0?String(num(c.max)):'');if(v===null)return;const t=v.trim();if(t&&!/^\d{1,6}$/.test(t)){say('Scrivi un numero intero.',true);return}await fupd(fdoc(db,'eventiCoupon',c.id),{max:+t||0,usi:S.regs.filter(r=>r.coupon===c.codice).length+interni().filter(r=>r.coupon===c.codice).length});say('')}
       else if(a==='on'&&c)await fupd(fdoc(db,'eventiCoupon',c.id),{attivo:c.attivo===false});
       else if(a==='del'&&c&&confirm('Eliminare il coupon «'+c.codice+'»? Le iscrizioni già inviate con questo coupon restano, ma l’importo tornerebbe intero.'))await fdel(fdoc(db,'eventiCoupon',c.id))}
     catch(x){console.error(x);say('Operazione non riuscita. '+(x&&x.code==='permission-denied'?PERM:''),true)}});
@@ -263,7 +263,7 @@ export function apriCoupon(db,ev,{uid}){
     await fset(fdoc(db,'eventiCoupon',id),{evento:ev.id,codice:cod,tipo,valore:tipo==='gratis'?0:val,scadenzaMs:sc?new Date(sc+'T23:59:59').getTime():0,max:mx?+mx:0,usi:0,attivo:true,by:uid,ts:Date.now()});
     q('#cpc').value='';q('#cpv').value='';q('#cps').value='';q('#cpm').value='';say('Coupon «'+cod+'» creato.')}
   function disegna(){
-    const usi=c=>S.regs.filter(r=>r.coupon===c.codice).length,l=q('#lst');if(!l)return;
+    const usi=c=>S.regs.filter(r=>r.coupon===c.codice).length+interni().filter(r=>r.coupon===c.codice).length,l=q('#lst');if(!l)return;
     l.innerHTML=(S.err?`<p class="err">${esc(S.err)}</p>`:'')+(S.cps.length?S.cps.map(c=>{const sc=c.scadenzaMs&&Date.now()>c.scadenzaMs,n=usi(c),es=couponEsaurito(c,n);return `<div class="ir"><div class="l1"><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b><span><span class="chip ${c.attivo===false||sc||es?'bad':'ok'}">${c.attivo===false?'disattivato':sc?'scaduto':es?'esaurito':'attivo'}</span><span class="chip">${esc(couponTxt(c))}</span></span></div><div class="l2"><span class="mu">${c.scadenzaMs?'Valido fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):'Senza scadenza'} · usato ${n}${num(c.max)>0?' su '+num(c.max):''} ${num(c.max)>0?'':n===1?'volta':'volte'}${couponEsaurito(c,n)?' · <b>esaurito</b>':''}</span></div><div class="l2"><button class="btn ghost sm" data-a="lim" data-i="${esc(c.id)}">Limite utilizzi</button><button class="btn ghost sm" data-a="on" data-i="${esc(c.id)}">${c.attivo===false?'Riattiva':'Disattiva'}</button><button class="btn ghost sm" data-a="del" data-i="${esc(c.id)}">Elimina</button></div></div>`}).join(''):'<div class="mu" style="padding:6px 0">Nessun coupon per questo evento.</div>')}
   disegna()}
 

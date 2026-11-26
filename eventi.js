@@ -2,7 +2,7 @@ import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDocs,serverTimestamp} from "./fsx.js";
 /* Iscrizioni e bonifici stanno direttamente su Firebase (non passano da Telegram): così funzionano anche per chi non ha Telegram */
-import {collection as fcol,doc as fdoc,onSnapshot as fon,setDoc as fset,updateDoc as fupd,deleteDoc as fdel,getDocs as fget,query,where,arrayUnion,serverTimestamp as fts,Bytes} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {collection as fcol,doc as fdoc,onSnapshot as fon,setDoc as fset,updateDoc as fupd,deleteDoc as fdel,getDocs as fget,getDoc as fgetDoc,query,where,arrayUnion,serverTimestamp as fts,Bytes} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 import {archivio,limiteMB} from "./archivio.js";
@@ -10,6 +10,7 @@ import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {isD,fmtD,giorni} from "./atleti-scadenze.js";
 import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
 import * as ext from "./eventi-esterni.js";
+import {couponOk,couponTxt,couponId,couponEsaurito,normCoupon} from "./eventi-esterni-core.js";
 import {archiviaEvento} from "./eventi-archivio.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -57,7 +58,9 @@ const pE=(ev,r)=>ev.accompEv?persE(r):1;
 const pH=(ev,r)=>ev.hotel?(ev.accompHotel?persH(r):Math.min(1,persH(r))):0;
 const hotelChiuso=ev=>!ev.hotel||chiusa(ev)||(isD(ev.scadHotel)&&giorni(ev.scadHotel)<0);
 /* importo atteso: quota evento (×persone se «per persona») + quota hotel (×persone in hotel se «per persona», una volta sola se c'è almeno una persona) */
-const dovuto=(ev,r)=>{const e=num(ev.quota)*(ev.quotaPP?pE(ev,r):1),h=ev.hotel?num(ev.quotaHotel)*(ev.hotelPP?pH(ev,r):(pH(ev,r)>0?1:0)):0;return{e,h,tot:e+h}};
+/* coupon dell'atleta: all'applicazione si salvano sulla sua iscrizione il codice e il tipo/valore (cpTipo, cpValore): lo sconto già concordato non cambia se il coupon viene poi disattivato */
+const scontoCp=(r,lordo)=>{if(!r||!r.coupon||!(lordo>0))return 0;const v=num(r.cpValore);const x=r.cpTipo==='gratis'?lordo:r.cpTipo==='perc'?lordo*Math.min(100,v)/100:r.cpTipo==='euro'?Math.min(lordo,v):0;return Math.round(x*100)/100};
+const dovuto=(ev,r)=>{const e=num(ev.quota)*(ev.quotaPP?pE(ev,r):1),h=ev.hotel?num(ev.quotaHotel)*(ev.hotelPP?pH(ev,r):(pH(ev,r)>0?1:0)):0,lordo=e+h,sc=scontoCp(r,lordo);return{e,h,lordo,sconto:sc,tot:Math.max(0,Math.round((lordo-sc)*100)/100)}};
 const urgente=ev=>!ev.chiuso&&!isPast(ev)&&(urgD(ev.scadReg)||(ev.hotel&&urgD(ev.scadHotel)));
 
 /* chip di una scadenza: rosso a 10 giorni o meno, neutro se è già passata */
@@ -354,6 +357,26 @@ function openDetail(id){
             if(!(ph>=0&&ph<=mx)){alert('Indica da 0 a '+mx+' persone in hotel (0 = nessuna).');return}
             pp.persHotel=ph}
           if(Object.keys(pp).length)await patchIsc(ev,pp)}}
+      else if(a==='cpa'){
+        const r=myIsc(ev.id),inp=o.querySelector('#cpi'),m=o.querySelector('#cpmsg'),cod=normCoupon(inp&&inp.value),say=(t,ko)=>{if(m){m.textContent=t;m.className=ko?'err':'mu'}};
+        if(!r||r.partecipa!=='si'||r.coupon||chiusa(ev))return;
+        if(cod.length<3){say('Scrivi il codice del coupon.',true);return}
+        b.disabled=true;
+        try{
+          const ref=fdoc(db,'eventiCoupon',couponId(ev.id,cod)),sn=await fgetDoc(ref),d=sn.exists()?sn.data():null,v=couponOk(d);
+          if(!v.ok){say(v.motivo||'Coupon non valido.',true);b.disabled=false;return}
+          if(couponEsaurito(d,d.usi)){say('Questo coupon è esaurito.',true);b.disabled=false;return}
+          if(+d.max>0)await fupd(ref,{usi:(+d.usi||0)+1});
+          await patchIsc(ev,{coupon:d.codice,cpTipo:d.tipo,cpValore:+d.valore||0})}
+        catch(x){console.error(x);say('Impossibile applicare il coupon. Riprova.'+(x&&x.code==='permission-denied'?' (il coupon potrebbe essere appena stato esaurito)':''),true);b.disabled=false}}
+      else if(a==='rcp'&&isAdmin()){
+        const r=iscr.find(x=>x.id===i);if(!r||!r.coupon)return;
+        if(!confirm('Togliere il coupon «'+r.coupon+'» a '+(r.nome||'questo atleta')+'? L’importo tornerà intero.'))return;
+        try{
+          const ref=fdoc(db,'eventiCoupon',couponId(ev.id,r.coupon)),sn=await fgetDoc(ref);
+          if(sn.exists()&&+sn.data().max>0&&(+sn.data().usi||0)>0)await fupd(ref,{usi:(+sn.data().usi||0)-1});
+          await fupd(fdoc(db,'iscrizioni',r.id),{coupon:'',cpTipo:'',cpValore:0});Object.assign(r,{coupon:'',cpTipo:'',cpValore:0});paintDetail()}
+        catch(x){console.error(x);alert('Operazione non riuscita.')}}
       else if(a==='ob'){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openBon(r,f)}
       else if(a==='rmf'){
         const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);
@@ -362,7 +385,7 @@ function openDetail(id){
       else if(a==='vf'){const r=iscr.find(x=>x.id===i);if(r&&isAdmin())await patchVerif(r)}
       else if(a==='csv')csv(ev);
       else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid});
-      else if(a==='cpn'&&isAdmin())ext.apriCoupon(db,ev,{uid});
+      else if(a==='cpn'&&isAdmin())ext.apriCoupon(db,ev,{uid,interni:()=>iscOf(ev.id)});
       else if(a==='chk'&&isAdmin())ext.apriCheckin(db,ev,{uid});
       else if(a==='lnk'&&isAdmin()){const ok=await ext.copiaLink(ev);b.textContent=ok?'Copiato ✔':'Copia';setTimeout(()=>{b.textContent='Copia'},2000)}
       else if(a==='shr'&&isAdmin())await ext.condividiLink(ev);
@@ -405,7 +428,8 @@ function paintDetail(){
     const ph=ev.hotel,hc=hotelChiuso(ev),ae=!!ev.accompEv,ah=!!ev.accompHotel;
     mine+=`<h3>${ae||ah?'Persone':'Hotel'}</h3><div class="mu" style="margin-bottom:4px">${ae||ah?'Quante persone vengono, te compreso (es. atleta + un genitore = 2).':'Indica se dormi in hotel.'}</div><div class="two">${ae?`<div><label for="pe">Persone all’evento</label><input id="pe" type="number" min="1" max="20" inputmode="numeric" value="${pE(ev,my)}" ${closed?'disabled':''}></div>`:''}${ph?(ah?`<div><label for="ph">Persone in hotel (0 = nessuna)</label><input id="ph" type="number" min="0" max="20" inputmode="numeric" value="${pH(ev,my)}" ${hc?'disabled':''}></div>`:`<div><label for="ph">Dormi in hotel?</label><select id="ph" ${hc?'disabled':''}><option value="0"${pH(ev,my)?'':' selected'}>No</option><option value="1"${pH(ev,my)?' selected':''}>Sì</option></select></div>`):''}</div>${ph&&hc&&!closed?'<div class="mu">Registrazione hotel chiusa: non si può più cambiare.</div>':''}<div class="acts" style="margin-top:6px"><button class="btn sm" data-a="pe" ${closed?'disabled':''}>Salva</button></div>`}
   const brk=dv.tot>0&&(ev.quotaPP||ev.hotelPP||dv.h>0)?`<div class="mu" style="margin:2px 0 6px">${[dv.e>0?'Evento: '+money(dv.e):'',dv.h>0?'Hotel: '+money(dv.h):''].filter(Boolean).join(' + ')}</div>`:'';
-  if(si)mine+=`<h3>Pagamento${dv.tot>0?' · '+esc(money(dv.tot)):''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>${brk}
+  const cpbox=!(si&&dv.lordo>0)?'':my.coupon?`<div class="mu" style="margin:2px 0 6px">Coupon <b>${esc(my.coupon)}</b> applicato: ${esc(couponTxt({tipo:my.cpTipo,valore:my.cpValore}))}${dv.sconto>0?' (− '+esc(money(dv.sconto))+')':''}${dv.tot<=0?' · nulla da pagare':''}</div>`:`<label for="cpi">Hai un coupon? (facoltativo)</label><div class="fr"><input id="cpi" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" ${closed?'disabled':''}><button class="btn ghost sm" data-a="cpa" ${closed?'disabled':''}>Applica</button></div><div class="mu" id="cpmsg" role="status" style="margin-bottom:4px"></div>`;
+  if(si)mine+=`<h3>Pagamento${dv.tot>0?' · '+esc(money(dv.tot)):dv.lordo>0?' · nulla da pagare':''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>${brk}${cpbox}
     ${mf.length?mf.map(f=>`<div class="fr"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(my.id)}">${esc(f.nome)}</button>${my.pagatoOk?'<span class="chip ok">verificato</span>':`<button class="xb" data-a="rmf" data-i="${esc(f.id)}" aria-label="Togli questa copia">✕</button>`}</div>`).join(''):'<div class="mu">Nessuna copia del bonifico caricata.</div>'}
     <label for="bf">Carica la copia del bonifico (immagine o PDF, max 20 MB)</label><input id="bf" type="file" accept="image/*,application/pdf"><div class="mu" id="upm" style="margin-top:4px">${esc(upMsg)}</div>`;
   /* resoconto per l'admin */
@@ -415,16 +439,17 @@ function paintDetail(){
     const paid=yes.filter(r=>bonificiOf(r).length).length,ok=yes.filter(r=>r.pagatoOk).length,tp=yes.reduce((t,r)=>t+pE(ev,r),0),th=yes.reduce((t,r)=>t+pH(ev,r),0),att=money(yes.reduce((t,r)=>t+dovuto(ev,r).tot,0));
     rep=`<h3>Resoconto iscritti<button class="btn ghost sm" data-a="csv">Scarica CSV</button></h3>
       <div class="kpi"><span>✔ Partecipano: <b>${yes.length}</b></span><span>👥 Persone all’evento: <b>${tp}</b></span>${ev.hotel?`<span>🏨 Persone in hotel: <b>${th}</b></span>`:''}<span>✖ Non partecipano: <b>${nos.length}</b></span>${users.length?`<span>… Senza risposta: <b>${sen.length}</b></span>`:''}${hasQ?`<span>Bonifici caricati: <b>${paid}/${yes.length}</b></span><span>Verificati: <b>${ok}/${yes.length}</b></span>`:''}${att?`<span>Quota attesa: <b>${esc(att)}</b></span>`:''}</div>
-      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip">${esc(money(dovuto(ev,r).tot))}</span>`:''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(hasQ?'<span class="chip warn">nessun bonifico</span>':'')}${hasQ?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${hasQ&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(dovuto(ev,r).tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
+      ${yes.length?yes.map(r=>{const bs=bonificiOf(r);return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b>${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip">${esc(money(dovuto(ev,r).tot))}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:''}</div><div class="l2">${bs.length?bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join(''):(hasQ?'<span class="chip warn">nessun bonifico</span>':'')}${hasQ?`<button class="btn sm ${r.pagatoOk?'':'ghost'}" data-a="vf" data-i="${esc(r.id)}" aria-pressed="${!!r.pagatoOk}">${r.pagatoOk?'✔ Pagamento verificato':'Segna come verificato'}</button>`:''}${hasQ&&r.pagatoOk?(ricEv.has(ev.id+'_'+r.uid)?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(dovuto(ev,r).tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):''}</div></div>`}).join(''):'<div class="mu">Nessun atleta iscritto.</div>'}
       ${nos.length?`<div class="mu" style="margin-top:8px"><b>Non partecipano:</b> ${esc(nos.map(r=>r.nome||'—').join(', '))}</div>`:''}
       ${sen.length?`<div class="mu" style="margin-top:6px"><b>Senza risposta:</b> ${esc(sen.map(u=>u.name||u.email).join(', '))}</div>`:''}`}
   const exb=adm&&ev.esterni?`<h3>Iscrizioni per esterni<button class="btn ghost sm" data-a="ext">Elenco e conferme</button></h3>
     <div class="mu" style="margin:2px 0 6px">Link del modulo da inviare alle altre associazioni:</div>
     <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(ext.linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo per gli esterni" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>
     <div class="acts" style="margin-top:8px"><button class="btn ghost sm" data-a="cpn">Coupon</button><button class="btn ghost sm" data-a="chk">Check-in con QR</button></div>`:'';
+  const cpx=adm&&!ev.esterni?`<h3>Coupon<button class="btn ghost sm" data-a="cpn">Gestisci coupon</button></h3><div class="mu" style="margin:2px 0 6px">Crea codici sconto o gratuità da dare ai tuoi atleti: lo scrivono nella sezione «Pagamento» dell’evento.</div>`:'';
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
-    ${info}${mine}${rep}${exb}
+    ${info}${mine}${rep}${exb}${cpx}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
 
@@ -432,9 +457,9 @@ function paintDetail(){
 const righeInterne=ev=>iscOf(ev.id).filter(r=>r.partecipa==='si').map(r=>{const d=dovuto(ev,r);return {r,nome:r.nome||'',peso:r.peso||'',persE:pE(ev,r),persH:pH(ev,r),e:d.e,h:d.h,tot:d.tot,verificato:!!r.pagatoOk,bonifici:bonificiOf(r)}});
 
 function csv(ev){
-  const rows=[['Nome','Partecipa','Peso previsto (kg)','Persone all’evento','Persone in hotel','Quota attesa (€)','Bonifico caricato','Pagamento verificato']];
-  iscOf(ev.id).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it')).forEach(r=>rows.push([r.nome||'',r.partecipa==='si'?'Sì':r.partecipa==='no'?'No':'',r.peso||'',r.partecipa==='si'?pE(ev,r):'',r.partecipa==='si'?pH(ev,r):'',r.partecipa==='si'?dovuto(ev,r).tot.toFixed(2).replace('.',','):'',bonificiOf(r).length?'Sì':'No',r.pagatoOk?'Sì':'No']));
-  senzaRisposta(ev).forEach(u=>rows.push([u.name||u.email||'','Senza risposta','','','','','','']));
+  const rows=[['Nome','Partecipa','Peso previsto (kg)','Persone all’evento','Persone in hotel','Quota attesa (€)','Coupon','Bonifico caricato','Pagamento verificato']];
+  iscOf(ev.id).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it')).forEach(r=>rows.push([r.nome||'',r.partecipa==='si'?'Sì':r.partecipa==='no'?'No':'',r.peso||'',r.partecipa==='si'?pE(ev,r):'',r.partecipa==='si'?pH(ev,r):'',r.partecipa==='si'?dovuto(ev,r).tot.toFixed(2).replace('.',','):'',r.coupon||'',bonificiOf(r).length?'Sì':'No',r.pagatoOk?'Sì':'No']));
+  senzaRisposta(ev).forEach(u=>rows.push([u.name||u.email||'','Senza risposta','','','','','','','']));
   const t='\ufeff'+rows.map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(';')).join('\r\n');
   saveBlob(new Blob([t],{type:'text/csv;charset=utf-8'}),'Iscritti - '+ev.nome.replace(/[\\/:*?"<>|]/g,' ')+'.csv')}
 
