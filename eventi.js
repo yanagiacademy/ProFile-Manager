@@ -473,6 +473,20 @@ function openDetail(id){
       detail.un.push(fon(q2('iscrizioniEsterne'),s=>{if(mine()){detail.exRegs=s.docs.map(d=>({id:d.id,...d.data()}));paintDetail()}},e=>console.warn('Iscrizioni esterne:',e&&e.message)));
       detail.un.push(fon(q2('eventiCheckin'),s=>{if(mine()){detail.exChk=new Set(s.docs.map(d=>d.data().codice));paintDetail()}},e=>console.warn('Check-in:',e&&e.message)))}}
   document.body.append(o);paintDetail();
+  { /* scorrimento a destra/sinistra: passa al sottomenu successivo/precedente (solo gesti chiaramente orizzontali, non dentro la barra, i campi o contenuti che scorrono di lato) */
+    const card=o.firstElementChild;let tx=0,ty=0,tt=0,ok=false;
+    const scorreDiLato=el=>{for(let n=el;n&&n!==card;n=n.parentElement){if(n.scrollWidth>n.clientWidth+4&&/(auto|scroll)/.test(getComputedStyle(n).overflowX))return true}return false};
+    card.addEventListener('touchstart',e=>{
+      if(e.touches.length!==1){ok=false;return}
+      const t=e.touches[0];tx=t.clientX;ty=t.clientY;tt=Date.now();
+      ok=!e.target.closest('.dtabs,input,select,textarea,[contenteditable="true"],canvas')&&!scorreDiLato(e.target)},{passive:true});
+    card.addEventListener('touchend',e=>{
+      if(!ok||!detail||detail.o!==o)return;ok=false;
+      const t=e.changedTouches[0],dx=t.clientX-tx,dy=t.clientY-ty;
+      if(Math.abs(dx)<60||Math.abs(dx)<Math.abs(dy)*1.6||Date.now()-tt>800)return;
+      const ids=detail.tabIds||[],n=ids.indexOf(detail.tab||'info')+(dx<0?1:-1);
+      if(n<0||n>=ids.length)return;
+      detail.tab=ids[n];paintDetail();card.scrollTop=0},{passive:true})}
   o.querySelector('[data-a="x"]').focus()}
 
 /* senza risposta = account con accesso a Eventi (anche «Solo dati utente», che vedono gli eventi per tutti) che non hanno ancora risposto (solo l'admin può leggere l'elenco account) */
@@ -542,6 +556,7 @@ function paintDetail(){
   const exR=detail.exRegs||[],exChk=detail.exChk||new Set(),exConf=r=>r.stato==='confermata';
   const tabs=[['info','Info evento'],['mia','La mia partecipazione']].concat(adm?[['int','Iscrizione interni']]:[],adm&&ev.esterni?[['est','Iscrizione esterni']]:[],adm?[['tot','Totale iscritti']]:[],adm&&ev.esterni?[['chk','Check-in evento']]:[]);
   let tab=detail.tab;if(!tabs.some(t=>t[0]===tab))tab='info';
+  detail.tabIds=tabs.map(t=>t[0]);detail.tab=tab;
   const tabsHtml=`<div class="dtabs" role="tablist" aria-label="Sezioni dell’evento">${tabs.map((t,n)=>`<button type="button" role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${t[0]===tab}" aria-pressed="${t[0]===tab}">${n+1}) ${t[1]}</button>`).join('')}</div>`;
   const tl=(n,l,hot)=>`<div${hot?' class="hot"':''}><b>${n}</b><small>${l}</small></div>`;
   const payChip=r=>!hasQ?'':r.pagatoOk?'<span class="chip ok">✔ verificato</span>':dovuto(ev,r).tot<=0?'<span class="chip ok">nulla da pagare</span>':bonificiOf(r).length?'<span class="chip warn">da verificare</span>':'<span class="chip bad">in attesa del bonifico</span>';
@@ -575,6 +590,8 @@ function paintDetail(){
     ${tabsHtml}${corpo}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   c.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>secAperte.set(ev.id+d.dataset.k,d.open));
+  { /* la barra si ricrea a ogni ridisegno: rimette in vista il sottomenu attivo */
+    const at=c.querySelector('.dtabs [aria-selected="true"]'),bar=at&&at.parentElement;if(bar)bar.scrollLeft=Math.max(0,at.offsetLeft-(bar.clientWidth-at.offsetWidth)/2)}
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
 
 /* righe degli iscritti interni (partecipanti) per l'elenco archiviato quando si elimina l'evento */

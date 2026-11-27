@@ -619,6 +619,7 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - 5) Totale iscritti: riquadri di sintesi, poi 1 · Io, 2 · Interni, 3 · Esterni singoli (ogni persona con ruolo, associazione e stato), 4 · Esterni per associazione (atleti e tecnici, stato).
 - 6) Check-in evento: ingressi registrati / persone con codice / ancora da registrare e pulsante «Apri check-in con QR» (spostato qui dal blocco esterni).
 - L'admin legge in tempo reale iscrizioni esterne e check-in solo mentre la scheda è aperta.
+- Sul telefono si passa da un sottomenu all'altro anche scorrendo il dito a destra/sinistra sulla scheda (gesto chiaramente orizzontale; non agisce dentro la barra dei sottomenu, nei campi di testo o in contenuti che scorrono di lato). La barra riporta in vista il sottomenu attivo.
 - File: eventi.js, eventi.html, RESOCONTO.md.
 
 ## Eventi: l'admin aggiunge il coupon a chi si è prenotato
