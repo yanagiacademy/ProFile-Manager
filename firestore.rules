@@ -147,7 +147,9 @@ service cloud.firestore {
     }
     match /eventiCoupon/{id} {
       allow get: if true;
-      allow list, create, delete: if evScrive();
+      /* gli atleti leggono solo i coupon assegnati a loro (perUid) o a tutti (perTutti): eventi.js li cerca con due interrogazioni */
+      allow list: if evScrive() || (hasAccount() && (resource.data.perTutti == true || request.auth.uid in resource.data.perUid));
+      allow create, delete: if evScrive();
       /* chi si iscrive con un coupon a utilizzi limitati può solo alzare di 1 il contatore «usi», e solo entro il limite «max» */
       allow update: if evScrive()
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usi'])

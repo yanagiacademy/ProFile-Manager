@@ -53,3 +53,10 @@ export function calcola(m,persone,coupon,adesso=Date.now()){
     else sconto=Math.min(lordo,num(coupon.valore))}
   sconto=r2(sconto);
   return {atl,tec,sa,st,lordo,sconto,totale:r2(Math.max(0,lordo-sconto)),coupon:cp}}
+
+/* testo del coupon per l'atleta (mail): da solo («Il tuo coupon per…») o in coda all'invito all'evento */
+export function testoCoupon(c,evNome,{breve=false}={}){
+  const scad=c.scadenzaMs?' (valido fino al '+new Date(c.scadenzaMs).toLocaleDateString('it-IT')+')':'';
+  const r=['🎟 Il tuo coupon'+(breve?'':' per «'+(evNome||'evento')+'»')+': '+c.codice+' – '+couponTxt(c)+scad];
+  r.push('Per usarlo apri ProFile Manager → Eventi → scegli l’evento: il coupon ti aspetta nella sezione «Pagamento» (premi «Applica»).');
+  return r.join('\n')}

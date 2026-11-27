@@ -593,3 +593,12 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - RESOCONTO ISCRITTI (interni): riepilogo a tessere + sezioni apribili e ordinate: Da verificare (bonifico caricato: Bonifico + «Verifica pagamento»), In attesa del bonifico (con «Segna come pagato» per contanti ecc.), Pagamenti a posto (verifica annullabile, ricevuta), Non partecipano, Senza risposta. Le sezioni vuote non compaiono e ricordano se erano aperte o chiuse.
 - ELENCO E CONFERME (esterni): stesso schema: tessere, poi Da confermare / In attesa del bonifico / Mail dei codici non partita / Confermate; il link per le associazioni è in una sezione a parte (aperta solo se non ci sono iscrizioni).
 - File: eventi.js, eventi-esterni.js, eventi.html (stili), index.html, ponte-mail.gs, RESOCONTO.md.
+
+## Coupon assegnati agli atleti interni
+- Finestra «Coupon» (admin) → «Nuovo coupon» → riquadro «Assegna agli atleti»: Nessuno / Tutti gli atleti dell'evento / Solo quelli che scelgo (singoli, ricerca e «Seleziona per gruppo»: tipologia, grado da-a, corso). Casella facoltativa «Invia subito la mail con il coupon».
+- Il coupon salva perTutti, perIds, perEmail (per la mail) e perUid (per la pagina Eventi dell'atleta). Nella lista coupon compare «per tutti / per N atleti» e il pulsante «Invia per mail» (invio al volo agli assegnatari, anche dopo l'invito).
+- MAIL D'INVITO (Mail → Notifiche → invio o programmazione dell'evento): a ogni destinatario si aggiunge in coda il suo coupon (solo quelli validi e a lui assegnati o «per tutti») con le istruzioni per usarlo. Funziona sia con l'invio immediato sia con quello programmato.
+- PAGINA EVENTI DELL'ATLETA: aprendo l'evento, nella sezione «Pagamento», compare «🎟 Coupon per te» con codice, sconto, scadenza e pulsante «Applica» (resta lì finché non lo applica; poi si vede «Coupon applicato»). Resta possibile scrivere un altro codice a mano.
+- REGOLE: eventiCoupon accetta «list» anche da chi ha un account, ma solo per i documenti con perTutti==true o con il proprio uid in perUid (get per codice invariato). DA FARE: ripubblicare firestore.rules.
+- Un coupon creato PRIMA non ha assegnatari: non compare agli atleti né nelle mail.
+- File: eventi.js, eventi-esterni.js, eventi-esterni-core.js, notifiche-motore.js, firestore.rules, RESOCONTO.md.

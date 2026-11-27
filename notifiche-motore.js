@@ -8,6 +8,7 @@ import {getAuth} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.
 import {hasSession,tgConfigured} from "./telegram.js";
 import {archivio} from "./archivio.js";
 import {costruisci,confronta,cfgOk,CFG0} from "./notifiche-core.js";
+import {couponOk,testoCoupon} from "./eventi-esterni-core.js";
 export {cfgOk,CFG0};
 
 const S='notifiche';
@@ -82,6 +83,12 @@ function oggetto(x){
   if(x.tipo==='esito')return 'Esito delle tue richieste';
   return 'Yanagi Academy'}
 
+/* coupon assegnati agli atleti di un evento: si aggiungono alla mail d'invito di ciascun destinatario (solo i suoi, o quelli «per tutti») */
+async function coupons(db,evId){
+  try{const sn=await getDocs(collection(db,'eventiCoupon'));return sn.docs.map(d=>d.data()).filter(c=>c.evento===evId&&(c.perTutti||(c.perEmail||[]).length)&&couponOk(c).ok)}
+  catch(e){console.warn('Coupon per la mail:',e&&e.message);return []}}
+const conCoupon=(testo,to,cps,evNome)=>{const m=cps.filter(c=>c.perTutti||(c.perEmail||[]).includes(String(to).toLowerCase()));return m.length?testo+'\n\n'+m.map(c=>testoCoupon(c,evNome,{breve:true})).join('\n\n'):testo};
+
 /* ---------- invio di un evento scelto dall'admin ---------- */
 const MAX_ALL=15*1024*1024;      /* allegati: 15 MB in tutto per mail (Gmail arriva a 25) */
 const b64=blob=>new Promise((ok,ko)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]||'');r.onerror=()=>ko(new Error('Lettura dell’allegato non riuscita.'));r.readAsDataURL(blob)});
@@ -96,8 +103,8 @@ export async function inviaEvento(db,ev,{a,oggetto:og,testo,allegati=[]}){
       let blob;try{blob=await arch.getBlob({...f})}catch(e){throw new Error('Impossibile leggere l’allegato «'+(f.title||'file')+'»: '+(e&&e.message||e))}
       tot+=blob.size;if(tot>MAX_ALL)throw new Error('Gli allegati superano 15 MB in totale: toglierne qualcuno.');
       files.push({name:f.title||f.name||'allegato',type:blob.type||f.mime||'application/octet-stream',data:await b64(blob)})}}
-  const now=Date.now(),key='evm:'+ev.id+':'+now,sub=(og||'').trim()||('Evento: '+(ev.nome||ev.title||'senza nome'));
-  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:testo})),'n-invia',files.length?10:20,files.length?{files}:{});
+  const now=Date.now(),key='evm:'+ev.id+':'+now,sub=(og||'').trim()||('Evento: '+(ev.nome||ev.title||'senza nome')),cps=await coupons(db,ev.id);
+  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:conCoupon(testo,to,cps,ev.nome||ev.title)})),'n-invia',files.length?10:20,files.length?{files}:{});
   const ok=es.filter(e=>e.ok).length,ko=es.filter(e=>!e.ok);
   if(ok){const reg=await leggiRegistro(db);reg.voci[key]={k:'ev',t:now,n:ok,ev:ev.id,all:files.length};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
   logEvento('notifica','eventi',ev.id,'Evento inviato per mail: '+(ev.nome||ev.title||''),ok+' inviate'+(files.length?' con '+files.length+' allegati':'')+(ko.length?', '+ko.length+' errori':''));
@@ -112,8 +119,8 @@ export async function programmaEvento(db,ev,{a,oggetto:og,testo,at}){
   const rec_=listaMail(a);if(!rec_.length)throw new Error('Nessun destinatario valido.');
   if(!String(testo||'').trim())throw new Error('Il testo è vuoto.');
   if(!(at>Date.now()+60e3))throw new Error('L’orario di invio deve essere nel futuro.');
-  const now=Date.now(),key='evm:'+ev.id+':'+now,sub=(og||'').trim()||('Evento: '+(ev.nome||ev.title||'senza nome'));
-  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:testo,at})),'n-programma',40);
+  const now=Date.now(),key='evm:'+ev.id+':'+now,sub=(og||'').trim()||('Evento: '+(ev.nome||ev.title||'senza nome')),cps=await coupons(db,ev.id);
+  const es=await blocchi(db,rec_.map(to=>({key:key+'|'+to,to,subject:sub,text:conCoupon(testo,to,cps,ev.nome||ev.title),at})),'n-programma',40);
   const ok=es.filter(e=>e.ok),ko=es.filter(e=>!e.ok);
   if(ok.length){const reg=await leggiRegistro(db);reg.voci[key]={k:'evprog',t:at,n:ok.length,ev:ev.id,qk:ok.map(e=>e.key)};await salvaRegistro(db,{...reg,ult:now}).catch(e=>console.error('Registro notifiche non salvato',e))}
   logEvento('notifica','eventi',ev.id,'Evento programmato per mail: '+(ev.nome||ev.title||''),ok.length+' in coda per il '+new Date(at).toLocaleString('it-IT')+(ko.length?', '+ko.length+' errori':''));

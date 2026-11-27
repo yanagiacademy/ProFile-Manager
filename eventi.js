@@ -128,6 +128,19 @@ function riallineaDest(){
     tentDest.set(ev.id,k);
     [ev,...items.filter(x=>x.kind==='file'&&x.evento===ev.id)].forEach(i=>updateDoc(doc(db,'sections',SEC,'items',i.id),{destUid:nu}).catch(()=>tentDest.delete(ev.id)))}}
 
+/* coupon assegnati agli atleti: ciò che serve alla finestra «Coupon» per scegliere i destinatari (singoli, gruppi, tutti) e per le mail */
+const emailAcc=id=>users.filter(u=>u.id===String(id).slice(2)).map(u=>String(u.email||'').trim().toLowerCase());
+const risolviDest=ids=>({emails:[...new Set(ids.flatMap(id=>isAcc(id)?emailAcc(id):emailsOf([id])).filter(Boolean))],uids:uidsOf(ids)});
+const emailsEvento=ev=>ristretto(ev)?risolviDest(ev.dest).emails:[...new Set(Object.values(mails).map(m=>String((m&&m.email)||'').trim().toLowerCase()).filter(Boolean))];
+const destCoupon=ev=>({elenco:()=>tuttiAt().map(a=>({id:a.id,nome:nomeAt(a),acc:!!a.acc})),atl:()=>atl,risolvi:risolviDest,emailsEvento:()=>emailsEvento(ev)});
+/* lato atleta: i coupon assegnati a lui (perUid) o a tutti (perTutti), in tempo reale; compaiono nella scheda dell'evento */
+const cpA=new Map(),cpB=new Map(),cpMiei=()=>[...new Map([...cpA,...cpB]).values()];
+function listenCoupon(){
+  if(isAdmin())return;
+  const col=fcol(db,'eventiCoupon'),mk=m=>s=>{m.clear();s.docs.forEach(d=>m.set(d.id,{id:d.id,...d.data()}));renderList()},er=e=>console.warn('Coupon assegnati:',e&&e.message);
+  unsubs.push(fon(query(col,where('perTutti','==',true)),mk(cpA),er));
+  unsubs.push(fon(query(col,where('perUid','array-contains',uid)),mk(cpB),er))}
+
 /* ---------- finestra di dialogo generica ---------- */
 function modal(title,body,{ok='Salva',cancel='Annulla',onSave}={}){
   const o=document.createElement('div');o.className='ov';o.style.zIndex=30;
@@ -364,7 +377,7 @@ function openDetail(id){
             pp.persHotel=ph}
           if(Object.keys(pp).length)await patchIsc(ev,pp)}}
       else if(a==='cpa'){
-        const r=myIsc(ev.id),inp=o.querySelector('#cpi'),m=o.querySelector('#cpmsg'),cod=normCoupon(inp&&inp.value),say=(t,ko)=>{if(m){m.textContent=t;m.className=ko?'err':'mu'}};
+        const r=myIsc(ev.id),inp=o.querySelector('#cpi'),m=o.querySelector('#cpmsg'),cod=normCoupon(b.dataset.c||(inp&&inp.value)),say=(t,ko)=>{if(m){m.textContent=t;m.className=ko?'err':'mu'}};
         if(!r||r.partecipa!=='si'||r.coupon||chiusa(ev))return;
         if(cod.length<3){say('Scrivi il codice del coupon.',true);return}
         b.disabled=true;
@@ -391,7 +404,7 @@ function openDetail(id){
       else if(a==='vf'){const r=iscr.find(x=>x.id===i);if(r&&isAdmin())await patchVerif(r)}
       else if(a==='csv')csv(ev);
       else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid});
-      else if(a==='cpn'&&isAdmin())ext.apriCoupon(db,ev,{uid,interni:()=>iscOf(ev.id)});
+      else if(a==='cpn'&&isAdmin()){await collegamenti();ext.apriCoupon(db,ev,{uid,interni:()=>iscOf(ev.id),dest:destCoupon(ev)})}
       else if(a==='chk'&&isAdmin())ext.apriCheckin(db,ev,{uid});
       else if(a==='lnk'&&isAdmin()){const ok=await ext.copiaLink(ev);b.textContent=ok?'Copiato ✔':'Copia';setTimeout(()=>{b.textContent='Copia'},2000)}
       else if(a==='shr'&&isAdmin())await ext.condividiLink(ev);
@@ -434,7 +447,9 @@ function paintDetail(){
     const ph=ev.hotel,hc=hotelChiuso(ev),ae=!!ev.accompEv,ah=!!ev.accompHotel;
     mine+=`<h3>${ae||ah?'Persone':'Hotel'}</h3><div class="mu" style="margin-bottom:4px">${ae||ah?'Quante persone vengono, te compreso (es. atleta + un genitore = 2).':'Indica se dormi in hotel.'}</div><div class="two">${ae?`<div><label for="pe">Persone all’evento</label><input id="pe" type="number" min="1" max="20" inputmode="numeric" value="${pE(ev,my)}" ${closed?'disabled':''}></div>`:''}${ph?(ah?`<div><label for="ph">Persone in hotel (0 = nessuna)</label><input id="ph" type="number" min="0" max="20" inputmode="numeric" value="${pH(ev,my)}" ${hc?'disabled':''}></div>`:`<div><label for="ph">Dormi in hotel?</label><select id="ph" ${hc?'disabled':''}><option value="0"${pH(ev,my)?'':' selected'}>No</option><option value="1"${pH(ev,my)?' selected':''}>Sì</option></select></div>`):''}</div>${ph&&hc&&!closed?'<div class="mu">Registrazione hotel chiusa: non si può più cambiare.</div>':''}<div class="acts" style="margin-top:6px"><button class="btn sm" data-a="pe" ${closed?'disabled':''}>Salva</button></div>`}
   const brk=dv.tot>0&&(ev.quotaPP||ev.hotelPP||dv.h>0)?`<div class="mu" style="margin:2px 0 6px">${[dv.e>0?'Evento: '+money(dv.e):'',dv.h>0?'Hotel: '+money(dv.h):''].filter(Boolean).join(' + ')}</div>`:'';
-  const cpbox=!(si&&dv.lordo>0)?'':my.coupon?`<div class="mu" style="margin:2px 0 6px">Coupon <b>${esc(my.coupon)}</b> applicato: ${esc(couponTxt({tipo:my.cpTipo,valore:my.cpValore}))}${dv.sconto>0?' (− '+esc(money(dv.sconto))+')':''}${dv.tot<=0?' · nulla da pagare':''}</div>`:`<label for="cpi">Hai un coupon? (facoltativo)</label><div class="fr"><input id="cpi" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" ${closed?'disabled':''}><button class="btn ghost sm" data-a="cpa" ${closed?'disabled':''}>Applica</button></div><div class="mu" id="cpmsg" role="status" style="margin-bottom:4px"></div>`;
+  const mieiCp=cpMiei().filter(c=>c.evento===ev.id&&couponOk(c).ok&&!couponEsaurito(c,c.usi)),
+    asgCp=mieiCp.length?`<div class="mu" style="margin:6px 0 4px"><b>🎟 Coupon per te</b></div>${mieiCp.map(c=>`<div class="fr"><span><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b> · ${esc(couponTxt(c))}${c.scadenzaMs?' · fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):''}</span><button class="btn sm" data-a="cpa" data-c="${esc(c.codice)}" ${closed?'disabled':''}>Applica</button></div>`).join('')}`:'';
+  const cpbox=!(si&&dv.lordo>0)?'':my.coupon?`<div class="mu" style="margin:2px 0 6px">Coupon <b>${esc(my.coupon)}</b> applicato: ${esc(couponTxt({tipo:my.cpTipo,valore:my.cpValore}))}${dv.sconto>0?' (− '+esc(money(dv.sconto))+')':''}${dv.tot<=0?' · nulla da pagare':''}</div>`:`${asgCp}<label for="cpi">${mieiCp.length?'Oppure scrivi un altro codice':'Hai un coupon?'} (facoltativo)</label><div class="fr"><input id="cpi" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" ${closed?'disabled':''}><button class="btn ghost sm" data-a="cpa" ${closed?'disabled':''}>Applica</button></div><div class="mu" id="cpmsg" role="status" style="margin-bottom:4px"></div>`;
   if(si)mine+=`<h3>Pagamento${dv.tot>0?' · '+esc(money(dv.tot)):dv.lordo>0?' · nulla da pagare':''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>${brk}${cpbox}
     ${mf.length?mf.map(f=>`<div class="fr"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(my.id)}">${esc(f.nome)}</button>${my.pagatoOk?'<span class="chip ok">verificato</span>':`<button class="xb" data-a="rmf" data-i="${esc(f.id)}" aria-label="Togli questa copia">✕</button>`}</div>`).join(''):'<div class="mu">Nessuna copia del bonifico caricata.</div>'}
     <label for="bf">Carica la copia del bonifico${dv.lordo>0&&dv.tot<=0?' (facoltativa: nulla da pagare)':''} (immagine o PDF, max 20 MB)</label><input id="bf" type="file" accept="image/*,application/pdf"><div class="mu" id="upm" style="margin-top:4px">${esc(upMsg)}</div>`;
@@ -551,7 +566,7 @@ else{
             unsubs.push(fon(fcol(db,'atletiMail'),s=>{mails={};s.docs.forEach(d=>mails[d.id]=d.data());mailsOk=true;renderDest();riallineaDest()},()=>{}))}}
         unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):'';payOk=true;syncPub()},()=>{}));
         if(isAdmin())unsubs.push(ext.seguiPubblici(db));
-        listenIscr();
+        listenIscr();listenCoupon();
         if(!isAdmin())caricaAtleti(db,auth.currentUser&&auth.currentUser.email).then(l=>{ml=l;att=attivoDi(l);renderList()})}
       loadUsers();renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
