@@ -605,6 +605,13 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Eventi: iscritto il tesserato (figlio), non il proprietario dell'account (genitore)
+- CAUSA: il nome dell'iscrizione era quello del tesserato solo per gli account con 2 o più atleti; con un solo atleta collegato (il figlio) veniva scritto il nome del proprietario dell'account.
+- Ora l'iscrizione porta sempre il nome del tesserato collegato all'account (se non c'è nessun atleta collegato resta il nome dell'account). Gli identificativi delle iscrizioni non cambiano, quindi nulla va perso.
+- Iscrizioni già esistenti: si correggono da sole. Quando l'atleta apre Eventi aggiorna le proprie; quando l'admin apre Eventi (una volta per sessione) corregge quelle il cui nome coincide con quello dell'account, usando l'atleta collegato a quell'email (il primo, se più di uno senza aid).
+- Limite: se un account ha 2 o più atleti e l'iscrizione vecchia non indica quale, viene attribuita al primo atleta collegato (come già faceva la scheda).
+- File: eventi.js, RESOCONTO.md.
+
 ## Eventi: scheda evento a sottomenu
 - All'apertura di un evento compare una barra di sottomenu (scorre di lato sul telefono): 1) Info evento · 2) La mia partecipazione · 3) Iscrizione interni · 4) Iscrizione esterni · 5) Totale iscritti · 6) Check-in evento. Gli atleti vedono solo 1 e 2; il 4 e il 6 compaiono solo per gli eventi con iscrizioni esterne. Il sottomenu scelto resta durante gli aggiornamenti in tempo reale.
 - 3) Iscrizione interni: il resoconto di prima (riquadri, «Da verificare», «In attesa del bonifico», «Pagamenti a posto», non partecipano, senza risposta) più la gestione coupon.

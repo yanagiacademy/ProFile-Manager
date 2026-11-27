@@ -298,10 +298,37 @@ async function save(){
   $('#sv').disabled=false}
 
 /* ---------- iscrizioni e bonifici (Firebase: raccolta "iscrizioni", un documento per atleta e per evento) ---------- */
+/* nome da scrivere nell'iscrizione: il tesserato (figlio), non il proprietario dell'account (genitore); senza atleti collegati resta il nome dell'account */
+const nomeIsc=()=>{const n=att?nomeAtl(att):'';return n&&n!=='Atleta'?n:meName()};
+/* ripara le iscrizioni già salvate col nome del genitore. Atleta: le proprie (senza aid = primo/unico atleta collegato). Admin: una volta per sessione, per le iscrizioni il cui nome coincide con quello dell'account, cerca l'atleta collegato a quell'email */
+const nomiFix=new Set();let adminFix=false;
+function riparaNomi(){
+  if(!db||!uid)return;
+  if(!isAdmin()){
+    if(!ml.length)return;
+    for(const r of iscr){
+      if(r.uid!==uid||nomiFix.has(r.id))continue;
+      const a=r.aid?ml.find(x=>x.id===r.aid):ml[0],n=a?nomeAtl(a):'';
+      if(!n||n==='Atleta'||r.nome===n)continue;
+      nomiFix.add(r.id);r.nome=n;
+      fupd(fdoc(db,'iscrizioni',r.id),{nome:n}).catch(x=>console.error('nome iscrizione',x))}
+    return}
+  if(adminFix||!users.length||!iscr.length)return;
+  adminFix=true;
+  (async()=>{
+    let fatti=0;
+    for(const u of users){
+      const nu=u.name||u.email,mie=iscr.filter(r=>r.uid===u.id&&!r.aid&&nu&&r.nome===nu);
+      if(!mie.length||!u.email)continue;
+      let lista;try{lista=await caricaAtleti(db,u.email)}catch(x){continue}
+      const n=lista.length?nomeAtl(lista[0]):'';
+      if(!n||n==='Atleta'||n===nu)continue;
+      for(const r of mie){try{await fupd(fdoc(db,'iscrizioni',r.id),{nome:n});r.nome=n;fatti++}catch(x){console.error('nome iscrizione',x)}}}
+    if(fatti){renderList();paintDetail()}})()}
 async function patchIsc(ev,p){
   const ex=myIsc(ev.id),id=ex?ex.id:ev.id+'_'+uid+(multi()?'_'+att.id:''),ref=fdoc(db,'iscrizioni',id);
   if(ex){await fupd(ref,p);Object.assign(ex,p)}
-  else{const rec={evento:ev.id,uid,nome:multi()?nomeAtl(att):meName(),...(multi()?{aid:att.id}:{}),...p};await fset(ref,{...rec,at:fts()});iscr.push({id,...rec})}
+  else{const rec={evento:ev.id,uid,nome:nomeIsc(),...(multi()?{aid:att.id}:{}),...p};await fset(ref,{...rec,at:fts()});iscr.push({id,...rec})}
   paintDetail();renderList()}
 async function patchVerif(r){const v=!r.pagatoOk;await fupd(fdoc(db,'iscrizioni',r.id),{pagatoOk:v});r.pagatoOk=v;paintDetail()}
 async function patchEv(ev,p){await updateDoc(doc(db,'sections',SEC,'items',ev.id),p);Object.assign(ev,p);paintDetail();renderList()}
@@ -585,12 +612,12 @@ function renderList(){
 /* elenco degli account, per sapere chi non ha ancora risposto (lo può leggere solo l'admin) */
 async function loadUsers(){
   if(!isAdmin()||users.length)return;
-  try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));renderList();renderDest();riallineaDest()}catch(e){console.error(e)}}
+  try{const s=await getDocs(collection(db,'users'));users=s.docs.map(d=>({id:d.id,...d.data()}));riparaNomi();renderList();renderDest();riallineaDest()}catch(e){console.error(e)}}
 
 /* iscrizioni: admin e chi ha Lettura/Scrittura le leggono tutte; con «Solo dati utente» solo le proprie */
 function listenIscr(){
   const base=fcol(db,'iscrizioni');
-  unsubs.push(fon((isAdmin()||perm()==='r'||perm()==='w')?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));renderList()},e=>console.error('iscrizioni',e)));
+  unsubs.push(fon((isAdmin()||perm()==='r'||perm()==='w')?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));riparaNomi();renderList()},e=>console.error('iscrizioni',e)));
   /* ricevute già caricate per questo evento (le scrive la sezione Ricevute con evId e ricUid): solo l'admin */
   if(isAdmin())unsubs.push(fon(fcol(db,'sections','ricevute','items'),s=>{ricEv=new Set(s.docs.map(d=>d.data()).filter(d=>d.evId&&d.ricUid&&!d.archiviatoIl).map(d=>d.evId+'_'+d.ricUid));if(detail)paintDetail()},()=>{ricEv=new Set()}))}
 
@@ -623,7 +650,7 @@ else{
         unsubs.push(onSnapshot(doc(db,'sections',SEC,'meta','pagamenti'),s=>{pay=s.exists()?(s.data().text||''):'';payOk=true;syncPub()},()=>{}));
         if(isAdmin())unsubs.push(ext.seguiPubblici(db));
         listenIscr();listenCoupon();
-        if(!isAdmin())caricaAtleti(db,auth.currentUser&&auth.currentUser.email).then(l=>{ml=l;att=attivoDi(l);renderList()})}
+        if(!isAdmin())caricaAtleti(db,auth.currentUser&&auth.currentUser.email).then(l=>{ml=l;att=attivoDi(l);riparaNomi();renderList()})}
       loadUsers();renderList();
     },()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}));
   });
