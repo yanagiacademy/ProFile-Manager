@@ -600,6 +600,11 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Vale anche per Video e Foto (stessa pagina). I file caricati prima con «Tutti» senza perTutti restano nascosti a «Solo dati utente»: apri «Chi può vederlo…» e premi Salva.
 - File: documenti.js, RESOCONTO.md.
 
+## Home: conteggio «eventi con iscrizione in scadenza» sbagliato
+- CAUSA: eventoInScadenza(ev, gg=10) veniva passata direttamente a .filter(): .filter le dà come secondo argomento la posizione dell'evento nell'elenco, quindi la soglia di 10 giorni diventava 0, 1, 2… a seconda della posizione. Gli eventi in testa all'elenco venivano contati solo se la scadenza era a 0-1 giorni.
+- Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
+- File: index.html, RESOCONTO.md.
+
 ## Eventi: alert, verifica iscritti in sezioni ordinate
 - ALERT/MAIL NUOVE ISCRIZIONI ESTERNE: la mail non partiva perché ponte-mail.gs leggeva l'iscrizione da Firestore senza chiave API (Google risponde 403 alle richieste anonime). Ora usa FIREBASE_API_KEY; gli errori finiscono nel Log esecuzione di Apps Script. Va ripubblicato (Distribuisci → Gestisci distribuzioni → matita → Nuova versione).
 - HOME: nel riquadro Eventi e in «Da controllare» compaiono anche «N bonifici di atleti da verificare» (atleti interni con bonifico caricato e pagamento non verificato), oltre alle iscrizioni esterne da confermare.

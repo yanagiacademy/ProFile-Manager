@@ -333,7 +333,7 @@ function alertsHtml(){
     const nu=!mioTec?0:(items.lezioni||[]).filter(i=>i.kind!=='file'&&i.stato==='prog'&&i.cond&&(i.date||'')>=oggi&&(+i.agg||0)>vis).length,es=lezMie.filter(p=>p.stato!=='attesa'&&(+p.risolta||0)>vis).length;
     if(nu)a.push(['Lezioni',nu+(nu===1?' lezione in programma nuova o modificata':' lezioni in programma nuove o modificate')]);
     if(es)a.push(['Lezioni',es+(es===1?' tua proposta di lezione valutata dall’admin':' tue proposte di lezione valutate dall’admin')])}
-  if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(eventoInScadenza).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
+  if(perm('Eventi')!=='n'){const n=(items.eventi||[]).filter(e=>eventoInScadenza(e)).length;if(n)a.push(['Eventi',n+(n===1?' evento con iscrizione in scadenza':' eventi con iscrizione in scadenza')])}
   if(!me.admin&&perm('Commercialista')!=='n'&&perm('Archivio')!=='n'){let vis=0;try{vis=+localStorage.getItem('pfm_ev_vis_'+auth.currentUser.uid)||0}catch(e){}const n=(items.commercialista||[]).filter(i=>i.daEvento&&i.archiviatoIl&&(i.at&&i.at.toMillis?i.at.toMillis():0)>vis).length;if(n)a.push(['Archivio',n+(n===1?' nuovo file da un evento eliminato (bonifico o elenco iscritti)':' nuovi file da eventi eliminati (bonifici ed elenco iscritti)')])}
   if(perm('Archivio')!=='n'){const k=[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length;if(k)a.push(['Archivio',k+(k===1?' documento da verificare':' documenti da verificare')])}
   if(bvN&&(me.admin||['r','w'].includes((me.perms||{}).eventi)))a.push(['Eventi',bvN+(bvN===1?' bonifico di un atleta da verificare':' bonifici di atleti da verificare')]);
@@ -351,7 +351,7 @@ function tile(s){
   const n=count(s),pills=[];
   const ver=k==='archivio'?[...(items.documenti||[]),...(items.tessere||[])].filter(i=>zona(i)==='verifica').length:0,
     nt=k==='atleti'?(items.atleti||[]).filter(testDaFare).length:0,
-    ne=k==='eventi'?(items.eventi||[]).filter(eventoInScadenza).length:0,
+    ne=k==='eventi'?(items.eventi||[]).filter(e=>eventoInScadenza(e)).length:0,
     ntes=k==='tessere'?(items.tessere||[]).filter(tesseraAlert).length:0,
     nm=k==='atleti'&&me.admin?modN:0,no=k==='ordini'?ordN:0,nes=k==='eventi'?esN:0,nbv=k==='eventi'?bvN:0,nsc=k==='documenti-in-scadenza'?n:0;
   if(nsc)pills.push(['',nsc+' in scadenza']);
