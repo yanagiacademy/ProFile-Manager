@@ -605,6 +605,14 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Revisione generale: incongruenze sistemate
+- EVENTI → resoconto iscritti: chi ha «nulla da pagare» (coupon che azzera la quota) ora ha il pulsante «✔ Verifica» (e poi «Annulla verifica»), così l'admin sa di averlo controllato; il conteggio «Pagamenti verificati» lo include. Per i pagamenti a zero non compare «Crea ricevuta».
+- HOME: il riquadro «Da controllare» mostra gli eventi con iscrizione in scadenza anche agli account «Solo dati utente» (leggono gli eventi a loro destinati).
+- DOCUMENTI/VIDEO/FOTO: chi non è admin e carica con «Tutti» salva sempre anche la copia su Firebase (non può sapere se ci sono account «Solo dati utente»). Le note .txt compaiono nella vista «Solo dati utente» (Apri / Scarica).
+- notifiche.js eliminato: era il vecchio modulo delle notifiche Telegram, non caricato da nessuna pagina (notifiche.html rimanda a mail.html#notifiche) e con import non più esistenti.
+- gare.html citato in questo file è corretto: è l'altra app, in un repository separato.
+- File: eventi.js, index.html, documenti.js, RESOCONTO.md (e notifiche.js da eliminare).
+
 ## Eventi: alert, verifica iscritti in sezioni ordinate
 - ALERT/MAIL NUOVE ISCRIZIONI ESTERNE: la mail non partiva perché ponte-mail.gs leggeva l'iscrizione da Firestore senza chiave API (Google risponde 403 alle richieste anonime). Ora usa FIREBASE_API_KEY; gli errori finiscono nel Log esecuzione di Apps Script. Va ripubblicato (Distribuisci → Gestisci distribuzioni → matita → Nuova versione).
 - HOME: nel riquadro Eventi e in «Da controllare» compaiono anche «N bonifici di atleti da verificare» (atleti interni con bonifico caricato e pagamento non verificato), oltre alle iscrizioni esterne da confermare.
