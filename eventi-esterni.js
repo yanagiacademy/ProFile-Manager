@@ -237,13 +237,13 @@ export function apriEsterni(db,ev,{uid}){
 /* ---------- coupon ---------- */
 export function apriCoupon(db,ev,{uid,interni=()=>[],dest=null}){
   /* assegnazione agli atleti interni: dest = {elenco(), atl(), risolvi(ids)→{emails,uids}, emailsEvento()} fornito da eventi.js */
-  let dmode='no',dsel=new Set(),dq='';
+  let dmode='no',dsel=new Set(),dq='',editId=null;
   const M=modal('Coupon · '+ev.nome,()=>S.stop());
   const S=live(db,ev.id,{reg:true,cpn:true},disegna);
   const q=s=>M.body.querySelector(s),say=(t,ko)=>{const e=q('#cpe');if(e){e.textContent=t||'';e.className=ko?'err':'mu'}};
   M.body.innerHTML=`<p class="mu" style="margin:6px 0">Gli atleti scrivono il codice nella sezione «Pagamento» dell’evento; gli esterni nel modulo del link. L’importo si ricalcola da solo. Gratuito = nulla da pagare (la conferma resta tua).</p>
     <div id="lst"></div>
-    <fieldset><legend>Nuovo coupon</legend>
+    <fieldset><legend id="cpl">Nuovo coupon</legend>
       <label for="cpc">Codice</label><div class="fr"><input id="cpc" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false"><button class="btn ghost sm" data-a="gen" type="button">Genera</button></div>
       <div class="two"><div><label for="cpt">Tipo</label><select id="cpt"><option value="gratis">Gratuito (non paga)</option><option value="perc">Sconto in %</option><option value="euro">Sconto in €</option></select></div><div id="cpw" hidden><label for="cpv">Valore</label><input id="cpv" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 20"></div></div>
       <div class="two"><div><label for="cps">Valido fino al (facoltativo)</label><input id="cps" type="date"></div><div><label for="cpm">Utilizzi massimi (facoltativo)</label><input id="cpm" type="text" inputmode="numeric" autocomplete="off" placeholder="vuoto = illimitati"></div></div>
@@ -259,7 +259,7 @@ export function apriCoupon(db,ev,{uid,interni=()=>[],dest=null}){
         <label class="ck" id="cpdmw" hidden><input type="checkbox" id="cpdm"> Invia subito la mail con il coupon (altrimenti lo ricevono con l’invito all’evento)</label>
       </fieldset>`:''}
       <p id="cpe" class="err" role="alert"></p>
-      <div class="acts"><button class="btn" data-a="add" type="button">Crea coupon</button></div></fieldset>`;
+      <div class="acts"><button class="btn" data-a="add" type="button" id="cpadd">Crea coupon</button><button class="btn ghost" data-a="ecan" type="button" id="cpcan" hidden>Annulla modifica</button></div></fieldset>`;
   const dvis=()=>{const t=dq.trim().toLowerCase();return dest.elenco().filter(a=>!t||a.nome.toLowerCase().includes(t)).sort((a,b)=>a.nome.localeCompare(b.nome,'it'))};
   const dConta=()=>{const n=q('#cpdn');if(n)n.textContent=dsel.size?dsel.size+(dsel.size===1?' atleta scelto':' atleti scelti'):'Nessun atleta scelto'};
   const dRender=()=>{const l=q('#cpdls');if(!l)return;const v=dvis();
@@ -278,7 +278,9 @@ export function apriCoupon(db,ev,{uid,interni=()=>[],dest=null}){
     const a=b.dataset.a,c=S.cps.find(x=>x.id===b.dataset.i);
     try{
       if(a==='gen'){const x=new Uint8Array(6);crypto.getRandomValues(x);q('#cpc').value=Array.from(x,v=>ALFA[v%32]).join('')}
-      else if(a==='add')await aggiungi();
+      else if(a==='add')await (editId?salvaModifica():aggiungi());
+      else if(a==='edt'&&c)modifica(c);
+      else if(a==='ecan')azzeraForm();
       else if(a==='mail'&&c)await inviaMail(c,true);
       else if(a==='lim'&&c){const v=prompt('Utilizzi massimi del coupon «'+c.codice+'» (vuoto o 0 = illimitati):',num(c.max)>0?String(num(c.max)):'');if(v===null)return;const t=v.trim();if(t&&!/^\d{1,6}$/.test(t)){say('Scrivi un numero intero.',true);return}await fupd(fdoc(db,'eventiCoupon',c.id),{max:+t||0,usi:S.regs.filter(r=>r.coupon===c.codice).length+interni().filter(r=>r.coupon===c.codice).length});say('')}
       else if(a==='on'&&c)await fupd(fdoc(db,'eventiCoupon',c.id),{attivo:c.attivo===false});
@@ -305,9 +307,48 @@ export function apriCoupon(db,ev,{uid,interni=()=>[],dest=null}){
     const senza=ids.length-ris.uids.length;
     say('Coupon «'+cod+'» creato'+(asg.perTutti?' per tutti gli atleti':ids.length?' per '+ids.length+(ids.length===1?' atleta':' atleti'):'')+'.'+(senza>0?' Attenzione: '+senza+(senza===1?' atleta non ha':' atleti non hanno')+' un account collegato (non lo vedranno nella pagina Eventi, ma riceveranno la mail se hanno l’indirizzo).':''));
     if(subito)await inviaMail({id,...doc0},false)}
+  /* modifica di un coupon già creato: riusa il modulo «Nuovo coupon». Il codice resta fisso (è l'identificativo e lo usano le iscrizioni già fatte) */
+  function azzeraForm(){
+    editId=null;
+    const c=q('#cpc');c.disabled=false;c.value='';q('#cpv').value='';q('#cps').value='';q('#cpm').value='';q('#cpt').value='gratis';q('#cpw').hidden=true;
+    q('#cpl').textContent='Nuovo coupon';q('#cpadd').textContent='Crea coupon';q('#cpcan').hidden=true;
+    if(dest){dmode='no';dsel.clear();dq='';const r=M.body.querySelector('input[name=cpd][value="no"]');if(r)r.checked=true;q('#cpdsel').hidden=true;q('#cpdmw').hidden=true;q('#cpdm').checked=false;const s=q('#cpdq');if(s)s.value=''}
+    say('')}
+  function modifica(c){
+    editId=c.id;say('');
+    const cod=q('#cpc');cod.value=c.codice;cod.disabled=true;
+    q('#cpt').value=c.tipo||'gratis';q('#cpw').hidden=(c.tipo||'gratis')==='gratis';q('#cpv').value=c.tipo&&c.tipo!=='gratis'?String(num(c.valore)).replace('.',','):'';
+    const d=c.scadenzaMs?new Date(c.scadenzaMs):null;q('#cps').value=d?d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'):'';
+    q('#cpm').value=num(c.max)>0?String(num(c.max)):'';
+    if(dest){
+      dmode=c.perTutti?'tutti':(c.perIds||[]).length?'sel':'no';dsel=new Set(c.perIds||[]);dq='';
+      const r=M.body.querySelector('input[name=cpd][value="'+dmode+'"]');if(r)r.checked=true;
+      q('#cpdsel').hidden=dmode!=='sel';q('#cpdmw').hidden=dmode==='no';q('#cpdm').checked=false;const s=q('#cpdq');if(s)s.value='';
+      if(dmode==='sel')dRender()}
+    q('#cpl').textContent='Modifica coupon «'+c.codice+'»';q('#cpadd').textContent='Salva modifiche';q('#cpcan').hidden=false;
+    q('#cpl').scrollIntoView({block:'center',behavior:'smooth'})}
+  async function salvaModifica(){
+    say('');
+    const c0=S.cps.find(x=>x.id===editId);if(!c0){say('Questo coupon non esiste più.',true);azzeraForm();return}
+    const g=id=>q('#'+id).value.trim(),tipo=g('cpt'),val=num(g('cpv')),sc=g('cps'),mx=g('cpm');
+    if(tipo==='perc'&&!(val>0&&val<=100)){say('Indica la percentuale di sconto (da 1 a 100).',true);return}
+    if(tipo==='euro'&&!(val>0)){say('Indica l’importo dello sconto in euro.',true);return}
+    if(sc&&!isD(sc)){say('La scadenza non è valida.',true);return}
+    if(mx&&!/^[1-9]\d{0,5}$/.test(mx)){say('Gli utilizzi massimi devono essere un numero intero (1 o più), oppure lascia vuoto.',true);return}
+    if(dest&&dmode==='sel'&&!dsel.size){say('Scegli almeno un atleta, oppure seleziona «Nessuno» o «Tutti gli atleti».',true);return}
+    const ids=dest&&dmode==='sel'?[...dsel]:[],ris=ids.length?dest.risolvi(ids):{emails:[],uids:[]};
+    const asg=dest?{perTutti:dmode==='tutti',perIds:ids,perEmail:ris.emails,perUid:ris.uids}:{};
+    const upd={tipo,valore:tipo==='gratis'?0:val,scadenzaMs:sc?new Date(sc+'T23:59:59').getTime():0,max:mx?+mx:0,usi:S.regs.filter(r=>r.coupon===c0.codice).length+interni().filter(r=>r.coupon===c0.codice).length,...asg};
+    await fupd(fdoc(db,'eventiCoupon',c0.id),upd);
+    const subito=!!(dest&&dmode!=='no'&&q('#cpdm')&&q('#cpdm').checked);
+    const vecchi=c0.perEmail||[],nuovi=!dest?[]:dmode==='tutti'?(c0.perTutti?[]:dest.emailsEvento().filter(e=>!vecchi.includes(e))):dmode==='sel'?ris.emails.filter(e=>!vecchi.includes(e)):[];
+    const senza=ids.length-ris.uids.length,cod=c0.codice;
+    azzeraForm();
+    say('Coupon «'+cod+'» aggiornato'+(asg.perTutti?': per tutti gli atleti':ids.length?': per '+ids.length+(ids.length===1?' atleta':' atleti'):'')+'. Chi lo ha già applicato lo tiene; gli importi dovuti si ricalcolano con i nuovi valori.'+(senza>0?' Attenzione: '+senza+(senza===1?' atleta non ha':' atleti non hanno')+' un account collegato (non lo vedranno nella pagina Eventi, ma riceveranno la mail se hanno l’indirizzo).':''));
+    if(subito&&nuovi.length)await inviaMail({...c0,...upd,id:c0.id},false,nuovi)}
   /* invia ora la mail con il coupon agli assegnatari (dal Gmail dell'ASD) */
-  async function inviaMail(c,chiedi){
-    const a=c.perTutti?dest.emailsEvento():(c.perEmail||[]);
+  async function inviaMail(c,chiedi,lista){
+    const a=lista||(c.perTutti?dest.emailsEvento():(c.perEmail||[]));
     if(!a.length){say('Nessun indirizzo email a cui inviare.',true);return}
     if(chiedi&&!confirm('Inviare ora la mail con il coupon «'+c.codice+'» a '+a.length+(a.length===1?' atleta?':' atleti?')))return;
     say('Invio in corso…');
@@ -319,7 +360,7 @@ export function apriCoupon(db,ev,{uid,interni=()=>[],dest=null}){
     say('Mail inviate: '+ok+(ko?' · non riuscite: '+ko:'')+'.',!!ko&&!ok)}
   function disegna(){
     const usi=c=>S.regs.filter(r=>r.coupon===c.codice).length+interni().filter(r=>r.coupon===c.codice).length,l=q('#lst');if(!l)return;
-    l.innerHTML=(S.err?`<p class="err">${esc(S.err)}</p>`:'')+(S.cps.length?S.cps.map(c=>{const sc=c.scadenzaMs&&Date.now()>c.scadenzaMs,n=usi(c),es=couponEsaurito(c,n);return `<div class="ir"><div class="l1"><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b><span><span class="chip ${c.attivo===false||sc||es?'bad':'ok'}">${c.attivo===false?'disattivato':sc?'scaduto':es?'esaurito':'attivo'}</span><span class="chip">${esc(couponTxt(c))}</span>${c.perTutti?'<span class="chip ok">per tutti gli atleti</span>':(c.perIds||[]).length?`<span class="chip ok">per ${(c.perIds||[]).length} ${(c.perIds||[]).length===1?'atleta':'atleti'}</span>`:''}</span></div><div class="l2"><span class="mu">${c.scadenzaMs?'Valido fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):'Senza scadenza'} · usato ${n}${num(c.max)>0?' su '+num(c.max):''} ${num(c.max)>0?'':n===1?'volta':'volte'}${couponEsaurito(c,n)?' · <b>esaurito</b>':''}</span></div><div class="l2">${c.perTutti||(c.perEmail||[]).length?`<button class="btn ghost sm" data-a="mail" data-i="${esc(c.id)}">Invia per mail</button>`:''}<button class="btn ghost sm" data-a="lim" data-i="${esc(c.id)}">Limite utilizzi</button><button class="btn ghost sm" data-a="on" data-i="${esc(c.id)}">${c.attivo===false?'Riattiva':'Disattiva'}</button><button class="btn ghost sm" data-a="del" data-i="${esc(c.id)}">Elimina</button></div></div>`}).join(''):'<div class="mu" style="padding:6px 0">Nessun coupon per questo evento.</div>')}
+    l.innerHTML=(S.err?`<p class="err">${esc(S.err)}</p>`:'')+(S.cps.length?S.cps.map(c=>{const sc=c.scadenzaMs&&Date.now()>c.scadenzaMs,n=usi(c),es=couponEsaurito(c,n);return `<div class="ir"><div class="l1"><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b><span><span class="chip ${c.attivo===false||sc||es?'bad':'ok'}">${c.attivo===false?'disattivato':sc?'scaduto':es?'esaurito':'attivo'}</span><span class="chip">${esc(couponTxt(c))}</span>${c.perTutti?'<span class="chip ok">per tutti gli atleti</span>':(c.perIds||[]).length?`<span class="chip ok">per ${(c.perIds||[]).length} ${(c.perIds||[]).length===1?'atleta':'atleti'}</span>`:''}</span></div><div class="l2"><span class="mu">${c.scadenzaMs?'Valido fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):'Senza scadenza'} · usato ${n}${num(c.max)>0?' su '+num(c.max):''} ${num(c.max)>0?'':n===1?'volta':'volte'}${couponEsaurito(c,n)?' · <b>esaurito</b>':''}</span></div><div class="l2">${c.perTutti||(c.perEmail||[]).length?`<button class="btn ghost sm" data-a="mail" data-i="${esc(c.id)}">Invia per mail</button>`:''}<button class="btn ghost sm" data-a="edt" data-i="${esc(c.id)}">Modifica</button><button class="btn ghost sm" data-a="lim" data-i="${esc(c.id)}">Limite utilizzi</button><button class="btn ghost sm" data-a="on" data-i="${esc(c.id)}">${c.attivo===false?'Riattiva':'Disattiva'}</button><button class="btn ghost sm" data-a="del" data-i="${esc(c.id)}">Elimina</button></div></div>`}).join(''):'<div class="mu" style="padding:6px 0">Nessun coupon per questo evento.</div>')}
   disegna()}
 
 /* ---------- check-in ---------- */

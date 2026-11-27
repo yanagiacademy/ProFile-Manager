@@ -605,6 +605,12 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Coupon: modifica di un coupon già creato
+- In «Gestisci coupon» ogni coupon ha il pulsante «Modifica»: riempie il modulo in basso (che diventa «Modifica coupon …», con «Salva modifiche» e «Annulla modifica») e si possono cambiare destinatari (nessuno / tutti / scelti singolarmente o per gruppo), tipo e valore dello sconto, scadenza e utilizzi massimi. Il codice resta fisso.
+- Chi ha già applicato il coupon lo tiene; gli importi dovuti si ricalcolano con i nuovi valori. Il contatore «usato» si riallinea alle iscrizioni che usano il codice.
+- Con «Invia subito la mail» la mail parte solo ai destinatari nuovi (non a chi era già assegnato).
+- File: eventi-esterni.js, RESOCONTO.md.
+
 ## Eventi: iscritto il tesserato (figlio), non il proprietario dell'account (genitore)
 - CAUSA: il nome dell'iscrizione era quello del tesserato solo per gli account con 2 o più atleti; con un solo atleta collegato (il figlio) veniva scritto il nome del proprietario dell'account.
 - Ora l'iscrizione porta sempre il nome del tesserato collegato all'account (se non c'è nessun atleta collegato resta il nome dell'account). Gli identificativi delle iscrizioni non cambiano, quindi nulla va perso.
