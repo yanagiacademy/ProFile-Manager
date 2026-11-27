@@ -605,6 +605,11 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Eventi: coupon visibile subito all'apertura (atleti interni)
+- Se l'atleta ha un coupon assegnato (a lui o a tutti) per quell'evento, valido e non ancora applicato, lo vede in cima alla scheda («🎟 Hai un coupon per questo evento»: codice, sconto, eventuale data limite), anche prima di scegliere «Partecipo». L'applicazione resta nella sezione «Pagamento» dopo aver risposto «Partecipo».
+- Compare solo se l'evento ha una quota e le iscrizioni non sono chiuse.
+- File: eventi.js, RESOCONTO.md.
+
 ## Revisione generale: incongruenze sistemate
 - EVENTI → resoconto iscritti: chi ha «nulla da pagare» (coupon che azzera la quota) ora ha il pulsante «✔ Verifica» (e poi «Annulla verifica»), così l'admin sa di averlo controllato; il conteggio «Pagamenti verificati» lo include. Per i pagamenti a zero non compare «Crea ricevuta».
 - HOME: il riquadro «Da controllare» mostra gli eventi con iscrizione in scadenza anche agli account «Solo dati utente» (leggono gli eventi a loro destinati).
