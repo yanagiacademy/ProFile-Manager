@@ -605,6 +605,11 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Eventi: l'admin aggiunge il coupon a chi si è prenotato
+- Nel resoconto iscritti, su ogni atleta che partecipa, ha una quota da pagare e non ha un coupon, compare «🎟 Aggiungi coupon». Si sceglie tra i coupon validi dell'evento (non scaduti, attivi, non esauriti) e si applica: l'importo si ricalcola da solo, e il coupon si può togliere con la ✕ come gli altri.
+- Se l'evento non ha coupon validi, avvisa di crearne uno con «Gestisci coupon». Se il coupon ha un limite di utilizzi, ne conta uno.
+- File: eventi.js, RESOCONTO.md.
+
 ## Eventi: coupon visibile subito all'apertura (atleti interni)
 - Se l'atleta ha un coupon assegnato (a lui o a tutti) per quell'evento, valido e non ancora applicato, lo vede in cima alla scheda («🎟 Hai un coupon per questo evento»: codice, sconto, eventuale data limite), anche prima di scegliere «Partecipo». L'applicazione resta nella sezione «Pagamento» dopo aver risposto «Partecipo».
 - Compare solo se l'evento ha una quota e le iscrizioni non sono chiuse.

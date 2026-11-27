@@ -396,6 +396,21 @@ function openDetail(id){
           if(sn.exists()&&+sn.data().max>0&&(+sn.data().usi||0)>0)await fupd(ref,{usi:(+sn.data().usi||0)-1});
           await fupd(fdoc(db,'iscrizioni',r.id),{coupon:'',cpTipo:'',cpValore:0});Object.assign(r,{coupon:'',cpTipo:'',cpValore:0});paintDetail()}
         catch(x){console.error(x);alert('Operazione non riuscita.')}}
+      else if(a==='acp'&&isAdmin()){
+        /* l'admin applica un coupon a chi si è prenotato e non l'ha inserito */
+        const r=iscr.find(x=>x.id===i);if(!r||r.coupon)return;
+        let lst=[];
+        try{const sn=await fget(query(fcol(db,'eventiCoupon'),where('evento','==',ev.id)));lst=sn.docs.map(d=>({id:d.id,...d.data()})).filter(c=>couponOk(c).ok&&!couponEsaurito(c,c.usi))}
+        catch(x){console.error(x);alert('Impossibile leggere i coupon. Riprova.');return}
+        if(!lst.length){alert('Non ci sono coupon validi per questo evento: crealo prima con «Gestisci coupon».');return}
+        modal('Coupon per '+(r.nome||'atleta'),`<p class="mu" style="margin:6px 0">Scegli il coupon da applicare all’iscrizione: l’importo si ricalcola da solo.</p><label for="acs">Coupon</label><select id="acs">${lst.map(c=>`<option value="${esc(c.codice)}">${esc(c.codice)} · ${esc(couponTxt(c))}</option>`).join('')}</select>`,{ok:'Applica',onSave:async(o,er)=>{
+          const cod=o.querySelector('#acs').value,ref=fdoc(db,'eventiCoupon',couponId(ev.id,cod)),sn=await fgetDoc(ref),d=sn.exists()?sn.data():null,v=couponOk(d);
+          if(!v.ok){er.textContent=v.motivo||'Coupon non valido.';return false}
+          if(couponEsaurito(d,d.usi)){er.textContent='Questo coupon è esaurito.';return false}
+          const cur=iscr.find(x=>x.id===r.id);if(!cur||cur.coupon){er.textContent='L’atleta ha già un coupon.';return false}
+          if(+d.max>0)await fupd(ref,{usi:(+d.usi||0)+1});
+          const cp={coupon:d.codice,cpTipo:d.tipo,cpValore:+d.valore||0};
+          await fupd(fdoc(db,'iscrizioni',r.id),cp);Object.assign(r,cp);paintDetail()}})}
       else if(a==='ob'){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openBon(r,f)}
       else if(a==='rmf'){
         const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);
@@ -462,7 +477,7 @@ function paintDetail(){
     const paid=yes.filter(r=>bonificiOf(r).length).length,ok=yes.filter(r=>r.pagatoOk).length,tp=yes.reduce((t,r)=>t+pE(ev,r),0),th=yes.reduce((t,r)=>t+pH(ev,r),0),att=money(yes.reduce((t,r)=>t+dovuto(ev,r).tot,0));
     const rigaI=(r,k)=>{
       const bs=bonificiOf(r),d0=dovuto(ev,r),oggi=ricEv.has(ev.id+'_'+r.uid);
-      const ch=`${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip ${d0.tot>0?'warn':'ok'}">${d0.tot>0?esc(money(d0.tot)):'nulla da pagare'}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:''}`;
+      const ch=`${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip ${d0.tot>0?'warn':'ok'}">${d0.tot>0?esc(money(d0.tot)):'nulla da pagare'}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:(hasQ&&d0.lordo>0?`<button class="btn ghost sm" data-a="acp" data-i="${esc(r.id)}">🎟 Aggiungi coupon</button>`:'')}`;
       const bon=bs.map((f,j)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(j+1):''}</button>`).join('');
       const ric=r.pagatoOk&&d0.tot>0?(oggi?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(d0.tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):'';
       const az=!hasQ?'':k==='verif'?bon+`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}">✔ Verifica pagamento</button>`
