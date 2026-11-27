@@ -34,6 +34,8 @@ const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const canW=()=>perm()==='w';
 const solo=()=>!!(me&&!me.admin&&(me.perms||{})[SEC]==='u');      /* «Solo dati utente»: vede soltanto i file che gli sono stati assegnati (soloPer) */
 let soloOn=false;
+/* elenco normale (Telegram + Firebase) per chi ha «Solo dati utente»: solo i contenuti per tutti (perTutti), assegnati a lui (soloPer) o caricati da lui; se la cartella non è visibile il contenuto sale alla radice */
+const soloFiltra=l=>{if(!solo())return filtra(l,uid,!!me.admin);const ok=new Set(l.filter(i=>i.perTutti===true||i.by===uid||(Array.isArray(i.soloPer)&&i.soloPer.includes(uid))).map(i=>i.id));return l.filter(i=>ok.has(i.id)).map(i=>ok.has(i.parent)?i:{...i,parent:''})};
 
 if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora collegato','Compila firebase-config.js con i dati del progetto.')}
 else{
@@ -45,10 +47,10 @@ else{
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
       me=sn.exists()?{id:uid,...sn.data()}:null;
-      if(me&&solo()){if(!soloOn){soloOn=true;vistaMia()}return}
+      if(me&&solo()&&!(tgConfigured()&&hasSession())){if(!soloOn){soloOn=true;vistaMia()}return}      /* «Solo dati utente» senza Telegram collegato: vista sola lettura da Firebase. Con Telegram collegato usa l'elenco normale (sotto), filtrato su ciò che gli è assegnato o è per tutti */
       if(!me||perm()==='n'){app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');if(memo)memo.setAccess('n',false);return}
       if(unsubs.length<2){
-        unsubs.push(onSnapshot(col,s=>{items=filtra(s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl),uid,!!me.admin);items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW()&&!MEDIA)archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
+        unsubs.push(onSnapshot(col,s=>{items=soloFiltra(s.docs.map(d=>({id:d.id,...d.data()})).filter(i=>!i.archiviatoIl));items.forEach(i=>{if(pendStar.has(i.id))i.star=pendStar.get(i.id)});if(canW()&&!MEDIA)archiviaScaduti(db,items);if(!hashDone){hashDone=true;const h=location.hash.slice(1);if(h&&byId(h)&&byId(h).kind==='folder')cur=h}if(cur&&!byId(cur))cur='';render()},()=>{}));
         if(me.admin)unsubs.push(onSnapshot(collection(db,'users'),s=>{accs=s.docs.map(d=>({id:d.id,...d.data()}))},()=>{}));
       }
       if(!memo)memo=memoBar({db,sec:SEC,uid});memo.setAccess(perm(),!!me.admin);render();
@@ -270,7 +272,14 @@ function visModal(it){
     const tutti=adm?o.querySelector('#vall').checked:o.querySelector('input[name=vm2]:checked').value==='all';
     const ids=adm?[...o.querySelectorAll('input[type=checkbox]:checked')].filter(c=>c.id!=='vall').map(c=>c.value):[];
     if(!tutti&&it.kind==='file'&&!it.chunks&&ids.some(id=>{const a=accs.find(x=>x.id===id);return a&&(a.perms||{})[SEC]==='u'}))return merr(o,'Questo file non ha la copia su Firebase: chi ha «Solo dati utente» non potrebbe aprirlo. Ricaricalo spuntando «Salva anche su Firebase».');
-    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),tutti?{soloPer:deleteField(),perTutti:true}:{soloPer:[...new Set([...ids,it.by||uid,uid])],perTutti:deleteField()})}catch(e){return merr(o,'Operazione non riuscita.')}}}])}
+    /* «Tutti» vale per «Solo dati utente» solo se il contenuto è anche su Firebase (fb:true; per i file anche i blocchi): quegli account non hanno Telegram e le regole leggono solo da lì */
+    let ex={},big=false;
+    if(tutti){try{
+      if(it.kind==='file'&&it.tg&&!it.chunks){if(it.size>MAX)big=true;else{const b=await getBlob(it,()=>{});ex={fb:true,chunks:await putChunks(it.id,b)}}}
+      else if(!it.fb)ex={fb:true}
+    }catch(e){console.error(e);return merr(o,'Copia su Firebase non riuscita: la visibilità non è stata cambiata. Riprova.')}}
+    try{await updateDoc(doc(db,'sections',SEC,'items',it.id),tutti?{soloPer:deleteField(),perTutti:true,...ex}:{soloPer:[...new Set([...ids,it.by||uid,uid])],perTutti:deleteField()})}catch(e){return merr(o,'Operazione non riuscita.')}
+    if(big)setTimeout(()=>modal('File troppo grande per Firebase','<div class="mu">Su Firebase si possono copiare file fino a 20 MB. Questo file è visibile a tutti, ma chi ha «Solo dati utente» non potrà aprirlo perché resta solo su Telegram.</div>',[{label:'Chiudi'}]),0)}}])}
 const fbx=()=>({...((fbNew||needFb())?{fb:true}:{}),...visX()});
 const mkFolder=(name,parent)=>addDoc(col,{title:name,kind:'folder',parent,note:'',by:uid,at:serverTimestamp(),...fbx()});
 function editText(it){const w=canW();

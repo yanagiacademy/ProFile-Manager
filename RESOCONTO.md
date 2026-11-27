@@ -587,6 +587,19 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - DA FARE: ripubblicare firestore.rules. I file caricati PRIMA con «Tutti» non hanno perTutti: apri «Visibilità» su ciascuno e conferma «Tutti» (o ricaricali). Non ho voluto renderli pubblici in automatico, perché prima «Tutti» escludeva chi ha «Solo dati utente».
 - File: documenti.js, firestore.rules, RESOCONTO.md.
 
+## Documenti «Tutti» ancora invisibili a «Solo dati utente» (seconda correzione)
+- CAUSA: i contenuti vivono su Telegram; la copia su Firebase (l'unica che «Solo dati utente» legge) esiste solo se il contenuto ha fb:true. Cambiando la visibilità in «Tutti» su un file già caricato veniva scritto solo perTutti:true, senza fb:true e senza i blocchi del file: su Firebase non arrivava nulla.
+- Ora «Chi può vederlo…» → «Tutti» aggiunge da solo fb:true e, per i file solo su Telegram, copia anche il contenuto su Firebase (fino a 20 MB; oltre, avvisa).
+- DA FARE per i file già impostati su «Tutti» che non si vedono: apri «Chi può vederlo…» e premi Salva (la spunta «Visibile a tutti» è già attiva). I file nuovi caricati da admin con «Tutti» erano già a posto se esiste un account «Solo dati utente».
+- Limiti noti: chi carica senza essere admin con «Tutti» non salva la copia su Firebase se non spunta «Salva anche su Firebase»; le note .txt non compaiono nella vista «Solo dati utente».
+- File: documenti.js, RESOCONTO.md.
+
+## Documenti: «Solo dati utente» con Telegram collegato
+- CAUSA: chi ha «Solo dati utente» veniva sempre portato nella vista da Firebase, anche con Telegram sincronizzato: vedeva solo i contenuti con copia su Firebase, non quelli presenti solo su Telegram.
+- Ora, con Telegram collegato, usa l'elenco normale (Telegram + Firebase) in sola lettura, filtrato su ciò che è «Tutti» (perTutti), assegnato a lui (soloPer) o caricato da lui. Se la cartella non è visibile, il contenuto compare nella radice. Senza Telegram resta la vista da Firebase.
+- Vale anche per Video e Foto (stessa pagina). I file caricati prima con «Tutti» senza perTutti restano nascosti a «Solo dati utente»: apri «Chi può vederlo…» e premi Salva.
+- File: documenti.js, RESOCONTO.md.
+
 ## Eventi: alert, verifica iscritti in sezioni ordinate
 - ALERT/MAIL NUOVE ISCRIZIONI ESTERNE: la mail non partiva perché ponte-mail.gs leggeva l'iscrizione da Firestore senza chiave API (Google risponde 403 alle richieste anonime). Ora usa FIREBASE_API_KEY; gli errori finiscono nel Log esecuzione di Apps Script. Va ripubblicato (Distribuisci → Gestisci distribuzioni → matita → Nuova versione).
 - HOME: nel riquadro Eventi e in «Da controllare» compaiono anche «N bonifici di atleti da verificare» (atleti interni con bonifico caricato e pagamento non verificato), oltre alle iscrizioni esterne da confermare.
