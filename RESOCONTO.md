@@ -605,6 +605,15 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Eventi: scheda evento a sottomenu
+- All'apertura di un evento compare una barra di sottomenu (scorre di lato sul telefono): 1) Info evento · 2) La mia partecipazione · 3) Iscrizione interni · 4) Iscrizione esterni · 5) Totale iscritti · 6) Check-in evento. Gli atleti vedono solo 1 e 2; il 4 e il 6 compaiono solo per gli eventi con iscrizioni esterne. Il sottomenu scelto resta durante gli aggiornamenti in tempo reale.
+- 3) Iscrizione interni: il resoconto di prima (riquadri, «Da verificare», «In attesa del bonifico», «Pagamenti a posto», non partecipano, senza risposta) più la gestione coupon.
+- 4) Iscrizione esterni: link del modulo (Copia/Condividi), «Elenco e conferme» e coupon.
+- 5) Totale iscritti: riquadri di sintesi, poi 1 · Io, 2 · Interni, 3 · Esterni singoli (ogni persona con ruolo, associazione e stato), 4 · Esterni per associazione (atleti e tecnici, stato).
+- 6) Check-in evento: ingressi registrati / persone con codice / ancora da registrare e pulsante «Apri check-in con QR» (spostato qui dal blocco esterni).
+- L'admin legge in tempo reale iscrizioni esterne e check-in solo mentre la scheda è aperta.
+- File: eventi.js, eventi.html, RESOCONTO.md.
+
 ## Eventi: l'admin aggiunge il coupon a chi si è prenotato
 - Nel resoconto iscritti, su ogni atleta che partecipa, ha una quota da pagare e non ha un coupon, compare «🎟 Aggiungi coupon». Si sceglie tra i coupon validi dell'evento (non scaduti, attivi, non esauriti) e si applica: l'importo si ricalcola da solo, e il coupon si può togliere con la ✕ come gli altri.
 - Se l'evento non ha coupon validi, avvisa di crearne uno con «Gestisci coupon». Se il coupon ha un limite di utilizzi, ne conta uno.

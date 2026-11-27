@@ -11,7 +11,7 @@ import {isD,fmtD,giorni} from "./atleti-scadenze.js";
 import {gruppiHtml,gruppiBind,seguiCorsi} from "./gruppi-atleti.js";
 import * as ext from "./eventi-esterni.js";
 import {caricaAtleti,attivoDi,impostaAttivo,selettore,nomeAt as nomeAtl} from "./atleta-attivo.js";
-import {couponOk,couponTxt,couponId,couponEsaurito,normCoupon} from "./eventi-esterni-core.js";
+import {couponOk,couponTxt,couponId,couponEsaurito,normCoupon,nomeP,ruoloTxt} from "./eventi-esterni-core.js";
 import {archiviaEvento} from "./eventi-archivio.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -348,7 +348,7 @@ function openDetail(id){
   if(!items.find(x=>x.id===id))return;
   const o=document.createElement('div');o.className='ov';
   o.innerHTML='<div class="card dlg big dl" role="dialog" aria-modal="true" aria-label="Scheda evento"></div>';
-  const close=()=>{o.remove();detail=null;upMsg='';document.removeEventListener('keydown',kd)};
+  const close=()=>{(detail&&detail.un||[]).forEach(f=>f());o.remove();detail=null;upMsg='';document.removeEventListener('keydown',kd)};
   const kd=e=>{if(e.key==='Escape')close()};
   document.addEventListener('keydown',kd);
   o.addEventListener('click',e=>{if(e.target===o)close()});
@@ -358,6 +358,7 @@ function openDetail(id){
     const a=b.dataset.a,i=b.dataset.i,s=b.dataset.s;
     try{
       if(a==='x')close();
+      else if(a==='tab'){detail.tab=b.dataset.t;paintDetail();const cd=detail.o.firstElementChild;if(cd)cd.scrollTop=0}
       else if(a==='pay')openPay();
       else if(a==='doc'){const d=docOf(ev);if(d)openFile(d)}
       else if(a==='si'||a==='no'){if(!chiusa(ev))await patchIsc(ev,{partecipa:a})}
@@ -438,7 +439,13 @@ function openDetail(id){
         await deleteDoc(doc(db,'sections',SEC,'items',ev.id));if(editing===ev.id)resetForm(false);close();
         if(!es.vuoto)alert('Evento eliminato.\nArchiviati '+es.archiviati+' file (elenco iscritti e bonifici) in Archivio, tipologia «Eventi».'+(es.notifica.inviate?'\nNotifica inviata a '+es.notifica.inviate+(es.notifica.inviate===1?' account':' account')+' con accesso a Commercialista.':'')+(es.notifica.nota?'\n'+es.notifica.nota:''))}
     }catch(x){console.error(x);alert('Operazione non riuscita. Controlla la connessione e i permessi'+(x&&x.code==='permission-denied'?' (l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.')}});
-  detail={id,o};document.body.append(o);paintDetail();
+  detail={id,o,tab:'info',un:[],exRegs:[],exChk:new Set()};
+  { /* admin: iscrizioni esterne e check-in in tempo reale, per i sottomenu «Totale iscritti» e «Check-in evento» */
+    const ev0=items.find(x=>x.id===id),q2=c=>query(fcol(db,c),where('evento','==',id)),mine=()=>detail&&detail.o===o;
+    if(isAdmin()&&ev0&&ev0.esterni){
+      detail.un.push(fon(q2('iscrizioniEsterne'),s=>{if(mine()){detail.exRegs=s.docs.map(d=>({id:d.id,...d.data()}));paintDetail()}},e=>console.warn('Iscrizioni esterne:',e&&e.message)));
+      detail.un.push(fon(q2('eventiCheckin'),s=>{if(mine()){detail.exChk=new Set(s.docs.map(d=>d.data().codice));paintDetail()}},e=>console.warn('Check-in:',e&&e.message)))}}
+  document.body.append(o);paintDetail();
   o.querySelector('[data-a="x"]').focus()}
 
 /* senza risposta = account con accesso a Eventi (anche «Solo dati utente», che vedono gli eventi per tutti) che non hanno ancora risposto (solo l'admin può leggere l'elenco account) */
@@ -447,7 +454,7 @@ const senzaRisposta=ev=>ristretto(ev)?users.filter(u=>(ev.destUid||[]).includes(
 function paintDetail(){
   if(!detail||!document.body.contains(detail.o))return;
   const ev=items.find(x=>x.id===detail.id);
-  if(!ev||ev.kind!=='evento'){detail.o.remove();detail=null;return}
+  if(!ev||ev.kind!=='evento'){(detail.un||[]).forEach(f=>f());detail.o.remove();detail=null;return}
   const c=detail.o.firstElementChild,adm=isAdmin(),gara=ev.cat==='gara',closed=chiusa(ev),past=isPast(ev);
   const dd=(l,v)=>`<dt>${l}</dt><dd>${v!==''&&v!=null?v:'<span class="mu">—</span>'}</dd>`;
   const d=docOf(ev),my=myIsc(ev.id),mf=bonificiOf(my),hasQ=num(ev.quota)>0||num(ev.quotaHotel)>0,dv=dovuto(ev,my);
@@ -502,11 +509,43 @@ function paintDetail(){
   const exb=adm&&ev.esterni?`<h3>Iscrizioni per esterni<button class="btn ghost sm" data-a="ext">Elenco e conferme</button></h3>
     <div class="mu" style="margin:2px 0 6px">Link del modulo da inviare alle altre associazioni:</div>
     <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(ext.linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo per gli esterni" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>
-    <div class="acts" style="margin-top:8px"><button class="btn ghost sm" data-a="cpn">Coupon</button><button class="btn ghost sm" data-a="chk">Check-in con QR</button></div>`:'';
+    <div class="acts" style="margin-top:8px"><button class="btn ghost sm" data-a="cpn">Coupon</button></div>`:'';
   const cpx=adm&&!ev.esterni?`<h3>Coupon<button class="btn ghost sm" data-a="cpn">Gestisci coupon</button></h3><div class="mu" style="margin:2px 0 6px">Crea codici sconto o gratuità da dare ai tuoi atleti: lo scrivono nella sezione «Pagamento» dell’evento.</div>`:'';
+  /* sottomenu della scheda evento: 1 Info · 2 La mia partecipazione · 3 Iscrizione interni · 4 Iscrizione esterni · 5 Totale iscritti · 6 Check-in (3-6 solo admin; 4 e 6 solo se l'evento ha gli esterni) */
+  const exR=detail.exRegs||[],exChk=detail.exChk||new Set(),exConf=r=>r.stato==='confermata';
+  const tabs=[['info','Info evento'],['mia','La mia partecipazione']].concat(adm?[['int','Iscrizione interni']]:[],adm&&ev.esterni?[['est','Iscrizione esterni']]:[],adm?[['tot','Totale iscritti']]:[],adm&&ev.esterni?[['chk','Check-in evento']]:[]);
+  let tab=detail.tab;if(!tabs.some(t=>t[0]===tab))tab='info';
+  const tabsHtml=`<div class="dtabs" role="tablist" aria-label="Sezioni dell’evento">${tabs.map((t,n)=>`<button type="button" role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${t[0]===tab}" aria-pressed="${t[0]===tab}">${n+1}) ${t[1]}</button>`).join('')}</div>`;
+  const tl=(n,l,hot)=>`<div${hot?' class="hot"':''}><b>${n}</b><small>${l}</small></div>`;
+  const payChip=r=>!hasQ?'':r.pagatoOk?'<span class="chip ok">✔ verificato</span>':dovuto(ev,r).tot<=0?'<span class="chip ok">nulla da pagare</span>':bonificiOf(r).length?'<span class="chip warn">da verificare</span>':'<span class="chip bad">in attesa del bonifico</span>';
+  const cI=r=>`${gara&&r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)}</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)}</span>`:''}${payChip(r)}`;
+  let corpo='';
+  if(tab==='info')corpo=info;
+  else if(tab==='mia')corpo=mine;
+  else if(tab==='int')corpo=rep+cpx;
+  else if(tab==='est')corpo=exb;
+  else if(tab==='chk'){
+    const pers=exR.filter(exConf).flatMap(r=>(r.persone||[]).filter(p=>p.codice)),ing=pers.filter(p=>exChk.has(p.codice)).length;
+    corpo=`<h3>Check-in evento</h3><div class="mu" style="margin:2px 0 6px">Registra l’ingresso degli esterni confermati: scansiona il QR con la fotocamera, oppure scrivi il codice o cerca per nome.</div>
+      <div class="tiles">${tl(ing,'Ingressi registrati')}${tl(pers.length,'Persone con codice')}${tl(Math.max(0,pers.length-ing),'Ancora da registrare',pers.length>ing)}</div>
+      <div class="acts"><button class="btn" data-a="chk">Apri check-in con QR</button></div>`}
+  else if(tab==='tot'){
+    const intYes=iscOf(ev.id).filter(r=>r.partecipa==='si'&&!(my&&r.id===my.id)).sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it'));
+    const io=`<div class="ir"><div class="l1"><b>${esc((my&&my.nome)||'Io')}</b><span class="chip ${si?'ok':no?'bad':''}">${si?'Partecipo':no?'Non partecipo':'Nessuna risposta'}</span></div>${si?`<div class="l2">${cI(my)}</div>`:''}</div>`;
+    const pers=r=>(r.persone||[]).slice().sort((a,b)=>(nomeP(a)).localeCompare(nomeP(b),'it'));
+    const exAll=exR.flatMap(r=>pers(r).map(p=>({p,r}))).sort((a,b)=>nomeP(a.p).localeCompare(nomeP(b.p),'it'));
+    const exAs=exR.slice().sort((a,b)=>(a.assoc||'').localeCompare(b.assoc||'','it'));
+    const exConfN=exR.filter(exConf).reduce((t,r)=>t+(r.persone||[]).length,0),exAttN=exAll.length-exConfN;
+    const tot=(si?1:0)+intYes.length+exAll.length;
+    corpo=`<h3>Totale iscritti</h3>
+      <div class="tiles">${tl(tot,'Totale iscritti')}${tl((si?1:0)+intYes.length,'Interni (con te)')}${ev.esterni?tl(exAll.length,'Esterni'):''}${ev.esterni&&exAttN>0?tl(exAttN,'Esterni in attesa',true):''}</div>
+      <div class="sep">1 · Io</div>${io}
+      <div class="sep">2 · Interni (${intYes.length})</div>${intYes.length?intYes.map(r=>`<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b></div><div class="l2">${cI(r)}</div></div>`).join(''):'<div class="mu">Nessun altro atleta interno ha confermato.</div>'}
+      ${ev.esterni?`<div class="sep">3 · Esterni · singoli (${exAll.length})</div>${exAll.length?exAll.map(({p,r})=>`<div class="ir"><div class="l1"><span><b>${esc(nomeP(p))}</b> <span class="mu">· ${esc(ruoloTxt(p.ruolo))} · ${esc(r.assoc||'')}</span></span><span class="chip ${exConf(r)?'ok':'warn'}">${exConf(r)?'Confermato':'In attesa'}</span></div></div>`).join(''):'<div class="mu">Nessuna iscrizione di esterni.</div>'}
+      <div class="sep">4 · Esterni · per associazione (${exAs.length})</div>${exAs.length?exAs.map(r=>{const pp=pers(r),na=pp.filter(p=>p.ruolo!=='tecnico').length,nt=pp.length-na;return `<div class="ir"><div class="l1"><b>${esc(r.assoc||'—')}</b><span class="chip ${exConf(r)?'ok':'warn'}">${exConf(r)?'Confermata':'In attesa'}</span></div><div class="l2"><span class="chip">${na} atleti</span><span class="chip">${nt} tecnici</span></div></div>`}).join(''):'<div class="mu">Nessuna associazione iscritta.</div>'}`:''}`}
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
-    ${info}${mine}${rep}${exb}${cpx}
+    ${tabsHtml}${corpo}
     <div class="dact">${adm?`<button class="btn ghost" data-a="del">Elimina</button><button class="btn ghost" data-a="edit">Modifica</button>${past?'':ev.chiuso?'<button class="btn ghost" data-a="apri">Riapri iscrizioni</button>':'<button class="btn ghost" data-a="chiudi">Chiudi iscrizioni</button>'}`:''}<button class="btn" data-a="x">Chiudi</button></div>`;
   c.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>secAperte.set(ev.id+d.dataset.k,d.open));
   const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
