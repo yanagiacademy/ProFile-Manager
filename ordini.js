@@ -32,6 +32,11 @@ const STATO={inviato:['Richiesto','warn'],pagamento:['Da pagare','warn'],effettu
 const FASI=[['cat','Catalogo'],['inviato','Ordini richiesti'],['pagamento','Ordini in pagamento'],['effettuato','Ordini effettuati'],['ricevuto','Ordini ricevuti'],['evaso','Ordini evasi']];
 const FASE_L=Object.fromEntries(FASI),PREV={pagamento:'inviato',effettuato:'pagamento',ricevuto:'effettuato',evaso:'ricevuto'};
 const num=v=>{const n=parseFloat(String(v==null?'':v).replace(/\s/g,'').replace('€','').replace(',','.'));return isFinite(n)?n:0};
+const rTot=r=>num(r.prezzo)*(+r.qta||1),totRighe=l=>(l||[]).reduce((t,r)=>t+rTot(r),0);
+/* l'atleta può accettare tutto, solo alcuni articoli o nessuno: scelta={ts,righe:[indici],importo}. Senza scelta contano tutte le righe */
+const sceltaOk=o=>o.scelta&&Array.isArray(o.scelta.righe)?o.scelta.righe:null;
+const righeAttive=o=>{const c=sceltaOk(o);return c?(o.righe||[]).filter((_,i)=>c.includes(i)):(o.righe||[])};
+const dovuto=o=>totRighe(righeAttive(o));
 const eur=n=>'€ '+(Math.round(num(n)*100)/100).toFixed(2).replace('.',',');
 /* Per chi si ordina: solo gli atleti collegati all'account (stessa email inserita in Atleti), oppure un nome scritto a mano */
 const chi=()=>mio?mio.ids.map(id=>({id,n:nomeDi(mio.nomi[id]||{})})):[];
@@ -85,28 +90,31 @@ async function eliminaProdotto(p){
   await deleteDoc(doc(db,'sections','ordini','items',p.id))}
 
 /* ---------- ordini (lato admin) ---------- */
-const righeHtml=o=>(o.righe||[]).map(r=>{
-  const det=[r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&(r.altroLabel||'Altro')+' '+r.altro].filter(Boolean).join(' · ');
-  return `<div style="padding:4px 0"><b>${esc(r.qta||1)} × ${esc(r.nome)}</b>${det?`<div class="mu">${esc(det)}</div>`:''}</div>`}).join('');
+const righeHtml=o=>{const c=sceltaOk(o);return (o.righe||[]).map((r,i)=>{
+  const det=[r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&(r.altroLabel||'Altro')+' '+r.altro].filter(Boolean).join(' · '),off=c&&!c.includes(i),
+    pr=num(r.prezzo)>0?` <span class="mu">· ${esc(eur(r.prezzo))}${(+r.qta||1)>1?' × '+(+r.qta||1)+' = '+esc(eur(rTot(r))):''}</span>`:'';
+  return `<div style="padding:4px 0${off?';opacity:.55':''}"><b${off?' style="text-decoration:line-through"':''}>${esc(r.qta||1)} × ${esc(r.nome)}</b>${pr}${off?' <span class="chip">non accettato</span>':''}${det?`<div class="mu">${esc(det)}</div>`:''}</div>`}).join('')};
 function ordiniUniti(){
   const rids=new Set(ordiniReg().map(o=>o.id)),sm=new Map(stag.map(x=>[x.id,x]));
   /* dall'archivio (Telegram) arriva tutto; dalla copia dell'atleta (Firebase) il bonifico dichiarato. Se l'atleta ha annullato un ordine in pagamento la copia non c'è più: resta «annullato» */
-  const l=ordiniReg().map(o=>{const x=sm.get(o.id);return {...o,reg:true,t:o.ts||0,stag:!!x,bonifico:x?x.bonifico:o.bonifico,annullato:stagOk&&!x&&o.stato==='pagamento'}});
+  const l=ordiniReg().map(o=>{const x=sm.get(o.id);return {...o,reg:true,t:o.ts||0,stag:!!x,bonifico:x?x.bonifico:o.bonifico,scelta:x?x.scelta:o.scelta,annullato:stagOk&&!x&&o.stato==='pagamento'}});
   stag.filter(x=>!rids.has(x.id)).forEach(x=>l.push({...x,reg:false,t:ms(x.at),stag:true}));
   return l.sort((a,b)=>b.t-a.t)}
 /* quanto va ordinato: somma delle righe uguali (stesso prodotto e stesse scelte) degli ordini non ancora evasi */
 function riepilogo(l){
   const m=new Map();
-  l.filter(o=>o.stato!=='evaso').forEach(o=>(o.righe||[]).forEach(r=>{
+  l.filter(o=>o.stato!=='evaso').forEach(o=>righeAttive(o).forEach(r=>{
     const k=[r.nome,r.misura,r.colore,r.marchio,r.altro].join('|');
     const x=m.get(k)||{r,qta:0,chi:[]};x.qta+=+r.qta||1;x.chi.push(nomeDi(o)+((+r.qta||1)>1?' (×'+r.qta+')':''));m.set(k,x)}));
   return [...m.values()].sort((a,b)=>String(a.r.nome).localeCompare(String(b.r.nome),'it'))}
 const rigaTxt=r=>[r.nome,r.misura&&'misura '+r.misura,r.colore&&r.colore,r.marchio&&r.marchio,r.altro&&(r.altroLabel||'')+' '+r.altro].filter(Boolean).join(', ');
-const payTxt=()=>(reg.find(r=>r.kind==='config')||{}).pay||'';
+let payEv='';      /* modalità di pagamento dell'ASD: le scrive l'admin in Eventi → «Come pagare» */
+const payTxt=()=>payEv;
 function ordineHtml(o){
   const [lab,cl]=STATO[o.stato]||['',''];
-  const chips=o.annullato?'<span class="chip bad">Annullato dall’atleta</span>':(num(o.totale)>0?`<span class="chip">${esc(eur(o.totale))}</span>`:'')+(o.stato==='pagamento'?(o.pagato?'<span class="chip ok">Pagamento verificato</span>':o.bonifico?'<span class="chip warn">Bonifico dichiarato</span>':'<span class="chip">In attesa del bonifico</span>'):`<span class="chip ${cl}">${lab}</span>`);
-  const pag=o.stato==='pagamento'&&!o.annullato?`<div class="fbox"><b>Costo: ${esc(eur(o.totale))}</b>${o.bonifico?`<div class="mu">Bonifico dichiarato il ${esc(quando(+o.bonifico.ts||0))}${o.bonifico.nota?' · '+esc(o.bonifico.nota):''}</div>`:''}${o.msgPag?`<div class="mu" style="white-space:pre-wrap">${esc(o.msgPag)}</div>`:''}</div>`:'';
+  const chips=o.annullato?'<span class="chip bad">Annullato dall’atleta</span>':(dovuto(o)>0?`<span class="chip">${esc(eur(dovuto(o)))}</span>`:'')+(o.stato==='pagamento'?(o.pagato?'<span class="chip ok">Pagamento verificato</span>':o.bonifico?'<span class="chip warn">Bonifico dichiarato</span>':o.scelta?'<span class="chip">Scelta fatta · attesa bonifico</span>':'<span class="chip">Attende la scelta dell’atleta</span>'):`<span class="chip ${cl}">${lab}</span>`);
+  const nC=sceltaOk(o)?sceltaOk(o).length:0,nT=(o.righe||[]).length;
+  const pag=o.stato==='pagamento'&&!o.annullato?`<div class="fbox"><b>Totale proposto: ${esc(eur(totRighe(o.righe)))}</b>${o.scelta?`<div class="mu">L’atleta ha accettato ${nC} articol${nC===1?'o':'i'} su ${nT}: <b>da pagare ${esc(eur(dovuto(o)))}</b></div>`:'<div class="mu">L’atleta non ha ancora scelto cosa accettare.</div>'}${o.bonifico?`<div class="mu">Bonifico dichiarato il ${esc(quando(+o.bonifico.ts||0))}${o.bonifico.nota?' · '+esc(o.bonifico.nota):''}</div>`:''}${o.msgPag?`<div class="mu" style="white-space:pre-wrap">${esc(o.msgPag)}</div>`:''}</div>`:'';
   const B=(a,t,p)=>`<button class="btn ${p?'':'ghost '}sm" data-a="${a}" data-id="${esc(o.id)}">${t}</button>`,az=[];
   if(!o.annullato){
     if(o.stato==='inviato')az.push(B('prezzo','Imposta il prezzo e chiedi il pagamento',1));
@@ -132,28 +140,29 @@ async function mandaMail(o){
     if(!(await mailPronta()))throw new Error('la Mail non è ancora collegata (mail-config.js)');
     const u=o.by?await rgetDoc(rdoc(db,'users',o.by)):null,to=u&&u.exists()?String(u.data().email||'').trim():'';
     if(!to)throw new Error('non trovo l’indirizzo mail dell’account che ha inviato l’ordine');
-    const righe=(o.righe||[]).map(r=>'• '+(r.qta||1)+' × '+rigaTxt(r)).join('\n'),url=location.href.replace(/[^/]*$/,'')+'atleti.html';
-    const testo=['Ciao,','','il tuo ordine ('+nomeDi(o)+') è pronto per il pagamento.','','Costo totale: '+eur(o.totale),'',righe,...(o.msgPag?['',o.msgPag]:[]),...(o.istruzioni?['','Come pagare:',o.istruzioni]:[]),'','Apri ProFile Manager → Atleti → «I miei ordini»: da lì puoi dichiarare il bonifico effettuato oppure cancellare l’ordine.',url,'','Yanagi Academy'].join('\n');
-    const r=await inviaDiretta(db,{key:'ord:'+o.id+':'+Date.now(),to,subject:'Ordine da pagare: '+eur(o.totale),text:testo});
+    const righe=(o.righe||[]).map(r=>'• '+(r.qta||1)+' × '+rigaTxt(r)+' — '+eur(rTot(r))).join('\n'),url=location.href.replace(/[^/]*$/,'')+'atleti.html';
+    const testo=['Ciao,','','il tuo ordine ('+nomeDi(o)+') è pronto per il pagamento.','','Costo totale: '+eur(totRighe(o.righe)),'',righe,'','Puoi accettare tutto, solo alcuni articoli oppure nessuno: paghi solo ciò che accetti.',...(o.msgPag?['',o.msgPag]:[]),...(o.istruzioni?['','Come pagare:',o.istruzioni]:[]),'','Apri ProFile Manager → Atleti → «I miei ordini»: da lì scegli gli articoli, poi dichiari il bonifico effettuato oppure cancelli l’ordine.',url,'','Yanagi Academy'].join('\n');
+    const r=await inviaDiretta(db,{key:'ord:'+o.id+':'+Date.now(),to,subject:'Ordine da pagare: '+eur(totRighe(o.righe)),text:testo});
     if(!r.ok)throw new Error(r.e||'invio non riuscito')
   }catch(x){console.error(x);alert('Richiesta di pagamento registrata, ma la mail non è partita: '+((x&&x.message)||x)+'. L’atleta la trova comunque in «I miei ordini».')}}
 function apriPrezzo(o){
-  const nuovo=o.stato==='inviato';
-  modal(nuovo?'Richiesta di pagamento':'Cambia il prezzo',`<p class="mu" style="margin:4px 0 8px">Ordine di <b>${esc(nomeDi(o))}</b>. L’atleta riceve il costo e sceglie se fare il bonifico o cancellare l’ordine.</p>
-    <label for="ptot">Costo totale (€)</label><input id="ptot" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 45,00" value="${num(o.totale)>0?esc(String(o.totale).replace('.',',')):''}">
+  const nuovo=o.stato==='inviato',R=o.righe||[];
+  const m=modal(nuovo?'Prezzi e richiesta di pagamento':'Cambia i prezzi',`<p class="mu" style="margin:4px 0 8px">Ordine di <b>${esc(nomeDi(o))}</b>: indica il prezzo di ogni articolo (per un pezzo). L’atleta potrà accettare tutto, solo alcuni articoli o nessuno.</p>
+    ${R.map((r,i)=>`<div class="fh" style="gap:8px;padding:5px 0;border-top:1px solid var(--ln);align-items:flex-start"><div style="flex:1;min-width:0"><b>${esc(r.qta||1)} × ${esc(r.nome)}</b><div class="mu">${esc([r.misura&&'Misura '+r.misura,r.colore,r.marchio,r.altro].filter(Boolean).join(' · '))}</div><div class="mu" id="ps_${i}"></div></div><div style="flex:none"><label for="pr_${i}" class="mu" style="margin:0">Prezzo (€)</label><input id="pr_${i}" type="text" inputmode="decimal" autocomplete="off" style="max-width:100px" placeholder="0,00" value="${num(r.prezzo)>0?esc(String(r.prezzo).replace('.',',')):''}"></div></div>`).join('')}
+    <div class="fh" style="padding:8px 0;border-top:1px solid var(--ln)"><b>Totale</b><b id="ptotv">${esc(eur(0))}</b></div>
     <label for="pmsg">Messaggio per l’atleta (facoltativo)</label><textarea id="pmsg" maxlength="500" placeholder="es. Consegna prevista tra due settimane">${esc(o.msgPag||'')}</textarea>
-    <label for="ppay">Come pagare (IBAN, intestatario, causale…)</label><textarea id="ppay" maxlength="800" style="min-height:110px">${esc(o.istruzioni||payTxt())}</textarea>
+    <div class="mu" style="margin-top:8px"><b>Come pagherà</b> (dati dell’ASD, da Eventi → «Come pagare»)</div>
+    ${payTxt()?`<div class="fbox" style="white-space:pre-wrap">${esc(payTxt())}</div>`:'<div class="fbox"><span class="mu">Non hai ancora scritto le modalità di pagamento: aprile in Eventi → «Come pagare» (l’atleta le vedrebbe vuote).</span></div>'}
     <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="pmail" checked style="width:auto;min-height:auto"> Invia anche una mail all’atleta</label>`,
-    nuovo?'Invia richiesta':'Salva',async(m,er)=>{
-      const tot=Math.round(num(m.querySelector('#ptot').value)*100)/100;
-      if(!(tot>0)){er.textContent='Indica il costo totale in euro (maggiore di zero).';return false}
-      const msg=m.querySelector('#pmsg').value.trim(),pay=m.querySelector('#ppay').value.trim(),mail=m.querySelector('#pmail').checked;
-      if(pay!==payTxt())await setDoc(doc(db,'sections','ordini','items','_pagamento'),{kind:'config',title:'Come pagare gli ordini',pay});
-      await cambiaStato(o.id,'pagamento',{totale:tot,msgPag:msg,istruzioni:pay,inPagAt:Date.now(),...(nuovo?{pagato:false}:{})});
-      if(mail)setTimeout(()=>mandaMail({...o,totale:tot,msgPag:msg,istruzioni:pay}),0)})}
-function apriIstruzioni(){
-  modal('Istruzioni di pagamento',`<p class="mu" style="margin:4px 0 8px">Il testo che proponi a ogni richiesta di pagamento (puoi cambiarlo ordine per ordine).</p><label for="ppay2">Come pagare</label><textarea id="ppay2" maxlength="800" style="min-height:140px" placeholder="IBAN, intestatario, causale…">${esc(payTxt())}</textarea>`,'Salva',
-    async m=>{await setDoc(doc(db,'sections','ordini','items','_pagamento'),{kind:'config',title:'Come pagare gli ordini',pay:m.querySelector('#ppay2').value.trim()})})}
+    nuovo?'Invia richiesta':'Salva',async(mm,er)=>{
+      const pr=R.map((r,i)=>Math.round(num(mm.querySelector('#pr_'+i).value)*100)/100);
+      if(pr.some(v=>!(v>0))){er.textContent='Indica il prezzo di ogni articolo (maggiore di zero).';return false}
+      if(!nuovo&&(o.scelta||o.bonifico)&&!confirm('L’atleta ha già risposto: cambiando i prezzi dovrà confermare di nuovo la scelta (e il bonifico dichiarato viene tolto). Continuare?'))return false;
+      const righe=R.map((r,i)=>({...r,prezzo:pr[i]})),tot=Math.round(totRighe(righe)*100)/100,msg=mm.querySelector('#pmsg').value.trim(),mail=mm.querySelector('#pmail').checked;
+      await cambiaStato(o.id,'pagamento',{righe,totale:tot,msgPag:msg,istruzioni:payTxt(),inPagAt:Date.now(),pagato:false,...(nuovo?{}:{scelta:null,bonifico:null})});
+      if(mail)setTimeout(()=>mandaMail({...o,righe,totale:tot,msgPag:msg,istruzioni:payTxt()}),0)});
+  const rc=()=>{let t=0;R.forEach((r,i)=>{const v=num(m.querySelector('#pr_'+i).value),sub=v*(+r.qta||1);t+=sub;const e=m.querySelector('#ps_'+i);if(e)e.textContent=v>0&&(+r.qta||1)>1?'= '+eur(sub)+' ('+(+r.qta||1)+' pezzi)':''});m.querySelector('#ptotv').textContent=eur(t)};
+  m.addEventListener('input',rc);rc()}
 async function azioneAdmin(a,id){
   const o=ordiniUniti().find(x=>x.id===id);
   if(a==='prezzo'){if(o)apriPrezzo(o)}
@@ -162,7 +171,6 @@ async function azioneAdmin(a,id){
   else if(a==='arrivato')await cambiaStato(id,'ricevuto',{ricevutoAt:Date.now()});
   else if(a==='consegnato')await cambiaStato(id,'evaso',{evasoAt:Date.now()});
   else if(a==='indietro'){if(o&&PREV[o.stato])await cambiaStato(id,PREV[o.stato])}
-  else if(a==='payEd')apriIstruzioni();
   else if(a==='togli'){await rdelete(rdoc(db,'ordiniInviati',id));stag=stag.filter(x=>x.id!==id);renderBg()}
   else if(a==='elim'){
     if(!confirm('Eliminare questo ordine di '+(o?nomeDi(o):'')+'?'))return;
@@ -188,7 +196,7 @@ function faseHtml(k){
   let extra='';
   if(k==='pagamento'){
     const R=riepilogo(L.filter(o=>o.pagato&&!o.annullato));
-    extra=(scrive()?`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Istruzioni di pagamento</b><button class="btn ghost sm" data-a="payEd">Modifica</button></div><div class="mu" style="white-space:pre-wrap">${esc(payTxt()||'Non ancora scritte: le inserisci anche quando imposti il prezzo.')}</div></div>`:'')
+    extra=`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Come pagano gli atleti</b><a class="btn ghost sm" href="eventi.html" style="text-decoration:none">Modifica in Eventi</a></div><div class="mu" style="white-space:pre-wrap">${esc(payTxt()||'Non ancora scritte: aprile in Eventi → «Come pagare».')}</div></div>`
       +(R.length?`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Da ordinare ai fornitori (ordini già pagati)</b><button class="btn ghost sm" data-a="copia">Copia l’elenco</button></div>
       ${R.map(x=>`<div style="padding:5px 0;border-top:1px solid var(--ln)"><b>${x.qta} × ${esc(rigaTxt(x.r))}</b><div class="mu">${esc(x.chi.join(', '))}</div></div>`).join('')}</div>`:'')}
   return `${regErr?'<div class="card" style="margin-bottom:12px"><b>Dati non completi</b><div class="mu">Non riesco a leggere il catalogo e l’archivio ordini: sono su Telegram. Accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina.</div></div>':''}
@@ -341,7 +349,7 @@ if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora c
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);
   onAuthStateChanged(auth,u=>{
-    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];stagOk=false;catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
+    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];stagOk=false;payEv='';catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
     if(!u){location.href='index.html';return}
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
@@ -353,6 +361,7 @@ else{
       started=true;
       if(gest()){
         unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;renderBg()},()=>{reg=[];regErr=true;renderBg()}));
+        unsubs.push(onSnapshot(doc(db,'sections','eventi','meta','pagamenti'),sn=>{payEv=sn.exists()?(sn.data().text||''):'';renderBg()},()=>{payEv=''}));
         unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));stagOk=true;renderBg()},()=>{stag=[];stagOk=false}));}
       /* chi è anche un atleta (stessa email inserita dall'admin in Atleti) vede anche la parte «Ordina» */
       mioState='load';render();

@@ -4,7 +4,7 @@ import {getFirestore,doc,collection,onSnapshot,addDoc,updateDoc,deleteDoc,setDoc
 import {firebaseConfig} from "./firebase-config.js";
 import {memoBar} from "./promemoria.js";
 import {isD,fmtD,giorni,addCad,ultimoTest,prossimoTest,testStato,testDaFare,testTesto,scadStato} from "./atleti-scadenze.js";
-import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete,updateDoc as rupdate} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {doc as rdoc,collection as rcollection,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,deleteDoc as rdelete,updateDoc as rupdate,deleteField as rdeleteField} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {GRADI_LAB,livDaGrado,gradoCanon} from "./gradi.js";
 import {elencoCorsi,seguiCorsi} from "./gruppi-atleti.js";
@@ -93,7 +93,23 @@ async function mioBlob(f){
 const rinfrescaMio=()=>{if(noAcc())mioView();else paintMio()};
 async function mioAct(a,b){
   if(a==='ordAnn'){if(confirm('Annullare questo ordine?')){try{await rdelete(rdoc(db,'ordiniInviati',b.dataset.id));await caricaMioAt(mioId);rinfrescaMio()}catch(x){console.error(x);alert('Operazione non riuscita. Riprova.')}}return}
-  if(a==='ordBon'){const nota=prompt('Facoltativo: scrivi data, CRO o un’altra nota sul bonifico (puoi lasciare vuoto).','');if(nota===null)return;try{await rupdate(rdoc(db,'ordiniInviati',b.dataset.id),{bonifico:{ts:Date.now(),nota:String(nota).trim().slice(0,200)}});await caricaMioAt(mioId);rinfrescaMio()}catch(x){console.error(x);alert('Operazione non riuscita. Riprova.')}return}
+  if(a==='ordSc'){
+    const id=b.dataset.id,o=mioOrd.find(x=>x.id===id);if(!o)return;
+    const sel=[...document.querySelectorAll('.ordck')].filter(x=>x.dataset.o===id&&x.checked).map(x=>+x.dataset.i);
+    try{
+      if(!sel.length){if(confirm('Non hai scelto nessun articolo: l’ordine viene cancellato. Continuare?')){await rdelete(rdoc(db,'ordiniInviati',id));await caricaMioAt(mioId);rinfrescaMio()}return}
+      const imp=(o.righe||[]).filter((r,i)=>sel.includes(i)).reduce((t,r)=>t+ordTot(r),0);
+      await rupdate(rdoc(db,'ordiniInviati',id),{scelta:{ts:Date.now(),righe:sel,importo:Math.round(imp*100)/100}});await caricaMioAt(mioId);rinfrescaMio()
+    }catch(x){console.error(x);alert('Operazione non riuscita. Riprova.')}return}
+  if(a==='ordCh'){try{await rupdate(rdoc(db,'ordiniInviati',b.dataset.id),{scelta:rdeleteField()});await caricaMioAt(mioId);rinfrescaMio()}catch(x){console.error(x);alert('Operazione non riuscita. Riprova.')}return}
+  if(a==='ordBon'){
+    const id=b.dataset.id,o=mioOrd.find(x=>x.id===id);if(!o)return;
+    const nota=prompt('Facoltativo: scrivi data, CRO o un’altra nota sul bonifico (puoi lasciare vuoto).','');if(nota===null)return;
+    try{
+      const upd={bonifico:{ts:Date.now(),nota:String(nota).trim().slice(0,200)}};
+      if(!ordScelte(o)){const R=o.righe||[];upd.scelta={ts:Date.now(),righe:R.map((_,i)=>i),importo:Math.round((R.some(r=>Number(r.prezzo)>0)?R.reduce((t,r)=>t+ordTot(r),0):Number(o.totale||0))*100)/100}}      /* ordine senza prezzi per articolo: si accetta tutto */
+      await rupdate(rdoc(db,'ordiniInviati',id),upd);await caricaMioAt(mioId);rinfrescaMio()
+    }catch(x){console.error(x);alert('Operazione non riuscita. Riprova.')}return}
   if(a==='mioMed'){apriMedaglia({db,uid,soggetto:mioId,after:async()=>{await caricaMioAt(mioId);rinfrescaMio()}});return}
   if(a==='mioTest'){apriTest({db,uid,soggetto:mioId,nomi:[...new Set(((mioDati&&mioDati.test)||[]).flatMap(t=>(t.r||[]).map(r=>r.n)))],after:async()=>{await caricaMioAt(mioId);rinfrescaMio()}});return}
   if(a==='mioUp'){apriCarica({db,uid,soggetto:mioId,ruolo:'atleta',tipo:b.dataset.t,attuale:mioT||{},after:async()=>{await caricaMioAt(mioId);rinfrescaMio()}});return}
@@ -109,17 +125,43 @@ const mioChip=(l,d)=>{const s=scadStato(d);return !s?`<span class="chip">${l}: �
 /* pagina Atleti per l'atleta senza permessi sulla sezione: vede solo la propria scheda tessera */
 /* La mia scheda: dati personali + tessera e certificato (con Scarica/Apri). Sempre disponibile all'atleta collegato, qualunque permesso abbia su Atleti. */
 const ORD_STATO={inviato:['Richiesto','warn'],pagamento:['Da pagare','warn'],effettuato:['Ordinato',''],ricevuto:['Arrivato: da ritirare','ok'],evaso:['Consegnato','']};
+const eurA=n=>'€ '+(Math.round(Number(n||0)*100)/100).toFixed(2).replace('.',',');
+const ordTot=r=>Number(r.prezzo||0)*(Number(r.qta)||1);
+const ordDet=r=>[r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&(r.altroLabel||'Altro')+' '+r.altro].filter(Boolean).join(' · ');
+const ordScelte=o=>Array.isArray(o.scelta&&o.scelta.righe)?o.scelta.righe:null;
 function mioOrdHtml(){
   const fd=t=>t&&t.toDate?t.toDate().toLocaleString('it-IT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
   const l=mioOrd.map(o=>{
-    const [lab,cl]=ORD_STATO[o.stato]||['',''],nm=((o.cognome||'')+' '+(o.nome||'')).trim()||'Ordine';
-    const righe=(o.righe||[]).map(r=>{const det=[r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&(r.altroLabel||'Altro')+' '+r.altro].filter(Boolean).join(' · ');
-      return `<div style="padding:4px 0"><b>${esc(r.qta||1)} × ${esc(r.nome)}</b>${det?`<div class="mu">${esc(det)}</div>`:''}</div>`}).join('');
-    const pag=o.stato==='pagamento'?`<div style="border:1px solid var(--ln);border-radius:8px;padding:8px 10px;margin:8px 0"><b>Da pagare: € ${(Math.round(Number(o.totale||0)*100)/100).toFixed(2).replace('.',',')}</b>${o.msgPag?`<div class="mu" style="white-space:pre-wrap">${esc(o.msgPag)}</div>`:''}${o.istruzioni?`<div class="mu" style="white-space:pre-wrap;margin-top:6px"><b>Come pagare</b>
-${esc(o.istruzioni)}</div>`:''}${o.bonifico?`<div class="mu" style="margin-top:6px">Bonifico dichiarato il ${esc(fd({toDate:()=>new Date(+o.bonifico.ts||0)}))}: l’admin lo sta verificando.</div>`:''}</div>`:'';
-    return `<details class="ord"><summary><span class="ot">${esc(nm)}</span><span class="chip ${cl}">${lab}</span><span class="op" aria-hidden="true"></span></summary><div class="ob"><div class="mu">${esc(fd(o.at))}${o.esterno?' · persona non atleta':''}</div>${righe}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${pag}${o.stato==='inviato'?`<div class="dact"><button class="btn ghost sm" data-a="ordAnn" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`:''}${o.stato==='pagamento'&&!o.bonifico?`<div class="dact"><button class="btn sm" data-a="ordBon" data-id="${esc(o.id)}">Ho effettuato il bonifico</button><button class="btn ghost sm" data-a="ordAnn" data-id="${esc(o.id)}">Cancella l’ordine</button></div>`:''}</div></details>`}).join('');
+    const [lab,cl]=ORD_STATO[o.stato]||['',''],nm=((o.cognome||'')+' '+(o.nome||'')).trim()||'Ordine',R=o.righe||[],sc=ordScelte(o),prezzi=R.some(r=>Number(r.prezzo)>0);
+    const riga=(r,i,off)=>`<div style="padding:4px 0${off?';opacity:.55':''}"><b${off?' style="text-decoration:line-through"':''}>${esc(r.qta||1)} × ${esc(r.nome)}</b>${Number(r.prezzo)>0?` <span class="mu">· ${esc(eurA(ordTot(r)))}</span>`:''}${off?' <span class="chip">non accettato</span>':''}${ordDet(r)?`<div class="mu">${esc(ordDet(r))}</div>`:''}</div>`;
+    const box=h=>`<div style="border:1px solid var(--ln);border-radius:8px;padding:8px 10px;margin:8px 0">${h}</div>`;
+    let corpoR=R.map((r,i)=>riga(r,i,o.stato!=='inviato'&&sc&&!sc.includes(i))).join(''),pag='',az='';
+    if(o.stato==='inviato')az=`<div class="dact"><button class="btn ghost sm" data-a="ordAnn" data-id="${esc(o.id)}">Annulla l’ordine</button></div>`;
+    if(o.stato==='pagamento'){
+      const msg=o.msgPag?`<div class="mu" style="white-space:pre-wrap;margin:4px 0">${esc(o.msgPag)}</div>`:'',ist=o.istruzioni?`<div class="mu" style="white-space:pre-wrap;margin-top:6px"><b>Come pagare</b>\n${esc(o.istruzioni)}</div>`:'';
+      if(o.bonifico){
+        const dov=R.filter((r,i)=>!sc||sc.includes(i)).reduce((t,r)=>t+ordTot(r),0);
+        pag=box(`<b>Da pagare: ${esc(eurA(sc?dov:o.totale))}</b>${msg}<div class="mu" style="margin-top:6px">Bonifico dichiarato il ${esc(fd({toDate:()=>new Date(+o.bonifico.ts||0)}))}: l’admin lo sta verificando.</div>`)}
+      else if(prezzi&&!sc){
+        /* 1) l'atleta sceglie: tutto, alcuni articoli o nessuno */
+        corpoR=R.map((r,i)=>`<label style="display:flex;gap:10px;align-items:flex-start;padding:5px 0"><input type="checkbox" class="ordck" data-o="${esc(o.id)}" data-i="${i}" checked style="width:auto;min-height:auto;margin-top:5px"><span><b>${esc(r.qta||1)} × ${esc(r.nome)}</b> <span class="mu">· ${esc(eurA(ordTot(r)))}</span>${ordDet(r)?`<div class="mu">${esc(ordDet(r))}</div>`:''}</span></label>`).join('');
+        pag=box(`<b>Scegli cosa accettare</b>${msg}<div class="mu">Togli la spunta agli articoli che non vuoi: pagherai solo quelli accettati.</div><div class="fh" style="padding:6px 0"><span>Totale selezionato</span><b id="otot_${esc(o.id)}">${esc(eurA(R.reduce((t,r)=>t+ordTot(r),0)))}</b></div>`);
+        az=`<div class="dact"><button class="btn sm" data-a="ordSc" data-id="${esc(o.id)}" id="osc_${esc(o.id)}">Conferma gli articoli scelti</button><button class="btn ghost sm" data-a="ordAnn" data-id="${esc(o.id)}">Cancella l’ordine</button></div>`}
+      else{
+        /* 2) scelta fatta (o ordine senza prezzi per articolo): istruzioni e bonifico */
+        const dov=sc?R.filter((r,i)=>sc.includes(i)).reduce((t,r)=>t+ordTot(r),0):(prezzi?R.reduce((t,r)=>t+ordTot(r),0):Number(o.totale||0));
+        pag=box(`<b>Da pagare: ${esc(eurA(dov))}</b>${msg}${ist}`);
+        az=`<div class="dact" style="flex-wrap:wrap"><button class="btn sm" data-a="ordBon" data-id="${esc(o.id)}">Ho effettuato il bonifico</button>${sc?`<button class="btn ghost sm" data-a="ordCh" data-id="${esc(o.id)}">Cambia la scelta</button>`:''}<button class="btn ghost sm" data-a="ordAnn" data-id="${esc(o.id)}">Cancella l’ordine</button></div>`}}
+    return `<details class="ord"><summary><span class="ot">${esc(nm)}</span><span class="chip ${cl}">${lab}</span><span class="op" aria-hidden="true"></span></summary><div class="ob"><div class="mu">${esc(fd(o.at))}${o.esterno?' · persona non atleta':''}</div>${corpoR}${o.nota?`<div class="mu" style="white-space:pre-wrap">Note: ${esc(o.nota)}</div>`:''}${pag}${az}</div></details>`}).join('');
   return `<div class="card dl" style="margin-top:12px"><h2 style="margin:0">I miei ordini</h2>${l||'<div class="mu" style="margin-top:6px">Non hai ancora inviato ordini.</div>'}
     <div class="dact" style="justify-content:flex-start;margin-top:8px"><a class="btn sm" href="ordini.html" style="text-decoration:none">Ordina del materiale</a></div></div>`}
+/* totale selezionato in tempo reale mentre si tolgono o si mettono le spunte */
+document.addEventListener('change',e=>{
+  const c=e.target&&e.target.closest&&e.target.closest('.ordck');if(!c)return;
+  const id=c.dataset.o,o=mioOrd.find(x=>x.id===id);if(!o)return;
+  const sel=[...document.querySelectorAll('.ordck')].filter(x=>x.dataset.o===id&&x.checked).map(x=>+x.dataset.i);
+  const t=document.getElementById('otot_'+id);if(t)t.textContent=eurA((o.righe||[]).filter((r,i)=>sel.includes(i)).reduce((a,r)=>a+ordTot(r),0));
+  const b=document.getElementById('osc_'+id);if(b)b.textContent=sel.length?'Conferma gli articoli scelti':'Nessun articolo: cancella l’ordine'});
 function mioCardsHtml(){
   return mioCardsBase()+mioOrdHtml()}
 function mioCardsBase(){
