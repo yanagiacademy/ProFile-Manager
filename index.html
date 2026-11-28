@@ -221,7 +221,7 @@ function onMe(){
   /* admin: quante schede atleta hanno modifiche proposte dall'atleta (riquadro Atleti con bordo giallo) */
   if(me.admin)unsubs.push(onSnapshot(collection(db,'atletiModifiche'),sn=>{modN=sn.docs.filter(d=>Object.keys(d.data().campi||{}).length).length;render()},()=>{modN=0}));
   /* ordini nuovi degli atleti: li vede chi ha Ordini in lettura o scrittura */
-  if(me.admin||['r','w'].includes((me.perms||{}).ordini))unsubs.push(onSnapshot(collection(db,'ordiniInviati'),sn=>{ordN=sn.docs.filter(d=>d.data().stato==='inviato').length;render()},()=>{ordN=0}));
+  if(me.admin||['r','w'].includes((me.perms||{}).ordini))unsubs.push(onSnapshot(collection(db,'ordiniInviati'),sn=>{ordN=sn.docs.filter(d=>{const x=d.data();return x.stato==='inviato'||(x.stato==='pagamento'&&x.bonifico&&!x.pagato)}).length;render()},()=>{ordN=0}));
   /* bonifici degli atleti (interni) caricati e ancora da verificare */
   if(me.admin||['r','w'].includes((me.perms||{}).eventi))unsubs.push(fon(fcol(db,'iscrizioni'),sn=>{bvN=sn.docs.filter(d=>{const r=d.data();return r.partecipa==='si'&&Array.isArray(r.bonifici)&&r.bonifici.length&&!r.pagatoOk}).length;render()},()=>{bvN=0}));
   /* iscrizioni di esterni (altre associazioni) in attesa di conferma: le vede chi ha Eventi in lettura o scrittura */

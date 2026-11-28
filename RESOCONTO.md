@@ -605,6 +605,23 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Ordini: sottomenu e nuovo flusso
+- Sottomenu (stessa barra di Eventi, si scorre anche col dito a destra/sinistra; sulle voci un numero rosso indica quanti ordini ci sono): Catalogo · Ordini richiesti · Ordini in pagamento · Ordini effettuati · Ordini ricevuti · Ordini evasi · Ordina (per chi è anche atleta). Si apre su «Ordini richiesti».
+- Catalogo: «+ Nuovo prodotto» e prodotti già inseriti (come prima).
+- Ordini richiesti: ordini inviati dagli atleti. «Imposta il prezzo e chiedi il pagamento» → costo totale, messaggio facoltativo, istruzioni di pagamento (IBAN, causale…; il testo si ricorda per le volte dopo) e, se spunti, mail all'atleta dal Gmail dell'ASD con costo e istruzioni. L'ordine passa in «in pagamento».
+- L'atleta, in Atleti → «I miei ordini», vede «Da pagare: € …» con istruzioni e messaggio, e può «Ho effettuato il bonifico» (nota facoltativa: data/CRO) oppure «Cancella l'ordine» (non più possibile dopo aver dichiarato il bonifico). Se cancella, in «Ordini in pagamento» compare «Annullato dall'atleta» da eliminare.
+- Ordini in pagamento: «Pagamento ricevuto» (verifica), poi «Ordinato al fornitore». In alto «Da ordinare ai fornitori (ordini già pagati)» con «Copia l'elenco».
+- Ordini effettuati → «Segna come ricevuto» → Ordini ricevuti (in tuo possesso) → «Segna come consegnato» → Ordini evasi. Su ogni ordine c'è «← fase precedente» e «Elimina».
+- Gli ordini già «Ricevuti» col vecchio flusso (presa in carico) compaiono ora in «Ordini ricevuti»: se non sono ancora arrivati, riportali indietro con «← Ordini effettuati / Ordini in pagamento».
+- Home: il numero accanto a Ordini conta le richieste nuove e i bonifici dichiarati da verificare.
+- DA FARE: ripubblicare firestore.rules (l'atleta può dichiarare il bonifico e cancellare un ordine in pagamento).
+- File: ordini.js, ordini.html, atleti.js, index.html, firestore.rules, RESOCONTO.md.
+
+## Ordini ricevuti: eliminazione
+- Un ordine può stare in due posti: l'archivio (Telegram) e la copia inviata dall'atleta (Firebase). «Elimina» li toglieva entrambi ma ignorava in silenzio un errore sulla seconda: l'ordine poteva ricomparire in elenco senza alcun messaggio.
+- Ora ogni errore viene mostrato con la causa (Cestino non attivo, ordine protetto, permessi insufficienti sulle regole Firestore, altro) e, quando va a buon fine, la riga sparisce subito.
+- Se il problema persiste, il messaggio mostrato indica dove intervenire. File: ordini.js, RESOCONTO.md.
+
 ## Eventi: sottomenu senza numeri e nuovo sottomenu «Coupon»
 - Tolti i numeri dai sottomenu (e dai titoli dentro «Totale iscritti»).
 - Nuovo sottomenu «Coupon» in seconda posizione: Info evento · Coupon · La mia partecipazione · Iscrizione interni · Iscrizione esterni · Totale iscritti · Check-in evento.

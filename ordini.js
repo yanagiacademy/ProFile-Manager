@@ -20,14 +20,19 @@ function tick(){const d=new Date();$('#clock').textContent=d.toLocaleDateString(
 tick();setInterval(tick,15000);
 
 let auth,db,uid=null,me=null,unsubs=[],tab='',started=false;
-let reg=[],stag=[],regErr=false;                                  /* lato admin */
+let reg=[],stag=[],regErr=false,stagOk=false;                                  /* lato admin */
 let mio=null,mioState='',catalogo=[],miei=[],carrello=[],mioMsg='',per='',notaTxt='',atlList=[],catErr='',extTxt='',invErr='',azzera=[],nuovoForm=false,ultimo='',rinviato=false,meSig='',inInvio=false;
 const aperti=new Set();      /* schede aperte con il + (restano aperte quando la pagina si ridisegna) */   /* lato atleta: mio={ids:[],nomi:{}} */
 const perm=()=>me?(me.admin?'w':((me.perms||{}).ordini||'n')):'n';
 const gest=()=>perm()==='r'||perm()==='w',scrive=()=>perm()==='w';
 const ms=t=>t&&t.toMillis?t.toMillis():(typeof t==='number'?t:0);
 const quando=m=>m?new Date(m).toLocaleString('it-IT',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
-const STATO={inviato:['Nuovo','warn'],ricevuto:['Ricevuto','ok'],evaso:['Evaso','']};
+const STATO={inviato:['Richiesto','warn'],pagamento:['Da pagare','warn'],effettuato:['Ordinato al fornitore',''],ricevuto:['Ricevuto','ok'],evaso:['Consegnato','']};
+/* i sottomenu seguono la vita di un ordine: richiesto dall'atleta → in pagamento (prezzo e bonifico) → ordinato al fornitore → ricevuto (in mio possesso) → consegnato (evaso) */
+const FASI=[['cat','Catalogo'],['inviato','Ordini richiesti'],['pagamento','Ordini in pagamento'],['effettuato','Ordini effettuati'],['ricevuto','Ordini ricevuti'],['evaso','Ordini evasi']];
+const FASE_L=Object.fromEntries(FASI),PREV={pagamento:'inviato',effettuato:'pagamento',ricevuto:'effettuato',evaso:'ricevuto'};
+const num=v=>{const n=parseFloat(String(v==null?'':v).replace(/\s/g,'').replace('€','').replace(',','.'));return isFinite(n)?n:0};
+const eur=n=>'€ '+(Math.round(num(n)*100)/100).toFixed(2).replace('.',',');
 /* Per chi si ordina: solo gli atleti collegati all'account (stessa email inserita in Atleti), oppure un nome scritto a mano */
 const chi=()=>mio?mio.ids.map(id=>({id,n:nomeDi(mio.nomi[id]||{})})):[];
 const nomeAt=id=>{const c=chi().find(x=>x.id===id);return c?c.n:(mio&&mio.nomi[id]?nomeDi(mio.nomi[id]):'')};
@@ -84,8 +89,10 @@ const righeHtml=o=>(o.righe||[]).map(r=>{
   const det=[r.misura&&'Misura '+r.misura,r.colore&&'Colore '+r.colore,r.marchio&&'Marchio '+r.marchio,r.altro&&(r.altroLabel||'Altro')+' '+r.altro].filter(Boolean).join(' · ');
   return `<div style="padding:4px 0"><b>${esc(r.qta||1)} × ${esc(r.nome)}</b>${det?`<div class="mu">${esc(det)}</div>`:''}</div>`}).join('');
 function ordiniUniti(){
-  const rids=new Set(ordiniReg().map(o=>o.id)),l=ordiniReg().map(o=>({...o,reg:true,t:o.ts||0,stag:stag.some(s=>s.id===o.id)}));
-  stag.filter(s=>!rids.has(s.id)).forEach(s=>l.push({...s,reg:false,t:ms(s.at),stag:true}));
+  const rids=new Set(ordiniReg().map(o=>o.id)),sm=new Map(stag.map(x=>[x.id,x]));
+  /* dall'archivio (Telegram) arriva tutto; dalla copia dell'atleta (Firebase) il bonifico dichiarato. Se l'atleta ha annullato un ordine in pagamento la copia non c'è più: resta «annullato» */
+  const l=ordiniReg().map(o=>{const x=sm.get(o.id);return {...o,reg:true,t:o.ts||0,stag:!!x,bonifico:x?x.bonifico:o.bonifico,annullato:stagOk&&!x&&o.stato==='pagamento'}});
+  stag.filter(x=>!rids.has(x.id)).forEach(x=>l.push({...x,reg:false,t:ms(x.at),stag:true}));
   return l.sort((a,b)=>b.t-a.t)}
 /* quanto va ordinato: somma delle righe uguali (stesso prodotto e stesse scelte) degli ordini non ancora evasi */
 function riepilogo(l){
@@ -95,42 +102,98 @@ function riepilogo(l){
     const x=m.get(k)||{r,qta:0,chi:[]};x.qta+=+r.qta||1;x.chi.push(nomeDi(o)+((+r.qta||1)>1?' (×'+r.qta+')':''));m.set(k,x)}));
   return [...m.values()].sort((a,b)=>String(a.r.nome).localeCompare(String(b.r.nome),'it'))}
 const rigaTxt=r=>[r.nome,r.misura&&'misura '+r.misura,r.colore&&r.colore,r.marchio&&r.marchio,r.altro&&(r.altroLabel||'')+' '+r.altro].filter(Boolean).join(', ');
+const payTxt=()=>(reg.find(r=>r.kind==='config')||{}).pay||'';
 function ordineHtml(o){
   const [lab,cl]=STATO[o.stato]||['',''];
-  const corpo=`<div class="mu">${esc(quando(o.t))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="fbox" style="white-space:pre-wrap"><span class="mu">Note</span><div>${esc(o.nota)}</div></div>`:''}
-    ${scrive()?`<div class="dact" style="flex-wrap:wrap">
-      <button class="btn ghost sm" data-a="elim" data-id="${esc(o.id)}">Elimina</button>
-      ${o.stato==='evaso'&&o.stag?`<button class="btn ghost sm" data-a="togli" data-id="${esc(o.id)}">Togli dalla lista dell’atleta</button>`:''}
-      ${o.stato==='inviato'?`<button class="btn sm" data-a="ric" data-id="${esc(o.id)}">Segna come ricevuto</button>`:''}
-      ${o.stato==='ricevuto'?`<button class="btn sm" data-a="eva" data-id="${esc(o.id)}">Segna come evaso</button>`:''}</div>`:''}`;
-  return acc('o_'+o.id,esc(nomeDi(o)),`<span class="chip ${cl}">${lab}</span>`,corpo)}
+  const chips=o.annullato?'<span class="chip bad">Annullato dall’atleta</span>':(num(o.totale)>0?`<span class="chip">${esc(eur(o.totale))}</span>`:'')+(o.stato==='pagamento'?(o.pagato?'<span class="chip ok">Pagamento verificato</span>':o.bonifico?'<span class="chip warn">Bonifico dichiarato</span>':'<span class="chip">In attesa del bonifico</span>'):`<span class="chip ${cl}">${lab}</span>`);
+  const pag=o.stato==='pagamento'&&!o.annullato?`<div class="fbox"><b>Costo: ${esc(eur(o.totale))}</b>${o.bonifico?`<div class="mu">Bonifico dichiarato il ${esc(quando(+o.bonifico.ts||0))}${o.bonifico.nota?' · '+esc(o.bonifico.nota):''}</div>`:''}${o.msgPag?`<div class="mu" style="white-space:pre-wrap">${esc(o.msgPag)}</div>`:''}</div>`:'';
+  const B=(a,t,p)=>`<button class="btn ${p?'':'ghost '}sm" data-a="${a}" data-id="${esc(o.id)}">${t}</button>`,az=[];
+  if(!o.annullato){
+    if(o.stato==='inviato')az.push(B('prezzo','Imposta il prezzo e chiedi il pagamento',1));
+    if(o.stato==='pagamento'){az.push(B('pagato',o.pagato?'Annulla verifica del pagamento':'✔ Pagamento ricevuto',!o.pagato&&!!o.bonifico));az.push(B('ordinato','Ordinato al fornitore',!!o.pagato));az.push(B('prezzo','Cambia prezzo o reinvia'))}
+    if(o.stato==='effettuato')az.push(B('arrivato','Segna come ricevuto',1));
+    if(o.stato==='ricevuto')az.push(B('consegnato','Segna come consegnato',1));
+    if(PREV[o.stato])az.push(B('indietro','← '+FASE_L[PREV[o.stato]]))}
+  az.push(B('elim','Elimina'));
+  if(o.stato==='evaso'&&o.stag)az.push(B('togli','Togli dalla lista dell’atleta'));
+  const corpo=`<div class="mu">${esc(quando(o.t))}${o.esterno?' · persona non atleta':''}</div>${righeHtml(o)}${o.nota?`<div class="fbox" style="white-space:pre-wrap"><span class="mu">Note</span><div>${esc(o.nota)}</div></div>`:''}${pag}
+    ${scrive()?`<div class="dact" style="flex-wrap:wrap">${az.join('')}</div>`:''}`;
+  return acc('o_'+o.id,esc(nomeDi(o)),chips,corpo)}
+/* un ordine sta in due posti: archivio permanente (Telegram) e copia dell'atleta (Firebase). Ogni cambio di stato li aggiorna entrambi; l'archivio nasce al primo passaggio oltre «richiesto» */
+async function cambiaStato(id,stato,extra={}){
+  const x=stag.find(v=>v.id===id),a=reg.find(r=>r.id===id&&r.kind==='ordine'),patch={stato,...extra};
+  if(a)await updateDoc(doc(db,'sections','ordini','items',id),patch);
+  else if(x&&stato!=='inviato')await setDoc(doc(db,'sections','ordini','items',id),{kind:'ordine',atleta:x.atleta||'',esterno:!!x.esterno,nome:x.nome||'',cognome:x.cognome||'',righe:x.righe||[],nota:x.nota||'',ts:ms(x.at)||Date.now(),by:uid,title:'Ordine · '+nomeDi(x),note:(x.righe||[]).map(r=>(r.qta||1)+'× '+r.nome).join(', ').slice(0,300),...patch});
+  if(x)await rupdate(rdoc(db,'ordiniInviati',id),patch)}
+/* mail all'atleta (dal Gmail dell'ASD) con costo e istruzioni; se non parte, la richiesta resta comunque visibile all'atleta in «I miei ordini» */
+async function mandaMail(o){
+  try{
+    const {mailPronta,inviaDiretta}=await import('./notifiche-motore.js');
+    if(!(await mailPronta()))throw new Error('la Mail non è ancora collegata (mail-config.js)');
+    const u=o.by?await rgetDoc(rdoc(db,'users',o.by)):null,to=u&&u.exists()?String(u.data().email||'').trim():'';
+    if(!to)throw new Error('non trovo l’indirizzo mail dell’account che ha inviato l’ordine');
+    const righe=(o.righe||[]).map(r=>'• '+(r.qta||1)+' × '+rigaTxt(r)).join('\n'),url=location.href.replace(/[^/]*$/,'')+'atleti.html';
+    const testo=['Ciao,','','il tuo ordine ('+nomeDi(o)+') è pronto per il pagamento.','','Costo totale: '+eur(o.totale),'',righe,...(o.msgPag?['',o.msgPag]:[]),...(o.istruzioni?['','Come pagare:',o.istruzioni]:[]),'','Apri ProFile Manager → Atleti → «I miei ordini»: da lì puoi dichiarare il bonifico effettuato oppure cancellare l’ordine.',url,'','Yanagi Academy'].join('\n');
+    const r=await inviaDiretta(db,{key:'ord:'+o.id+':'+Date.now(),to,subject:'Ordine da pagare: '+eur(o.totale),text:testo});
+    if(!r.ok)throw new Error(r.e||'invio non riuscito')
+  }catch(x){console.error(x);alert('Richiesta di pagamento registrata, ma la mail non è partita: '+((x&&x.message)||x)+'. L’atleta la trova comunque in «I miei ordini».')}}
+function apriPrezzo(o){
+  const nuovo=o.stato==='inviato';
+  modal(nuovo?'Richiesta di pagamento':'Cambia il prezzo',`<p class="mu" style="margin:4px 0 8px">Ordine di <b>${esc(nomeDi(o))}</b>. L’atleta riceve il costo e sceglie se fare il bonifico o cancellare l’ordine.</p>
+    <label for="ptot">Costo totale (€)</label><input id="ptot" type="text" inputmode="decimal" autocomplete="off" placeholder="es. 45,00" value="${num(o.totale)>0?esc(String(o.totale).replace('.',',')):''}">
+    <label for="pmsg">Messaggio per l’atleta (facoltativo)</label><textarea id="pmsg" maxlength="500" placeholder="es. Consegna prevista tra due settimane">${esc(o.msgPag||'')}</textarea>
+    <label for="ppay">Come pagare (IBAN, intestatario, causale…)</label><textarea id="ppay" maxlength="800" style="min-height:110px">${esc(o.istruzioni||payTxt())}</textarea>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="pmail" checked style="width:auto;min-height:auto"> Invia anche una mail all’atleta</label>`,
+    nuovo?'Invia richiesta':'Salva',async(m,er)=>{
+      const tot=Math.round(num(m.querySelector('#ptot').value)*100)/100;
+      if(!(tot>0)){er.textContent='Indica il costo totale in euro (maggiore di zero).';return false}
+      const msg=m.querySelector('#pmsg').value.trim(),pay=m.querySelector('#ppay').value.trim(),mail=m.querySelector('#pmail').checked;
+      if(pay!==payTxt())await setDoc(doc(db,'sections','ordini','items','_pagamento'),{kind:'config',title:'Come pagare gli ordini',pay});
+      await cambiaStato(o.id,'pagamento',{totale:tot,msgPag:msg,istruzioni:pay,inPagAt:Date.now(),...(nuovo?{pagato:false}:{})});
+      if(mail)setTimeout(()=>mandaMail({...o,totale:tot,msgPag:msg,istruzioni:pay}),0)})}
+function apriIstruzioni(){
+  modal('Istruzioni di pagamento',`<p class="mu" style="margin:4px 0 8px">Il testo che proponi a ogni richiesta di pagamento (puoi cambiarlo ordine per ordine).</p><label for="ppay2">Come pagare</label><textarea id="ppay2" maxlength="800" style="min-height:140px" placeholder="IBAN, intestatario, causale…">${esc(payTxt())}</textarea>`,'Salva',
+    async m=>{await setDoc(doc(db,'sections','ordini','items','_pagamento'),{kind:'config',title:'Come pagare gli ordini',pay:m.querySelector('#ppay2').value.trim()})})}
 async function azioneAdmin(a,id){
   const o=ordiniUniti().find(x=>x.id===id);
-  if(a==='ric'){
-    const s=stag.find(x=>x.id===id);if(!s)return;
-    /* copia permanente su Telegram (cifrata), poi lo stato visibile all'atleta */
-    await setDoc(doc(db,'sections','ordini','items',id),{kind:'ordine',atleta:s.atleta||'',esterno:!!s.esterno,nome:s.nome||'',cognome:s.cognome||'',righe:s.righe||[],nota:s.nota||'',stato:'ricevuto',ts:ms(s.at)||Date.now(),by:uid,
-      title:'Ordine · '+nomeDi(s),note:(s.righe||[]).map(r=>(r.qta||1)+'× '+r.nome).join(', ').slice(0,300)});
-    await rupdate(rdoc(db,'ordiniInviati',id),{stato:'ricevuto'})}
-  else if(a==='eva'){
-    await updateDoc(doc(db,'sections','ordini','items',id),{stato:'evaso'});
-    if(stag.some(x=>x.id===id))await rupdate(rdoc(db,'ordiniInviati',id),{stato:'evaso'}).catch(()=>{})}
-  else if(a==='togli'){await rdelete(rdoc(db,'ordiniInviati',id))}
+  if(a==='prezzo'){if(o)apriPrezzo(o)}
+  else if(a==='pagato')await cambiaStato(id,'pagamento',{pagato:!(o&&o.pagato),pagatoAt:Date.now()});
+  else if(a==='ordinato'){if(o&&!o.pagato&&!confirm('Il pagamento non risulta verificato. Segnare comunque come ordinato al fornitore?'))return;await cambiaStato(id,'effettuato',{effettuatoAt:Date.now()})}
+  else if(a==='arrivato')await cambiaStato(id,'ricevuto',{ricevutoAt:Date.now()});
+  else if(a==='consegnato')await cambiaStato(id,'evaso',{evasoAt:Date.now()});
+  else if(a==='indietro'){if(o&&PREV[o.stato])await cambiaStato(id,PREV[o.stato])}
+  else if(a==='payEd')apriIstruzioni();
+  else if(a==='togli'){await rdelete(rdoc(db,'ordiniInviati',id));stag=stag.filter(x=>x.id!==id);renderBg()}
   else if(a==='elim'){
     if(!confirm('Eliminare questo ordine di '+(o?nomeDi(o):'')+'?'))return;
-    if(reg.some(r=>r.id===id&&r.kind==='ordine'))await deleteDoc(doc(db,'sections','ordini','items',id));
-    if(stag.some(x=>x.id===id))await rdelete(rdoc(db,'ordiniInviati',id)).catch(()=>{})}}
-function gestioneHtml(){
-  const P=prodotti(),L=ordiniUniti(),R=riepilogo(L),nuovi=L.filter(o=>o.stato==='inviato').length;
-  return `${regErr?'<div class="card" style="margin-bottom:12px"><b>Dati non completi</b><div class="mu">Non riesco a leggere il catalogo e l’archivio ordini: sono su Telegram. Accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina.</div></div>':''}
-    <h2 style="margin:0 0 6px">Ordini ricevuti ${nuovi?`<span class="chip warn">${nuovi} ${nuovi===1?'nuovo':'nuovi'}</span>`:''}</h2>
-    ${R.length?`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Da ordinare in totale</b><button class="btn ghost sm" data-a="copia">Copia l’elenco</button></div>
-      ${R.map(x=>`<div style="padding:5px 0;border-top:1px solid var(--ln)"><b>${x.qta} × ${esc(rigaTxt(x.r))}</b><div class="mu">${esc(x.chi.join(', '))}</div></div>`).join('')}</div>`:''}
-    ${L.length?L.map(ordineHtml).join(''):'<div class="card"><div class="mu">Nessun ordine. Quando un atleta ne invia uno, lo trovi qui.</div></div>'}
-    <div class="fh" style="margin:18px 0 6px"><h2 style="margin:0">Prodotti</h2>${scrive()?'<button class="btn sm" data-a="nuovoP">+ Nuovo prodotto</button>':''}</div>
+    /* un ordine può stare in due posti: archivio (Telegram) e copia inviata dall'atleta (Firebase). Si tolgono entrambi e gli errori non restano più nascosti */
+    const errs=[];
+    if(reg.some(r=>r.id===id&&r.kind==='ordine')){try{await deleteDoc(doc(db,'sections','ordini','items',id))}catch(x){console.error('elimina archivio ordine',x);errs.push(x)}}
+    if(stag.some(x=>x.id===id)){try{await rdelete(rdoc(db,'ordiniInviati',id))}catch(x){console.error('elimina ordine inviato',x);errs.push(x)}}
+    if(errs.length){
+      const e=errs[0],m=e&&e.message,c=e&&e.code;
+      throw new Error(m==='NOPUB'?'il Cestino non è ancora attivo: l’admin deve aprire la Home una volta.':m==='PROTETTO'?'ordine protetto, non eliminabile.':c==='permission-denied'?'permessi insufficienti (controlla che le regole Firestore siano pubblicate e che il tuo account abbia «Scrittura» su Ordini).':(m||'riprova tra poco.'))}
+    reg=reg.filter(r=>!(r.id===id&&r.kind==='ordine'));stag=stag.filter(x=>x.id!==id);renderBg()}}
+function catalogoHtml(){
+  const P=prodotti();
+  return `<div class="fh" style="margin:18px 0 6px"><h2 style="margin:0">Prodotti</h2>${scrive()?'<button class="btn sm" data-a="nuovoP">+ Nuovo prodotto</button>':''}</div>
     ${P.length?P.map(p=>acc('p_'+p.id,esc(p.nome),p.attivo===false?'<span class="chip">Non disponibile</span>':'',`${p.prezzo?`<div class="mu">${esc(p.prezzo)}</div>`:''}${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
       ${[['Misure',p.misure],['Colori',p.colori],['Marchi',p.marchi],[altroNome(p),p.altro]].filter(x=>(x[1]||[]).length).map(([l,a])=>`<div class="mu" style="margin-top:4px"><b>${esc(l)}:</b> ${esc(a.join(', '))}</div>`).join('')}
       ${scrive()?`<div class="dact"><button class="btn ghost sm" data-a="elP" data-id="${esc(p.id)}">Elimina</button><button class="btn ghost sm" data-a="edP" data-id="${esc(p.id)}">Modifica</button></div>`:''}`)).join(''):'<div class="card"><div class="mu">Nessun prodotto. Crea il primo: gli atleti potranno sceglierlo dalle tendine.</div></div>'}`}
+const SPIEGA={inviato:'Le richieste degli atleti. Quando hai il prezzo premi «Imposta il prezzo»: l’atleta riceve il costo e sceglie se fare il bonifico o cancellare l’ordine.',pagamento:'Ordini in attesa del pagamento. Quando il bonifico è arrivato premi «Pagamento ricevuto», poi «Ordinato al fornitore».',effettuato:'Ordini già fatti ai fornitori, in attesa che arrivino.',ricevuto:'Materiale arrivato e in tuo possesso, da consegnare agli atleti.',evaso:'Materiale consegnato agli atleti.'};
+const VUOTO={inviato:'Nessuna richiesta. Quando un atleta invia un ordine lo trovi qui.',pagamento:'Nessun ordine in attesa di pagamento.',effettuato:'Nessun ordine effettuato verso i fornitori.',ricevuto:'Nessun ordine ricevuto in attesa di consegna.',evaso:'Nessun ordine consegnato.'};
+function faseHtml(k){
+  if(k==='cat')return catalogoHtml();
+  const L=ordiniUniti().filter(o=>o.stato===k),nuovi=k==='inviato'?L.length:0;
+  let extra='';
+  if(k==='pagamento'){
+    const R=riepilogo(L.filter(o=>o.pagato&&!o.annullato));
+    extra=(scrive()?`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Istruzioni di pagamento</b><button class="btn ghost sm" data-a="payEd">Modifica</button></div><div class="mu" style="white-space:pre-wrap">${esc(payTxt()||'Non ancora scritte: le inserisci anche quando imposti il prezzo.')}</div></div>`:'')
+      +(R.length?`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Da ordinare ai fornitori (ordini già pagati)</b><button class="btn ghost sm" data-a="copia">Copia l’elenco</button></div>
+      ${R.map(x=>`<div style="padding:5px 0;border-top:1px solid var(--ln)"><b>${x.qta} × ${esc(rigaTxt(x.r))}</b><div class="mu">${esc(x.chi.join(', '))}</div></div>`).join('')}</div>`:'')}
+  return `${regErr?'<div class="card" style="margin-bottom:12px"><b>Dati non completi</b><div class="mu">Non riesco a leggere il catalogo e l’archivio ordini: sono su Telegram. Accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina.</div></div>':''}
+    <h2 style="margin:0 0 4px">${esc(FASE_L[k])} ${nuovi?`<span class="chip warn">${nuovi} ${nuovi===1?'nuovo':'nuovi'}</span>`:''}</h2><div class="mu" style="margin-bottom:10px">${esc(SPIEGA[k])}</div>
+    ${extra}${L.length?L.map(ordineHtml).join(''):`<div class="card"><div class="mu">${esc(VUOTO[k])}</div></div>`}`}
 
 /* ---------- lato atleta ---------- */
 async function caricaMio(){
@@ -217,7 +280,7 @@ async function azioneAtleta(a,b){
   return false}
 
 /* ---------- pagina ---------- */
-const modi=()=>[...(gest()?[['g','Gestione']]:[]),...((mio||gest())?[['o','Ordina']]:[])];
+const modi=()=>[...(gest()?FASI:[]),...((mio||gest())?[['o','Ordina']]:[])];
 /* Quello che l'utente sta scrivendo o scegliendo (tendine, quantità, note, nome) non deve sparire se la pagina si ridisegna */
 const campiForm=()=>[...app.querySelectorAll('input[id],select[id],textarea[id]')];
 const salvaForm=()=>{const st={};campiForm().forEach(e=>{st[e.id]=e.type==='checkbox'?e.checked:e.value});return st};
@@ -226,6 +289,16 @@ function ripristinaForm(st,skip){
 const inForm=()=>{const a=document.activeElement;return !!(a&&app.contains(a)&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName))};
 /* ridisegno causato da aggiornamenti in sottofondo: mentre si scrive o si sceglie in «Ordina» si rimanda a dopo (altrimenti sparirebbe la tastiera) */
 function renderBg(){if(tab==='o'&&ultimo==='o'&&inForm()){rinviato=true;return}render()}
+{ /* scorrimento a destra/sinistra: sottomenu successivo/precedente (solo gesti chiaramente orizzontali, mai dentro la barra, i campi o contenuti che scorrono di lato; non da «Ordina», dove ci sono campi da compilare) */
+  let tx=0,ty=0,tt=0,ok=false;
+  const lato=el=>{for(let n=el;n&&n!==app;n=n.parentElement){if(n.scrollWidth>n.clientWidth+4&&/(auto|scroll)/.test(getComputedStyle(n).overflowX))return true}return false};
+  app.addEventListener('touchstart',e=>{if(e.touches.length!==1){ok=false;return}const t=e.touches[0];tx=t.clientX;ty=t.clientY;tt=Date.now();ok=!e.target.closest('.dtabs,input,select,textarea,canvas')&&!lato(e.target)},{passive:true});
+  app.addEventListener('touchend',e=>{
+    if(!ok||!me||tab==='o')return;ok=false;
+    const t=e.changedTouches[0],dx=t.clientX-tx,dy=t.clientY-ty;
+    if(Math.abs(dx)<60||Math.abs(dx)<Math.abs(dy)*1.6||Date.now()-tt>800)return;
+    const ids=modi().map(x=>x[0]),n=ids.indexOf(tab)+(dx<0?1:-1);
+    if(n<0||n>=ids.length)return;tab=ids[n];mioMsg='';nuovoForm=true;render();window.scrollTo(0,0)},{passive:true})}
 app.addEventListener('focusout',()=>{if(rinviato)setTimeout(()=>{if(rinviato&&!inForm()){rinviato=false;render()}},350)});
 function render(){
   if(!me)return;
@@ -233,13 +306,16 @@ function render(){
   if(!M.length){
     if(mioState==='load'){app.innerHTML=box('Un momento…','Sto cercando i tuoi dati.');return}
     app.innerHTML=box('Nessun accesso','Non hai i permessi per questa sezione. Chiedi all’admin.');return}
-  if(!M.some(x=>x[0]===tab))tab=M[0][0];
+  if(!M.some(x=>x[0]===tab))tab=(M.find(x=>x[0]==='inviato')||M[0])[0];
+  const cnt={};if(gest())ordiniUniti().forEach(o=>{if(!o.annullato)cnt[o.stato]=(cnt[o.stato]||0)+1});
   const sv=(tab==='o'&&ultimo==='o'&&!nuovoForm)?salvaForm():null,az=azzera;azzera=[];nuovoForm=false;rinviato=false;
   app.innerHTML=`<div class="top"><a class="btn ghost sm" href="index.html" style="text-decoration:none">← Suite</a><span class="who">${esc(me.name||me.email||'')}</span><button class="btn ghost sm" id="out">Esci</button></div>
-  <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div class="grow"><h2 style="margin:0">Ordini</h2><span class="badge">${tab==='g'?(scrive()?'Gestione: lettura e scrittura':'Gestione: sola lettura'):'Ordina il materiale'}</span></div></div>
-  ${M.length>1?`<div class="flt" role="tablist">${M.map(([k,l])=>`<button class="btn ${tab===k?'':'ghost'} sm" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}</button>`).join('')}</div>`:''}
-  ${tab==='g'?gestioneHtml():ordinaHtml()}</div>`;
+  <div class="wrap"><div class="hd"><span class="lgbox"><img src="logo-yanagi.png" alt="Yanagi Academy"></span><div class="grow"><h2 style="margin:0">Ordini</h2><span class="badge">${tab==='o'?'Ordina il materiale':(scrive()?'Gestione: lettura e scrittura':'Gestione: sola lettura')}</span></div></div>
+  ${M.length>1?`<div class="dtabs" role="tablist" aria-label="Sezioni degli ordini">${M.map(([k,l])=>`<button type="button" role="tab" aria-selected="${tab===k}" data-tab="${k}">${l}${gest()&&cnt[k]?` <span class="n">${cnt[k]}</span>`:''}</button>`).join('')}</div>`:''}
+  ${tab==='o'?ordinaHtml():faseHtml(tab)}</div>`;
   ultimo=tab;if(sv)ripristinaForm(sv,az);
+  { /* la barra si ricrea a ogni ridisegno: rimette in vista il sottomenu attivo */
+    const at=app.querySelector('.dtabs [aria-selected="true"]'),bar=at&&at.parentElement;if(bar)bar.scrollLeft=Math.max(0,at.offsetLeft-(bar.clientWidth-at.offsetWidth)/2)}
   $('#out').onclick=()=>signOut(auth).then(()=>location.href='index.html');
   const sp=$('#per');if(sp)sp.onchange=e=>{per=e.target.value;render()};
   const pe=$('#pext');if(pe)pe.oninput=()=>{extTxt=pe.value};
@@ -255,7 +331,7 @@ function render(){
       else if(a==='edP')apriProdotto(reg.find(x=>x.id===b.dataset.id&&x.kind==='prodotto'));
       else if(a==='elP')await eliminaProdotto(reg.find(x=>x.id===b.dataset.id));
       else if(a==='copia'){
-        const txt=riepilogo(ordiniUniti()).map(x=>x.qta+' x '+rigaTxt(x.r)+'  ['+x.chi.join(', ')+']').join('\n');
+        const txt=riepilogo(ordiniUniti().filter(o=>o.stato==='pagamento'&&o.pagato&&!o.annullato)).map(x=>x.qta+' x '+rigaTxt(x.r)+'  ['+x.chi.join(', ')+']').join('\n');
         try{await navigator.clipboard.writeText(txt);b.textContent='Copiato'}catch(x){prompt('Copia l’elenco:',txt)}}
       else await azioneAdmin(a,b.dataset.id)
     }catch(x){console.error(x);alert('Operazione non riuscita: '+((x&&x.message)||'controlla la connessione e che Telegram sia collegato, poi riprova.'))}};
@@ -265,7 +341,7 @@ if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora c
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);
   onAuthStateChanged(auth,u=>{
-    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
+    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];stagOk=false;catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
     if(!u){location.href='index.html';return}
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
@@ -277,7 +353,7 @@ else{
       started=true;
       if(gest()){
         unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;renderBg()},()=>{reg=[];regErr=true;renderBg()}));
-        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));renderBg()},()=>{stag=[]}));}
+        unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));stagOk=true;renderBg()},()=>{stag=[];stagOk=false}));}
       /* chi è anche un atleta (stessa email inserita dall'admin in Atleti) vede anche la parte «Ordina» */
       mioState='load';render();
       caricaMio().then(async ok=>{mioState=ok?'ok':'no';if(ok){await caricaCatalogo();if(!gest())tab='o'}render()})},()=>{app.innerHTML=box('Errore di connessione','Impossibile leggere l’account. Riprova tra poco.')}))})}

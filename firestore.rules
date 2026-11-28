@@ -285,8 +285,17 @@ service cloud.firestore {
         && (request.resource.data.get('esterno', false) == false || request.resource.data.nome.size() > 0)
         && request.resource.data.righe is list && request.resource.data.righe.size() > 0 && request.resource.data.righe.size() <= 30
         && request.resource.data.nota is string && request.resource.data.nota.size() <= 1000;
-      allow update: if ordAdmin();
-      allow delete: if ordAdmin() || (signedIn() && resource.data.by == request.auth.uid && resource.data.stato == 'inviato');
+      /* l'atleta può solo dichiarare il bonifico (campo «bonifico») mentre l'ordine è in pagamento; l'admin cambia stato, prezzo ecc. */
+      allow update: if ordAdmin()
+        || (signedIn() && resource.data.by == request.auth.uid && resource.data.stato == 'pagamento'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bonifico'])
+            && request.resource.data.bonifico is map
+            && request.resource.data.bonifico.keys().hasOnly(['ts', 'nota'])
+            && request.resource.data.bonifico.ts is number
+            && request.resource.data.bonifico.nota is string && request.resource.data.bonifico.nota.size() <= 200);
+      /* annullare: finché è «inviato», oppure «in pagamento» se non ha ancora dichiarato il bonifico */
+      allow delete: if ordAdmin() || (signedIn() && resource.data.by == request.auth.uid
+        && (resource.data.stato == 'inviato' || (resource.data.stato == 'pagamento' && !('bonifico' in resource.data))));
     }
 
     match /sections/tessere/items/{id} {
