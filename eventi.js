@@ -13,6 +13,7 @@ import * as ext from "./eventi-esterni.js";
 import {caricaAtleti,attivoDi,impostaAttivo,selettore,nomeAt as nomeAtl} from "./atleta-attivo.js";
 import {couponOk,couponTxt,couponId,couponEsaurito,normCoupon,nomeP,ruoloTxt} from "./eventi-esterni-core.js";
 import {archiviaEvento} from "./eventi-archivio.js";
+import {leggiParti,collega,caricaECollega,togli,liberaPrimaDiEliminare,condivisaCon} from "./bonifici-condivisi.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -339,13 +340,10 @@ function openBon(r,f){
   showPreview({title:f.nome,mime:f.mime,errText:e=>'Impossibile aprire il file ('+(e&&e.message==='EMPTY'?'non trovato':'errore di lettura')+').',
     load:async say=>{
       say('Preparazione del file…');
-      const s=await fget(fcol(db,'iscrizioni',r.id,'chunks')),
-        parts=s.docs.map(d=>d.data()).filter(x=>x.f===f.id).sort((a,b)=>a.i-b.i).map(x=>x.data.toUint8Array());
-      if(!parts.length)throw new Error('EMPTY');
-      return new Blob(parts,{type:guessMime(f.nome,f.mime)})}})}
+      return new Blob(await leggiParti(db,'iscrizioni',r,f),{type:guessMime(f.nome,f.mime)})}})}
 async function delChunks(rid,f){await Promise.all(Array.from({length:f.n||1},(_,k)=>fdel(fdoc(db,'iscrizioni',rid,'chunks',f.id+'k'+k)).catch(()=>{})))}
 
-async function uploadBonifico(ev,file){
+async function uploadBonifico(ev,file,sel=[]){
   if(!file)return;
   if(file.size>MAXB){alert('“'+file.name+'” supera il limite di 20 MB.');return}
   const r=myIsc(ev.id);if(!r||r.partecipa!=='si'){alert('Prima indica che partecipi.');return}
@@ -357,9 +355,57 @@ async function uploadBonifico(ev,file){
       await fset(fdoc(db,'iscrizioni',r.id,'chunks',fid+'k'+k),{f:fid,i:k,data:Bytes.fromUint8Array(buf)});
       upMsg='Caricamento '+Math.round((k+1)/n*100)+'%';const e=$('#upm');if(e)e.textContent=upMsg}
     await fupd(fdoc(db,'iscrizioni',r.id),{bonifici:arrayUnion(meta)});
-    r.bonifici=[...(r.bonifici||[]),meta];upMsg='Copia del bonifico caricata.'}
+    r.bonifici=[...(r.bonifici||[]),meta];upMsg='Copia del bonifico caricata.';
+    const ko=[];for(const t of sel){try{await collega(db,'iscrizioni',r,meta,t)}catch(x){console.error(x);ko.push(t)}}
+    if(sel.length)upMsg=ko.length?'Copia caricata, ma non collegata a: '+ko.map(x=>evNome(x.evento)).join(', ')+'.':'Copia del bonifico caricata e collegata a '+sel.length+(sel.length===1?' altro evento.':' altri eventi.')}
   catch(e){console.error(e);await delChunks(r.id,meta);upMsg='Caricamento non riuscito'+(e&&e.code==='permission-denied'?' (permessi: l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.'}
   paintDetail();setTimeout(()=>{upMsg='';paintDetail()},6000)}
+
+/* ---------- bonifici: l'admin carica la copia per conto dell'atleta, un bonifico può valere per più eventi ---------- */
+const evNome=id=>{const e=items.find(x=>x.id===id);return e?e.nome:'evento eliminato'};
+/* iscrizioni a cui si può collegare lo stesso bonifico: stesso account (altri eventi, ma anche un altro figlio nello stesso evento), con «Partecipo», non già collegate */
+function candBon(r,f){
+  const own=f&&f.ref?iscr.find(x=>x.id===f.ref):r;
+  return iscr.filter(x=>x.uid===r.uid&&x.partecipa==='si'&&x.id!==r.id&&(!own||x.id!==own.id)&&items.some(i=>i.id===x.evento)&&!(f&&bonificiOf(x).some(b=>b.id===f.id)))
+    .sort((a,b)=>(((items.find(i=>i.id===a.evento)||{}).data||'')).localeCompare(((items.find(i=>i.id===b.evento)||{}).data||''))||(a.nome||'').localeCompare(b.nome||'','it'))}
+const candHtml=(r,l)=>l.length?'<div class="mu" style="margin:10px 0 2px">Collega lo stesso bonifico anche a (es. un unico bonifico per più eventi):</div>'+l.map(x=>`<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" data-c="${esc(x.id)}" style="width:auto;min-height:0"><span>${esc(evNome(x.evento))}${x.nome&&x.nome!==r.nome?' · '+esc(x.nome):''}</span></label>`).join(''):'<div class="mu" style="margin-top:10px">Nessun altro evento a cui collegarlo: l’atleta non risulta iscritto («Partecipo») ad altri eventi.</div>';
+const scelti=(o,l)=>[...o.querySelectorAll('[data-c]:checked')].map(c=>l.find(x=>x.id===c.dataset.c)).filter(Boolean);
+function openAggiungiBon(ev,r){
+  const cand=candBon(r,null);
+  modal('Aggiungi bonifico · '+(r.nome||'atleta'),`<p class="mu" style="margin:6px 0">Carica tu la copia del bonifico per conto dell’atleta (immagine o PDF, max 20 MB).</p><label for="abf">File del bonifico</label><input id="abf" type="file" accept="image/*,application/pdf">${candHtml(r,cand)}`,{ok:'Carica',onSave:async(o,er)=>{
+    const file=o.querySelector('#abf').files[0];
+    if(!file){er.textContent='Scegli il file del bonifico.';return false}
+    if(file.size>MAXB){er.textContent='“'+file.name+'” supera il limite di 20 MB.';return false}
+    const sel=scelti(o,cand),btn=o.querySelector('[data-ok]'),bt=btn.textContent;btn.disabled=true;
+    try{
+      const {ko}=await caricaECollega(db,'iscrizioni',r,file,sel,t=>{btn.textContent=t});
+      paintDetail();renderList();
+      if(ko.length)alert('Bonifico caricato, ma non è stato possibile collegarlo a: '+ko.map(x=>evNome(x.evento)).join(', ')+'. Usa il pulsante 🔗 accanto al bonifico per riprovare.')}
+    catch(x){console.error(x);btn.disabled=false;btn.textContent=bt;er.textContent='Caricamento non riuscito'+(x&&x.code==='permission-denied'?' (permessi: l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.';return false}}})}
+/* atleta: scelto il file, può indicare che il bonifico vale anche per altri eventi a cui partecipa */
+function scegliBon(ev,file){
+  if(!file)return;
+  if(file.size>MAXB){alert('“'+file.name+'” supera il limite di 20 MB.');return}
+  const r=myIsc(ev.id);if(!r||r.partecipa!=='si'){alert('Prima indica che partecipi.');return}
+  const cand=candBon(r,null);
+  if(!cand.length){uploadBonifico(ev,file);return}
+  modal('Copia del bonifico',`<p class="mu" style="margin:6px 0">«${esc(file.name)}»: se con un unico bonifico hai pagato più eventi, spunta quali.</p>${candHtml(r,cand)}`,{ok:'Carica',onSave:async o=>{uploadBonifico(ev,file,scelti(o,cand))}})}
+function openCollegaBon(r,f){
+  const own=f.ref?iscr.find(x=>x.id===f.ref):r,fo=own&&bonificiOf(own).find(b=>b.id===f.id&&!b.ref);
+  if(!own||!fo){alert('Non trovo la copia di origine di questo bonifico.');return}
+  const cand=candBon(r,f);
+  if(!cand.length){alert('Non ci sono altri eventi a cui collegare questo bonifico: l’atleta non risulta iscritto («Partecipo») ad altri eventi, oppure è già collegato a tutti.');return}
+  modal('Collega il bonifico ad altri eventi',`<p class="mu" style="margin:6px 0">«${esc(f.nome)}» (${esc(r.nome||'atleta')}) vale anche per gli eventi scelti: lo vedrai tra i bonifici di ciascuno e lo verifichi separatamente.</p>${candHtml(r,cand)}`,{ok:'Collega',onSave:async(o,er)=>{
+    const sel=scelti(o,cand);if(!sel.length){er.textContent='Scegli almeno un evento.';return false}
+    for(const t of sel)await collega(db,'iscrizioni',own,fo,t);
+    paintDetail();renderList()}})}
+async function togliBon(r,f){
+  const altri=condivisaCon(r,f,iscr);
+  const msg=f.ref?'Scollegare questo bonifico da «'+evNome(r.evento)+'»? Resta negli altri eventi a cui è collegato.'
+    :altri.length?'Questo bonifico è collegato anche a: '+altri.map(x=>evNome(x.evento)).join(', ')+'.\nTogliendolo sparisce da TUTTI questi eventi. Continuare?'
+    :'Togliere questa copia del bonifico?';
+  if(!confirm(msg))return;
+  await togli(db,'iscrizioni',r,f,iscr);paintDetail();renderList()}
 
 /* chiusura dell'evento senza eliminarlo (sold out, iscrizioni complete…) */
 function openChiudi(ev){
@@ -440,13 +486,14 @@ function openDetail(id){
           const cp={coupon:d.codice,cpTipo:d.tipo,cpValore:+d.valore||0};
           await fupd(fdoc(db,'iscrizioni',r.id),cp);Object.assign(r,cp);paintDetail()}})}
       else if(a==='ob'){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openBon(r,f)}
-      else if(a==='rmf'){
-        const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);
-        if(f&&confirm('Togliere questa copia del bonifico?')){
-          await delChunks(r.id,f);const list=(r.bonifici||[]).filter(x=>x.id!==i);await fupd(fdoc(db,'iscrizioni',r.id),{bonifici:list});r.bonifici=list;paintDetail()}}
+      else if(a==='rmf'){const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)await togliBon(r,f)}
+      else if(a==='bla'){const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openCollegaBon(r,f)}
+      else if(a==='abn'&&isAdmin()){const r=iscr.find(x=>x.id===i);if(r)openAggiungiBon(ev,r)}
+      else if(a==='bl'&&isAdmin()){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openCollegaBon(r,f)}
+      else if(a==='bx'&&isAdmin()){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)await togliBon(r,f)}
       else if(a==='vf'){const r=iscr.find(x=>x.id===i);if(r&&isAdmin())await patchVerif(r)}
       else if(a==='csv')csv(ev);
-      else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid});
+      else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid,nomeEv:evNome});
       else if(a==='cpn'&&isAdmin()){await collegamenti();ext.apriCoupon(db,ev,{uid,interni:()=>iscOf(ev.id),dest:destCoupon(ev)})}
       else if(a==='chk'&&isAdmin())ext.apriCheckin(db,ev,{uid});
       else if(a==='lnk'&&isAdmin()){const ok=await ext.copiaLink(ev);b.textContent=ok?'Copiato ✔':'Copia';setTimeout(()=>{b.textContent='Copia'},2000)}
@@ -460,7 +507,7 @@ function openDetail(id){
         let es;
         try{es=await archiviaEvento(db,ev,{uid,interni:righeInterne(ev),utenti:users,catL,say:t=>{bd.textContent=t}})}
         catch(x){console.error(x);bd.disabled=false;bd.textContent=bt;alert('Archiviazione dei bonifici non riuscita: '+(x&&x.message==='EMPTY'?'una copia di bonifico non è leggibile':x&&x.code==='permission-denied'?'permessi (l’admin deve pubblicare le regole di Firestore aggiornate)':(x&&x.message)||x)+'.\n\nL’evento NON è stato eliminato: riprova (i file già archiviati non vengono duplicati).');return}
-        for(const r of iscOf(ev.id)){try{for(const f of bonificiOf(r))await delChunks(r.id,f);await fdel(fdoc(db,'iscrizioni',r.id))}catch(x){console.error(x)}}
+        for(const r of iscOf(ev.id)){try{await liberaPrimaDiEliminare(db,'iscrizioni',r,iscr);await fdel(fdoc(db,'iscrizioni',r.id))}catch(x){console.error(x)}}
         try{await ext.purge(db,ev)}catch(x){console.error(x)}
         for(const it of items.filter(x=>x.evento===ev.id)){try{await arch.remove(it)}catch(x){console.error(x)}}
         await deleteDoc(doc(db,'sections',SEC,'items',ev.id));if(editing===ev.id)resetForm(false);close();
@@ -515,7 +562,7 @@ function paintDetail(){
   /* all'apertura dell'evento: se ha un coupon assegnato (e non l'ha ancora applicato) lo vede subito, anche prima di scegliere «Partecipo» */
   const cpbox=!(si&&dv.lordo>0)?'':my.coupon?`<div class="mu" style="margin:2px 0 6px">Coupon <b>${esc(my.coupon)}</b> applicato: ${esc(couponTxt({tipo:my.cpTipo,valore:my.cpValore}))}${dv.sconto>0?' (− '+esc(money(dv.sconto))+')':''}${dv.tot<=0?' · nulla da pagare':''}</div>`:`${asgCp}<label for="cpi">${mieiCp.length?'Oppure scrivi un altro codice':'Hai un coupon?'} (facoltativo)</label><div class="fr"><input id="cpi" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" ${closed?'disabled':''}><button class="btn ghost sm" data-a="cpa" ${closed?'disabled':''}>Applica</button></div><div class="mu" id="cpmsg" role="status" style="margin-bottom:4px"></div>`;
   if(si)mine+=`<h3>Pagamento${dv.tot>0?' · '+esc(money(dv.tot)):dv.lordo>0?' · nulla da pagare':''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>${brk}${cpbox}
-    ${mf.length?mf.map(f=>`<div class="fr"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(my.id)}">${esc(f.nome)}</button>${my.pagatoOk?'<span class="chip ok">verificato</span>':`<button class="xb" data-a="rmf" data-i="${esc(f.id)}" aria-label="Togli questa copia">✕</button>`}</div>`).join(''):'<div class="mu">Nessuna copia del bonifico caricata.</div>'}
+    ${mf.length?mf.map(f=>`<div class="fr"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(my.id)}">${esc(f.nome)}</button>${condivisaCon(my,f,iscr).length?'<span class="chip" title="Lo stesso bonifico vale per più eventi">🔗 anche in altri eventi</span>':''}${my.pagatoOk?'<span class="chip ok">verificato</span>':`<button class="btn ghost sm" data-a="bla" data-i="${esc(f.id)}" title="Questo bonifico vale anche per altri eventi" aria-label="Collega questo bonifico ad altri eventi">🔗</button><button class="xb" data-a="rmf" data-i="${esc(f.id)}" aria-label="Togli questa copia">✕</button>`}</div>`).join(''):'<div class="mu">Nessuna copia del bonifico caricata.</div>'}
     <label for="bf">Carica la copia del bonifico${dv.lordo>0&&dv.tot<=0?' (facoltativa: nulla da pagare)':''} (immagine o PDF, max 20 MB)</label><input id="bf" type="file" accept="image/*,application/pdf"><div class="mu" id="upm" style="margin-top:4px">${esc(upMsg)}</div>`;
   /* resoconto per l'admin */
   let rep='';
@@ -525,11 +572,12 @@ function paintDetail(){
     const rigaI=(r,k)=>{
       const bs=bonificiOf(r),d0=dovuto(ev,r),oggi=ricEv.has(ev.id+'_'+r.uid);
       const ch=`${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip ${d0.tot>0?'warn':'ok'}">${d0.tot>0?esc(money(d0.tot)):'nulla da pagare'}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:(hasQ&&d0.lordo>0?`<button class="btn ghost sm" data-a="acp" data-i="${esc(r.id)}">🎟 Aggiungi coupon</button>`:'')}`;
-      const bon=bs.map((f,j)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(j+1):''}</button>`).join('');
+      const bon=bs.map((f,j)=>{const cw=condivisaCon(r,f,iscr);return `<span style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(j+1):''}</button>${cw.length?`<span class="chip" title="Collegato anche a: ${esc(cw.map(x=>evNome(x.evento)).join(', '))}">🔗 condiviso con ${esc(cw.map(x=>evNome(x.evento)).join(', '))}</span>`:''}<button class="btn ghost sm" data-a="bl" data-i="${esc(f.id)}" data-s="${esc(r.id)}" title="Collega questo bonifico ad altri eventi" aria-label="Collega questo bonifico ad altri eventi">🔗</button><button class="xb" data-a="bx" data-i="${esc(f.id)}" data-s="${esc(r.id)}" aria-label="Togli questa copia del bonifico" style="min-height:34px;min-width:34px">✕</button></span>`}).join('');
+      const add=`<button class="btn ghost sm" data-a="abn" data-i="${esc(r.id)}" title="Carica tu la copia del bonifico per conto dell’atleta">📎 Aggiungi bonifico</button>`;
       const ric=r.pagatoOk&&d0.tot>0?(oggi?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(d0.tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):'';
-      const az=!hasQ?'':k==='verif'?bon+`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}">✔ Verifica pagamento</button>`
-        :k==='manca'?`<button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}" title="Per un pagamento arrivato in altro modo (contanti…)">Segna come pagato</button>`
-        :bon+(r.pagatoOk?`<span class="chip ok">✔ verificato</span><button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}">Annulla verifica</button>${ric}`:`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}" title="Nulla da pagare (coupon o quota zero): conferma di averlo controllato">✔ Verifica</button>`);
+      const az=!hasQ?'':k==='verif'?bon+add+`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}">✔ Verifica pagamento</button>`
+        :k==='manca'?add+`<button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}" title="Per un pagamento arrivato in altro modo (contanti…)">Segna come pagato</button>`
+        :bon+add+(r.pagatoOk?`<span class="chip ok">✔ verificato</span><button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}">Annulla verifica</button>${ric}`:`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}" title="Nulla da pagare (coupon o quota zero): conferma di averlo controllato">✔ Verifica</button>`);
       return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b></div><div class="l2">${ch}</div>${az?`<div class="l2">${az}</div>`:''}</div>`};
     const ok2=r=>r.pagatoOk||dovuto(ev,r).tot<=0;
     const daV=hasQ?yes.filter(r=>!ok2(r)&&bonificiOf(r).length):[],manca=hasQ?yes.filter(r=>!ok2(r)&&!bonificiOf(r).length):[],aPosto=hasQ?yes.filter(ok2):[];
@@ -598,7 +646,7 @@ function paintDetail(){
   c.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>secAperte.set(ev.id+d.dataset.k,d.open));
   { /* la barra si ricrea a ogni ridisegno: rimette in vista il sottomenu attivo */
     const at=c.querySelector('.dtabs [aria-selected="true"]'),bar=at&&at.parentElement;if(bar)bar.scrollLeft=Math.max(0,at.offsetLeft-(bar.clientWidth-at.offsetWidth)/2)}
-  const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';uploadBonifico(ev,f)}}
+  const bf=c.querySelector('#bf');if(bf)bf.onchange=()=>{const f=bf.files[0];bf.value='';scegliBon(ev,f)}}
 
 /* righe degli iscritti interni (partecipanti) per l'elenco archiviato quando si elimina l'evento */
 const righeInterne=ev=>iscOf(ev.id).filter(r=>r.partecipa==='si').map(r=>{const d=dovuto(ev,r);return {r,nome:r.nome||'',peso:r.peso||'',persE:pE(ev,r),persH:pH(ev,r),e:d.e,h:d.h,tot:d.tot,verificato:!!r.pagatoOk,bonifici:bonificiOf(r)}});

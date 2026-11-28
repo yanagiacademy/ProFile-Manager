@@ -95,10 +95,10 @@ export async function archiviaEvento(db,ev,{uid,interni=[],utenti=[],catL=()=>''
     ev.nome+' · '+S.nI+' interni e '+S.pE+' esterni ('+S.nE+' associazioni) · totale dovuto '+euroTxt(S.tot));
   /* 2) i bonifici degli iscritti interni e delle associazioni esterne */
   for(const x of interni)for(const [k,f] of x.bonifici.entries()){
-    const bl=await bonificoBlob(db,'iscrizioni',x.r.id,f);
+    const bl=await bonificoBlob(db,'iscrizioni',f.ref||x.r.id,f);
     await salva(ev.id+':i:'+x.r.id+':'+f.id,bl,'Bonifico interno - '+sicuro(x.nome)+' - '+nome+(x.bonifici.length>1?' ('+(k+1)+')':'')+(ext(f.nome)||'.bin'),'Eventi / '+ev.nome+' / Bonifici interni',ev.nome+' · '+x.nome+' · '+euroTxt(x.tot))}
   for(const r of regs)for(const [k,f] of (r.bonifici||[]).entries()){
-    const bl=await bonificoBlob(db,'iscrizioniEsterne',r.id,f),d=dovutoReg(ev,r,regs,cps);
+    const bl=await bonificoBlob(db,'iscrizioniEsterne',f.ref||r.id,f),d=dovutoReg(ev,r,regs,cps);
     await salva(ev.id+':e:'+r.id+':'+f.id,bl,'Bonifico esterno - '+sicuro(r.assoc)+' - '+nome+((r.bonifici||[]).length>1?' ('+(k+1)+')':'')+(ext(f.nome)||'.bin'),'Eventi / '+ev.nome+' / Bonifici esterni',ev.nome+' · '+(r.assoc||'')+' · '+euroTxt(d.totale)+(r.coupon?' · coupon '+r.coupon:''))}
   /* 3) notifica a chi ha accesso a Commercialista */
   const notifica=await avvisa(db,ev,{utenti,uid,S,csvBlob,nomeFile:'Elenco iscritti - '+nome+'.csv',nBon});

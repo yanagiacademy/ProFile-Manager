@@ -8,6 +8,7 @@
 import {collection as fcol,doc as fdoc,onSnapshot as fon,setDoc as fset,updateDoc as fupd,deleteDoc as fdel,getDocs as fget,getDoc as fgetDoc,query,where} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {showPreview,saveBlob,guessMime} from "./file-tools.js";
 import {qrPng} from "./qr.js";
+import {leggiParti,collega,caricaECollega,togli,liberaPrimaDiEliminare,condivisaCon,MAXB} from "./bonifici-condivisi.js";
 import {gruppiHtml,gruppiBind} from "./gruppi-atleti.js";
 import {calcola,couponOk,couponEsaurito,couponTxt,couponId,normCoupon,euroTxt,fmtData,nomeP,ruoloTxt,isTec,nuovoCodice,normCodice,ALFA,num,testoCoupon} from "./eventi-esterni-core.js";
 
@@ -73,10 +74,10 @@ function ripubblica(){
 /* elimina tutto ciò che riguarda l'evento tra gli esterni (iscrizioni, copie dei bonifici, coupon, check-in, copia pubblica) */
 export async function purge(db,ev){
   const q=c=>query(fcol(db,c),where('evento','==',ev.id));
-  const regs=await fget(q('iscrizioniEsterne'));
+  const tutte=await tutteEsterne(db),regs=await fget(q('iscrizioniEsterne'));
   for(const d of regs.docs){
-    const r=d.data();
-    for(const f of (r.bonifici||[]))await delChunks(db,d.id,f);
+    const r=tutte.find(x=>x.id===d.id)||{id:d.id,...d.data()};
+    await liberaPrimaDiEliminare(db,'iscrizioniEsterne',r,tutte);
     await fdel(d.ref)}
   for(const c of ['eventiCoupon','eventiCheckin']){const s=await fget(q(c));for(const d of s.docs)await fdel(d.ref)}
   const pb=await fgetDoc(fdoc(db,'eventiPubblici',ev.id)).catch(()=>null);
@@ -116,10 +117,9 @@ function apriBonifico(db,r,f){
   showPreview({title:f.nome,mime:f.mime,errText:e=>'Impossibile aprire il file ('+(e&&e.message==='EMPTY'?'non trovato':'errore di lettura')+').',
     load:async say=>{
       say('Preparazione del file…');
-      const s=await fget(fcol(db,'iscrizioniEsterne',r.id,'chunks')),
-        parts=s.docs.map(d=>d.data()).filter(x=>x.f===f.id).sort((a,b)=>a.i-b.i).map(x=>x.data.toUint8Array());
-      if(!parts.length)throw new Error('EMPTY');
-      return new Blob(parts,{type:guessMime(f.nome,f.mime)})}})}
+      return new Blob(await leggiParti(db,'iscrizioniEsterne',r,f),{type:guessMime(f.nome,f.mime)})}})}
+/* tutte le iscrizioni esterne (di tutti gli eventi): servono per collegare lo stesso bonifico a più eventi */
+const tutteEsterne=async db=>(await fget(fcol(db,'iscrizioniEsterne'))).docs.map(d=>({id:d.id,...d.data()}));
 
 /* ---------- mail con i codici ---------- */
 function testoCodici(ev,r){
@@ -147,8 +147,9 @@ async function inviaCodici(db,ev,r){
   return files.length}
 
 /* ---------- elenco delle iscrizioni esterne ---------- */
-export function apriEsterni(db,ev,{uid}){
-  let filtro='tutte',aperto=new Set(),sezOp=new Map(),busy=false,msg='';
+export function apriEsterni(db,ev,{uid,nomeEv=()=>'altro evento'}){
+  let filtro='tutte',aperto=new Set(),sezOp=new Map(),busy=false,msg='',ALL=[];
+  const ricarica=()=>tutteEsterne(db).then(l=>{ALL=l;disegna()}).catch(e=>console.warn('Iscrizioni esterne (tutti gli eventi):',e&&e.message));
   const M=modal('Iscrizioni esterne · '+ev.nome,()=>S.stop());
   const S=live(db,ev.id,{reg:true,cpn:true,chk:true},disegna);
   M.body.addEventListener('click',async e=>{
@@ -162,6 +163,9 @@ export function apriEsterni(db,ev,{uid}){
       else if(!r)return;
       else if(a==='tg'){aperto.has(r.id)?aperto.delete(r.id):aperto.add(r.id);disegna()}
       else if(a==='ob'){const f=bonificiOf(r).find(x=>x.id===b.dataset.f);if(f)apriBonifico(db,r,f)}
+      else if(a==='abn')await aggiungiBon(r);
+      else if(a==='bl')await collegaBon(r,b.dataset.f);
+      else if(a==='bx')await togliBon(r,b.dataset.f);
       else if(a==='cf')await conferma(r);
       else if(a==='rei')await reinvia(r);
       else if(a==='rm')await elimina(r)}
@@ -187,9 +191,52 @@ export function apriEsterni(db,ev,{uid}){
     try{const k=await inviaCodici(db,ev,r);await fupd(fdoc(db,'iscrizioniEsterne',r.id),{mailTs:Date.now(),mailErr:''});msg='Reinviati '+k+(k===1?' codice':' codici')+' a '+r.email+'.'}
     catch(x){console.error(x);await fupd(fdoc(db,'iscrizioniEsterne',r.id),{mailErr:String(x&&x.message||x).slice(0,200)}).catch(()=>{});msg='Invio non riuscito: '+(x&&x.message||x)}
     busy=false;disegna()}
+  /* copie dei bonifici caricate dall'admin per conto dell'associazione; lo stesso bonifico può valere per più eventi (stessa mail) */
+  const mailK=x=>String(x.email||'').trim().toLowerCase();
+  const cand=(r,f)=>{
+    const R=ALL.find(x=>x.id===r.id)||r,own=f&&f.ref?ALL.find(x=>x.id===f.ref):R;
+    return ALL.filter(x=>x.id!==R.id&&(!own||x.id!==own.id)&&mailK(x)===mailK(R)&&!(f&&bonificiOf(x).some(bb=>bb.id===f.id)))
+      .sort((a,b)=>(a.ts||0)-(b.ts||0))};
+  const candHtml=l=>l.length?'<div class="mu" style="margin:10px 0 2px">Collega lo stesso bonifico anche a (stessa associazione, es. un unico bonifico per più eventi):</div>'+l.map(x=>`<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" data-c="${esc(x.id)}" style="width:auto;min-height:0"><span>${esc(nomeEv(x.evento))} · ${esc(x.assoc||'')}</span></label>`).join(''):'<div class="mu" style="margin-top:10px">Nessun’altra iscrizione di questa associazione (stessa mail) a cui collegarlo.</div>';
+  const scelti=(box,l)=>[...box.querySelectorAll('[data-c]:checked')].map(c=>l.find(x=>x.id===c.dataset.c)).filter(Boolean);
+  function dialogo(titolo,html,okTxt,onOk){
+    const D=modal(titolo,()=>{});
+    D.body.innerHTML=html+'<p class="err" role="alert" data-er></p><div class="acts" style="margin-top:8px"><button class="btn" data-ok>'+okTxt+'</button></div>';
+    const er=D.body.querySelector('[data-er]'),ok=D.body.querySelector('[data-ok]');
+    ok.onclick=async()=>{er.textContent='';ok.disabled=true;try{if(await onOk(D.body,er,t=>{ok.textContent=t})===false){ok.disabled=false;ok.textContent=okTxt;return}D.close()}catch(x){console.error(x);ok.disabled=false;ok.textContent=okTxt;er.textContent='Operazione non riuscita'+(x&&x.code==='permission-denied'?' (permessi: l’admin deve pubblicare le regole di Firestore aggiornate)':'')+'.'}}}
+  async function aggiungiBon(r){
+    await ricarica();
+    const R=ALL.find(x=>x.id===r.id)||r,c=cand(R,null);
+    dialogo('Aggiungi bonifico · '+(R.assoc||''),`<p class="mu" style="margin:6px 0">Carica tu la copia del bonifico per conto dell’associazione (immagine o PDF, max 20 MB).</p><label for="abf">File del bonifico</label><input id="abf" type="file" accept="image/*,application/pdf">${candHtml(c)}`,'Carica',async(bx,er,say)=>{
+      const file=bx.querySelector('#abf').files[0];
+      if(!file){er.textContent='Scegli il file del bonifico.';return false}
+      if(file.size>MAXB){er.textContent='“'+file.name+'” supera il limite di 20 MB.';return false}
+      const {ko}=await caricaECollega(db,'iscrizioniEsterne',R,file,scelti(bx,c),say);
+      msg=ko.length?'Bonifico caricato, ma non collegato a: '+ko.map(x=>nomeEv(x.evento)).join(', ')+'.':'Copia del bonifico caricata'+(scelti(bx,c).length?' e collegata a '+scelti(bx,c).length+(scelti(bx,c).length===1?' altra iscrizione.':' altre iscrizioni.'):'.');
+      await ricarica()})}
+  async function collegaBon(r,fid){
+    await ricarica();
+    const R=ALL.find(x=>x.id===r.id)||r,f=bonificiOf(R).find(x=>x.id===fid);if(!f)return;
+    const own=f.ref?ALL.find(x=>x.id===f.ref):R,fo=own&&bonificiOf(own).find(bb=>bb.id===f.id&&!bb.ref);
+    if(!own||!fo){alert('Non trovo la copia di origine di questo bonifico.');return}
+    const c=cand(R,f);
+    if(!c.length){alert('Non ci sono altre iscrizioni di questa associazione (stessa mail) a cui collegare il bonifico, oppure è già collegato a tutte.');return}
+    dialogo('Collega il bonifico ad altri eventi',`<p class="mu" style="margin:6px 0">«${esc(f.nome)}» (${esc(R.assoc||'')}) vale anche per le iscrizioni scelte: lo vedrai tra i bonifici di ciascuna.</p>${candHtml(c)}`,'Collega',async(bx,er)=>{
+      const sel=scelti(bx,c);if(!sel.length){er.textContent='Scegli almeno un evento.';return false}
+      for(const t of sel)await collega(db,'iscrizioniEsterne',own,fo,t);
+      msg='Bonifico collegato a '+sel.length+(sel.length===1?' altra iscrizione.':' altre iscrizioni.');await ricarica()})}
+  async function togliBon(r,fid){
+    await ricarica();
+    const R=ALL.find(x=>x.id===r.id)||r,f=bonificiOf(R).find(x=>x.id===fid);if(!f)return;
+    const altri=condivisaCon(R,f,ALL);
+    const t=f.ref?'Scollegare questo bonifico da questa iscrizione? Resta nelle altre a cui è collegato.'
+      :altri.length?'Questo bonifico è collegato anche a: '+altri.map(x=>nomeEv(x.evento)+' ('+(x.assoc||'')+')').join(', ')+'.\nTogliendolo sparisce da TUTTE queste iscrizioni. Continuare?'
+      :'Togliere questa copia del bonifico?';
+    if(!confirm(t))return;
+    await togli(db,'iscrizioniEsterne',R,f,ALL);msg='Copia del bonifico tolta.';await ricarica()}
   async function elimina(r){
     if(!confirm('Eliminare l’iscrizione di «'+r.assoc+'»? Si cancellano anche la copia del bonifico e gli eventuali ingressi registrati. Non si recupera.'))return;
-    for(const f of bonificiOf(r))await delChunks(db,r.id,f);
+    await liberaPrimaDiEliminare(db,'iscrizioniEsterne',ALL.find(x=>x.id===r.id)||r,await tutteEsterne(db).then(l=>ALL=l));
     for(const p of (r.persone||[])){const c=p.codice&&S.chk.get(p.codice);if(c)await fdel(fdoc(db,'eventiCheckin',c.id)).catch(()=>{})}
     const cc=r.coupon&&cpRaw(S,r);if(cc&&num(cc.max)>0&&(+cc.usi||0)>0)await fupd(fdoc(db,'eventiCoupon',cc.id),{usi:(+cc.usi||0)-1}).catch(x=>console.warn(x));
     await fdel(fdoc(db,'iscrizioniEsterne',r.id))}
@@ -212,7 +259,7 @@ export function apriEsterni(db,ev,{uid}){
       <div class="mu" style="margin-top:4px;overflow-wrap:anywhere">${esc(r.referente||'')}${r.tel?' · '+esc(r.tel):''} · ${esc(r.email||'')} · inviata ${esc(hhmm(r.ts))}</div>
       ${r.nota?`<div class="mu" style="margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere">Nota: ${esc(r.nota)}</div>`:''}
       ${ap||conf?grp('Atleti',atl)+grp('Tecnici',tec):''}
-      <div class="l2" style="margin-top:6px">${bs.map((f,k)=>`<button class="btn ghost sm" data-a="ob" data-i="${esc(r.id)}" data-f="${esc(f.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>`).join('')}${conf?`<button class="btn ghost sm" data-a="rei" data-i="${esc(r.id)}">Reinvia codici</button>`:`<button class="btn sm" data-a="cf" data-i="${esc(r.id)}">${d.totale>0?'Conferma ricezione bonifico':'Conferma iscrizione'}</button>`}${conf?'':`<button class="btn ghost sm" data-a="tg" data-i="${esc(r.id)}">${ap?'Nascondi persone':'Vedi persone'}</button>`}<button class="btn ghost sm" data-a="rm" data-i="${esc(r.id)}">Elimina</button></div></div>`}
+      <div class="l2" style="margin-top:6px">${bs.map((f,k)=>{const cw=condivisaCon(ALL.find(x=>x.id===r.id)||r,f,ALL);return `<span style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap"><button class="btn ghost sm" data-a="ob" data-i="${esc(r.id)}" data-f="${esc(f.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>${cw.length?`<span class="chip" title="Collegato anche a: ${esc(cw.map(x=>nomeEv(x.evento)).join(', '))}">🔗 condiviso con ${esc(cw.map(x=>nomeEv(x.evento)).join(', '))}</span>`:''}<button class="btn ghost sm" data-a="bl" data-i="${esc(r.id)}" data-f="${esc(f.id)}" title="Collega questo bonifico ad altri eventi" aria-label="Collega questo bonifico ad altri eventi">🔗</button><button class="xb" data-a="bx" data-i="${esc(r.id)}" data-f="${esc(f.id)}" aria-label="Togli questa copia del bonifico" style="min-height:34px;min-width:34px">✕</button></span>`}).join('')}<button class="btn ghost sm" data-a="abn" data-i="${esc(r.id)}" title="Carica tu la copia del bonifico per conto dell’associazione">📎 Aggiungi bonifico</button>${conf?`<button class="btn ghost sm" data-a="rei" data-i="${esc(r.id)}">Reinvia codici</button>`:`<button class="btn sm" data-a="cf" data-i="${esc(r.id)}">${d.totale>0?'Conferma ricezione bonifico':'Conferma iscrizione'}</button>`}${conf?'':`<button class="btn ghost sm" data-a="tg" data-i="${esc(r.id)}">${ap?'Nascondi persone':'Vedi persone'}</button>`}<button class="btn ghost sm" data-a="rm" data-i="${esc(r.id)}">Elimina</button></div></div>`}
 
   function disegna(){
     const all=S.regs,at=all.filter(r=>!confermata(r)),cf=all.filter(confermata),pe=all.flatMap(r=>r.persone||[]),
@@ -232,7 +279,7 @@ export function apriEsterni(db,ev,{uid}){
       ${all.length?'':'<div class="mu" style="padding:8px 0">Nessuna iscrizione ancora arrivata.</div>'}
       <details class="sez" data-k="link" ${op('link',!all.length)?'open':''}><summary><span class="t">Link per le associazioni</span></summary><div class="sub">Da inviare alle altre associazioni (nessun login):</div><div class="corpo"><div class="fr" style="gap:6px"><input type="text" readonly value="${esc(linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div></div></details>`;
     M.body.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>sezOp.set(d.dataset.k,d.open))}
-  disegna()}
+  disegna();ricarica()}
 
 /* ---------- coupon ---------- */
 export function apriCoupon(db,ev,{uid,interni=()=>[],dest=null}){
