@@ -147,10 +147,11 @@ async function inviaCodici(db,ev,r){
   return files.length}
 
 /* ---------- elenco delle iscrizioni esterne ---------- */
-export function apriEsterni(db,ev,{uid,nomeEv=()=>'altro evento'}){
+export function apriEsterni(db,ev,{uid,nomeEv=()=>'altro evento',rcv=null}){
   let filtro='tutte',aperto=new Set(),sezOp=new Map(),busy=false,msg='',ALL=[];
   const ricarica=()=>tutteEsterne(db).then(l=>{ALL=l;disegna()}).catch(e=>console.warn('Iscrizioni esterne (tutti gli eventi):',e&&e.message));
-  const M=modal('Iscrizioni esterne · '+ev.nome,()=>S.stop());
+  let offRc=null;
+  const M=modal('Iscrizioni esterne · '+ev.nome,()=>{S.stop();if(offRc)offRc()});
   const S=live(db,ev.id,{reg:true,cpn:true,chk:true},disegna);
   M.body.addEventListener('click',async e=>{
     const b=e.target.closest('[data-a]');if(!b||busy)return;
@@ -163,6 +164,8 @@ export function apriEsterni(db,ev,{uid,nomeEv=()=>'altro evento'}){
       else if(!r)return;
       else if(a==='tg'){aperto.has(r.id)?aperto.delete(r.id):aperto.add(r.id);disegna()}
       else if(a==='ob'){const f=bonificiOf(r).find(x=>x.id===b.dataset.f);if(f)apriBonifico(db,r,f)}
+      else if(a==='rce'&&rcv){const d=dovutoDi(ev,S,r);rcv.emetti({tipo:'est',rid:r.id,ev,evNome:ev.nome,da:r.assoc||'',cent:Math.round(d.totale*100),per:'Iscrizione '+ev.nome,email:r.email||'',uid:'',atl:null})}
+      else if(a==='rcb'&&rcv){const rc=rcv.di(r.id);if(rc)rcv.apri(rc,'blu')}
       else if(a==='abn')await aggiungiBon(r);
       else if(a==='bl')await collegaBon(r,b.dataset.f);
       else if(a==='bx')await togliBon(r,b.dataset.f);
@@ -259,7 +262,7 @@ export function apriEsterni(db,ev,{uid,nomeEv=()=>'altro evento'}){
       <div class="mu" style="margin-top:4px;overflow-wrap:anywhere">${esc(r.referente||'')}${r.tel?' · '+esc(r.tel):''} · ${esc(r.email||'')} · inviata ${esc(hhmm(r.ts))}</div>
       ${r.nota?`<div class="mu" style="margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere">Nota: ${esc(r.nota)}</div>`:''}
       ${ap||conf?grp('Atleti',atl)+grp('Tecnici',tec):''}
-      <div class="l2" style="margin-top:6px">${bs.map((f,k)=>{const cw=condivisaCon(ALL.find(x=>x.id===r.id)||r,f,ALL);return `<span style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap"><button class="btn ghost sm" data-a="ob" data-i="${esc(r.id)}" data-f="${esc(f.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>${cw.length?`<span class="chip" title="Collegato anche a: ${esc(cw.map(x=>nomeEv(x.evento)).join(', '))}">🔗 condiviso con ${esc(cw.map(x=>nomeEv(x.evento)).join(', '))}</span>`:''}<button class="btn ghost sm" data-a="bl" data-i="${esc(r.id)}" data-f="${esc(f.id)}" title="Collega questo bonifico ad altri eventi" aria-label="Collega questo bonifico ad altri eventi">🔗</button><button class="xb" data-a="bx" data-i="${esc(r.id)}" data-f="${esc(f.id)}" aria-label="Togli questa copia del bonifico" style="min-height:34px;min-width:34px">✕</button></span>`}).join('')}<button class="btn ghost sm" data-a="abn" data-i="${esc(r.id)}" title="Carica tu la copia del bonifico per conto dell’associazione">📎 Aggiungi bonifico</button>${conf?`<button class="btn ghost sm" data-a="rei" data-i="${esc(r.id)}">Reinvia codici</button>`:`<button class="btn sm" data-a="cf" data-i="${esc(r.id)}">${d.totale>0?'Conferma ricezione bonifico':'Conferma iscrizione'}</button>`}${conf?'':`<button class="btn ghost sm" data-a="tg" data-i="${esc(r.id)}">${ap?'Nascondi persone':'Vedi persone'}</button>`}<button class="btn ghost sm" data-a="rm" data-i="${esc(r.id)}">Elimina</button></div></div>`}
+      <div class="l2" style="margin-top:6px">${bs.map((f,k)=>{const cw=condivisaCon(ALL.find(x=>x.id===r.id)||r,f,ALL);return `<span style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap"><button class="btn ghost sm" data-a="ob" data-i="${esc(r.id)}" data-f="${esc(f.id)}">Bonifico${bs.length>1?' '+(k+1):''}</button>${cw.length?`<span class="chip" title="Collegato anche a: ${esc(cw.map(x=>nomeEv(x.evento)).join(', '))}">🔗 condiviso con ${esc(cw.map(x=>nomeEv(x.evento)).join(', '))}</span>`:''}<button class="btn ghost sm" data-a="bl" data-i="${esc(r.id)}" data-f="${esc(f.id)}" title="Collega questo bonifico ad altri eventi" aria-label="Collega questo bonifico ad altri eventi">🔗</button><button class="xb" data-a="bx" data-i="${esc(r.id)}" data-f="${esc(f.id)}" aria-label="Togli questa copia del bonifico" style="min-height:34px;min-width:34px">✕</button></span>`}).join('')}<button class="btn ghost sm" data-a="abn" data-i="${esc(r.id)}" title="Carica tu la copia del bonifico per conto dell’associazione">📎 Aggiungi bonifico</button>${rcv&&bs.length?(()=>{const rc=rcv.di(r.id);return rc?`<span class="chip ok">🧾 ricevuta n. ${esc(rc.num)}</span><button class="btn ghost sm" data-a="rcb" data-i="${esc(r.id)}">Copia blu</button>`:`<button class="btn sm" data-a="rce" data-i="${esc(r.id)}" title="Emetti la ricevuta numerata">🧾 Emetti ricevuta</button>`})():''}${conf?`<button class="btn ghost sm" data-a="rei" data-i="${esc(r.id)}">Reinvia codici</button>`:`<button class="btn sm" data-a="cf" data-i="${esc(r.id)}">${d.totale>0?'Conferma ricezione bonifico':'Conferma iscrizione'}</button>`}${conf?'':`<button class="btn ghost sm" data-a="tg" data-i="${esc(r.id)}">${ap?'Nascondi persone':'Vedi persone'}</button>`}<button class="btn ghost sm" data-a="rm" data-i="${esc(r.id)}">Elimina</button></div></div>`}
 
   function disegna(){
     const all=S.regs,at=all.filter(r=>!confermata(r)),cf=all.filter(confermata),pe=all.flatMap(r=>r.persone||[]),
@@ -279,6 +282,7 @@ export function apriEsterni(db,ev,{uid,nomeEv=()=>'altro evento'}){
       ${all.length?'':'<div class="mu" style="padding:8px 0">Nessuna iscrizione ancora arrivata.</div>'}
       <details class="sez" data-k="link" ${op('link',!all.length)?'open':''}><summary><span class="t">Link per le associazioni</span></summary><div class="sub">Da inviare alle altre associazioni (nessun login):</div><div class="corpo"><div class="fr" style="gap:6px"><input type="text" readonly value="${esc(linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div></div></details>`;
     M.body.querySelectorAll('details[data-k]').forEach(d=>d.ontoggle=()=>sezOp.set(d.dataset.k,d.open))}
+  if(rcv)offRc=rcv.onChange(disegna);
   disegna();ricarica()}
 
 /* ---------- coupon ---------- */

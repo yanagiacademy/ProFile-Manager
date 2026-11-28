@@ -13,6 +13,7 @@ import * as ext from "./eventi-esterni.js";
 import {caricaAtleti,attivoDi,impostaAttivo,selettore,nomeAt as nomeAtl} from "./atleta-attivo.js";
 import {couponOk,couponTxt,couponId,couponEsaurito,normCoupon,nomeP,ruoloTxt} from "./eventi-esterni-core.js";
 import {archiviaEvento} from "./eventi-archivio.js";
+import {ricevuteEvento} from "./ricevute-evento.js";
 import {leggiParti,collega,caricaECollega,togli,liberaPrimaDiEliminare,condivisaCon} from "./bonifici-condivisi.js";
 
 const $=s=>document.querySelector(s),app=$('#app');
@@ -26,7 +27,7 @@ const CATS={seminario:'Seminari',gara:'Gare',allenamento:'Allenamenti',altro:'Al
 const CAT1={seminario:'Seminario',gara:'Gara',allenamento:'Allenamento',altro:'Altro'};
 const catL=e=>{const b=CAT1[e.cat]||e.cat||'';return e.cat==='altro'&&e.catAltro?b+': '+e.catAltro:b};
 const MOTIVI=['Sold out','Iscrizioni complete','Altro motivo'];
-let payOk=false,auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,pay='',upMsg='',ricEv=new Set(),atl=[],mails={},mailsOk=false,sel=new Set(),dq='';
+let payOk=false,auth,db,col,uid=null,me=null,items=[],iscr=[],users=[],q='',cat='all',unsubs=[],started=false,shellFor='',editing=null,memo=null,detail=null,arch=null,rcv=null,pay='',upMsg='',ricEv=new Set(),atl=[],mails={},mailsOk=false,sel=new Set(),dq='';
 const isAdmin=()=>!!(me&&me.admin);
 const perm=()=>me?(me.admin?'w':((me.perms||{})[SEC]||'n')):'n';
 const meName=()=>(me&&(me.name||me.email))||'';
@@ -399,6 +400,14 @@ function openCollegaBon(r,f){
     const sel=scelti(o,cand);if(!sel.length){er.textContent='Scegli almeno un evento.';return false}
     for(const t of sel)await collega(db,'iscrizioni',own,fo,t);
     paintDetail();renderList()}})}
+/* ricevuta numerata (copia verde ASD + copia blu) per un iscritto interno con bonifico: l'atleta la trova in «Le mie ricevute» */
+async function emettiInt(ev,r){
+  if(!rcv)return;
+  const u=users.find(x=>x.id===r.uid);let at=null;
+  try{if(u&&u.email){const l=await caricaAtleti(db,u.email);at=(r.aid?l.find(x=>x.id===r.aid):l[0])||null}}catch(x){console.warn(x)}
+  const d=dovuto(ev,r);
+  rcv.emetti({tipo:'int',rid:r.id,ev,evNome:ev.nome,da:(at?nomeAtl(at):'')||r.nome||'',cent:Math.round(d.tot*100),per:'Iscrizione '+ev.nome,email:'',uid:r.uid,
+    atl:at?{id:at.id,nome:at.nome||'',cognome:at.cognome||''}:null})}
 async function togliBon(r,f){
   const altri=condivisaCon(r,f,iscr);
   const msg=f.ref?'Scollegare questo bonifico da «'+evNome(r.evento)+'»? Resta negli altri eventi a cui è collegato.'
@@ -488,12 +497,14 @@ function openDetail(id){
       else if(a==='ob'){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openBon(r,f)}
       else if(a==='rmf'){const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)await togliBon(r,f)}
       else if(a==='bla'){const r=myIsc(ev.id),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openCollegaBon(r,f)}
+      else if(a==='rce'&&isAdmin()){const r=iscr.find(x=>x.id===i);if(r)await emettiInt(ev,r)}
+      else if(a==='rcb'&&isAdmin()){const r=iscr.find(x=>x.id===i),rc=r&&rcv&&rcv.di(r.id);if(rc)rcv.apri(rc,'blu')}
       else if(a==='abn'&&isAdmin()){const r=iscr.find(x=>x.id===i);if(r)openAggiungiBon(ev,r)}
       else if(a==='bl'&&isAdmin()){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)openCollegaBon(r,f)}
       else if(a==='bx'&&isAdmin()){const r=iscr.find(x=>x.id===s),f=r&&bonificiOf(r).find(x=>x.id===i);if(f)await togliBon(r,f)}
       else if(a==='vf'){const r=iscr.find(x=>x.id===i);if(r&&isAdmin())await patchVerif(r)}
       else if(a==='csv')csv(ev);
-      else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid,nomeEv:evNome});
+      else if(a==='ext'&&isAdmin())ext.apriEsterni(db,ev,{uid,nomeEv:evNome,rcv});
       else if(a==='cpn'&&isAdmin()){await collegamenti();ext.apriCoupon(db,ev,{uid,interni:()=>iscOf(ev.id),dest:destCoupon(ev)})}
       else if(a==='chk'&&isAdmin())ext.apriCheckin(db,ev,{uid});
       else if(a==='lnk'&&isAdmin()){const ok=await ext.copiaLink(ev);b.textContent=ok?'Copiato ✔':'Copia';setTimeout(()=>{b.textContent='Copia'},2000)}
@@ -574,10 +585,11 @@ function paintDetail(){
       const ch=`${gara?(r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:'<span class="chip bad">peso mancante</span>'):''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)} all’evento</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)} hotel</span>`:''}${hasQ?`<span class="chip ${d0.tot>0?'warn':'ok'}">${d0.tot>0?esc(money(d0.tot)):'nulla da pagare'}</span>`:''}${r.coupon?`<span class="chip ok">coupon ${esc(r.coupon)}</span><button class="xb" data-a="rcp" data-i="${esc(r.id)}" aria-label="Togli il coupon">✕</button>`:(hasQ&&d0.lordo>0?`<button class="btn ghost sm" data-a="acp" data-i="${esc(r.id)}">🎟 Aggiungi coupon</button>`:'')}`;
       const bon=bs.map((f,j)=>{const cw=condivisaCon(r,f,iscr);return `<span style="display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(r.id)}">Bonifico${bs.length>1?' '+(j+1):''}</button>${cw.length?`<span class="chip" title="Collegato anche a: ${esc(cw.map(x=>evNome(x.evento)).join(', '))}">🔗 condiviso con ${esc(cw.map(x=>evNome(x.evento)).join(', '))}</span>`:''}<button class="btn ghost sm" data-a="bl" data-i="${esc(f.id)}" data-s="${esc(r.id)}" title="Collega questo bonifico ad altri eventi" aria-label="Collega questo bonifico ad altri eventi">🔗</button><button class="xb" data-a="bx" data-i="${esc(f.id)}" data-s="${esc(r.id)}" aria-label="Togli questa copia del bonifico" style="min-height:34px;min-width:34px">✕</button></span>`}).join('');
       const add=`<button class="btn ghost sm" data-a="abn" data-i="${esc(r.id)}" title="Carica tu la copia del bonifico per conto dell’atleta">📎 Aggiungi bonifico</button>`;
-      const ric=r.pagatoOk&&d0.tot>0?(oggi?'<span class="chip ok">ricevuta caricata</span>':`<a class="btn ghost sm" style="text-decoration:none" href="ricevute.html?ev=${encodeURIComponent(ev.id)}&uid=${encodeURIComponent(r.uid)}&imp=${encodeURIComponent(d0.tot.toFixed(2))}&cau=${encodeURIComponent('Iscrizione '+ev.nome)}">Crea ricevuta</a>`):'';
-      const az=!hasQ?'':k==='verif'?bon+add+`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}">✔ Verifica pagamento</button>`
+      const rc=rcv&&rcv.di(r.id);
+      const ric=bs.length?(rc?`<span class="chip ok">🧾 ricevuta n. ${esc(rc.num)}</span><button class="btn ghost sm" data-a="rcb" data-i="${esc(r.id)}">Copia blu</button>`:`<button class="btn sm" data-a="rce" data-i="${esc(r.id)}" title="Emetti la ricevuta numerata (copia verde ASD + copia blu)">🧾 Emetti ricevuta</button>`):(oggi?'<span class="chip ok">ricevuta caricata</span>':'');
+      const az=!hasQ?'':k==='verif'?bon+add+ric+`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}">✔ Verifica pagamento</button>`
         :k==='manca'?add+`<button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}" title="Per un pagamento arrivato in altro modo (contanti…)">Segna come pagato</button>`
-        :bon+add+(r.pagatoOk?`<span class="chip ok">✔ verificato</span><button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}">Annulla verifica</button>${ric}`:`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}" title="Nulla da pagare (coupon o quota zero): conferma di averlo controllato">✔ Verifica</button>`);
+        :bon+add+(r.pagatoOk?`<span class="chip ok">✔ verificato</span><button class="btn ghost sm" data-a="vf" data-i="${esc(r.id)}">Annulla verifica</button>`:`<button class="btn sm" data-a="vf" data-i="${esc(r.id)}" title="Nulla da pagare (coupon o quota zero): conferma di averlo controllato">✔ Verifica</button>`)+ric;
       return `<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b></div><div class="l2">${ch}</div>${az?`<div class="l2">${az}</div>`:''}</div>`};
     const ok2=r=>r.pagatoOk||dovuto(ev,r).tot<=0;
     const daV=hasQ?yes.filter(r=>!ok2(r)&&bonificiOf(r).length):[],manca=hasQ?yes.filter(r=>!ok2(r)&&!bonificiOf(r).length):[],aPosto=hasQ?yes.filter(ok2):[];
@@ -690,6 +702,7 @@ function listenIscr(){
   const base=fcol(db,'iscrizioni');
   unsubs.push(fon((isAdmin()||perm()==='r'||perm()==='w')?base:query(base,where('uid','==',uid)),s=>{iscr=s.docs.map(d=>({id:d.id,...d.data()}));riparaNomi();renderList()},e=>console.error('iscrizioni',e)));
   /* ricevute già caricate per questo evento (le scrive la sezione Ricevute con evId e ricUid): solo l'admin */
+  if(isAdmin()){rcv=rcv||ricevuteEvento(db,{uid});rcv.start(()=>{if(detail)paintDetail()});unsubs.push(()=>rcv&&rcv.stop())}
   if(isAdmin())unsubs.push(fon(fcol(db,'sections','ricevute','items'),s=>{ricEv=new Set(s.docs.map(d=>d.data()).filter(d=>d.evId&&d.ricUid&&!d.archiviatoIl).map(d=>d.evId+'_'+d.ricUid));if(detail)paintDetail()},()=>{ricEv=new Set()}))}
 
 document.addEventListener('change',e=>{const x=e.target.closest&&e.target.closest('[data-atlsel]');if(!x)return;impostaAttivo(x.value);att=ml.find(a=>a.id===x.value)||att;renderList()});
