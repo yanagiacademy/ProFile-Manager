@@ -63,8 +63,10 @@ let mioP=null,mioId='',mioIds=[],mioNomi={},mioT=null,mioF={t:null,c:null},mioEr
 async function caricaMioAt(id){
   mioId=id;mioT=null;mioF={t:null,c:null};mioDati=null;mioMod={};
   try{mioRich=await mieRichieste(db,uid)}catch(x){mioRich=[]}
-  /* i miei ordini: solo quelli inviati da questo account (le regole non permettono di leggere gli altri) */
-  try{const sn=await rgetDocs(rquery(rcollection(db,'ordiniInviati'),rwhere('by','==',uid)));mioOrd=sn.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>((b.at&&b.at.toMillis&&b.at.toMillis())||0)-((a.at&&a.at.toMillis&&a.at.toMillis())||0))}catch(x){mioOrd=[]}
+  /* i miei ordini: quelli inviati da questo account e quelli fatti dall'admin a nome di questo atleta (le regole non permettono di leggere gli altri) */
+  try{const sn=await rgetDocs(rquery(rcollection(db,'ordiniInviati'),rwhere('by','==',uid))),mp=new Map(sn.docs.map(d=>[d.id,{id:d.id,...d.data()}]));
+    try{const s2=await rgetDocs(rquery(rcollection(db,'ordiniInviati'),rwhere('atleta','==',id)));s2.docs.forEach(d=>{if(!mp.has(d.id))mp.set(d.id,{id:d.id,...d.data()})})}catch(x){}      /* ordini fatti dall'admin a nome dell'atleta */
+    mioOrd=[...mp.values()].sort((a,b)=>((b.at&&b.at.toMillis&&b.at.toMillis())||0)-((a.at&&a.at.toMillis&&a.at.toMillis())||0))}catch(x){mioOrd=[]}
   try{const d=await rgetDoc(rdoc(db,'atletiDati',id));mioDati=d.exists()?d.data():null}catch(x){mioDati=null}
   try{const m=await rgetDoc(rdoc(db,'atletiModifiche',id));mioMod=m.exists()?(m.data().campi||{}):{}}catch(x){mioMod={}}
   const tr=await rgetDoc(rdoc(db,'sections','tessere','items',id));if(!tr.exists()){mioT=null;return}

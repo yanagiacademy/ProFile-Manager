@@ -277,17 +277,19 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/atletiEmail/$(request.auth.token.email.lower()));
     }
     match /ordiniInviati/{id} {
-      allow read: if ordVede() || (signedIn() && resource.data.by == request.auth.uid);
+      /* l'atleta legge gli ordini inviati da lui e quelli fatti dall'admin a suo nome (campo atleta) */
+      allow read: if ordVede() || (signedIn() && (resource.data.by == request.auth.uid || mioAtleta(resource.data.atleta)));
       allow create: if signedIn() && (mioAtleta(request.resource.data.atleta) || ordAdmin())
         && request.resource.data.by == request.auth.uid
         && request.resource.data.stato == 'inviato'
-        && request.resource.data.keys().hasOnly(['atleta', 'esterno', 'nome', 'cognome', 'righe', 'nota', 'stato', 'by', 'at'])
+        && request.resource.data.keys().hasOnly(['atleta', 'esterno', 'daAdmin', 'nome', 'cognome', 'righe', 'nota', 'stato', 'by', 'at'])
+        && (request.resource.data.get('daAdmin', false) == false || ordAdmin())
         && (request.resource.data.get('esterno', false) == false || request.resource.data.nome.size() > 0)
         && request.resource.data.righe is list && request.resource.data.righe.size() > 0 && request.resource.data.righe.size() <= 30
         && request.resource.data.nota is string && request.resource.data.nota.size() <= 1000;
       /* l'atleta, mentre l'ordine è «in pagamento» e prima del bonifico, sceglie gli articoli (campo «scelta», anche per toglierla) e poi dichiara il bonifico (campo «bonifico»); l'admin cambia stato, prezzi ecc. */
       allow update: if ordAdmin()
-        || (signedIn() && resource.data.by == request.auth.uid && resource.data.stato == 'pagamento'
+        || (signedIn() && (resource.data.by == request.auth.uid || mioAtleta(resource.data.atleta)) && resource.data.stato == 'pagamento'
             && resource.data.get('bonifico', null) == null
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['scelta', 'bonifico'])
             && (!('scelta' in request.resource.data) || (request.resource.data.scelta is map
@@ -302,7 +304,7 @@ service cloud.firestore {
                 && request.resource.data.bonifico.nota is string && request.resource.data.bonifico.nota.size() <= 200
                 && request.resource.data.get('scelta', null) is map)));
       /* annullare (= nessun articolo): finché è «inviato», oppure «in pagamento» se non ha ancora dichiarato il bonifico */
-      allow delete: if ordAdmin() || (signedIn() && resource.data.by == request.auth.uid
+      allow delete: if ordAdmin() || (signedIn() && (resource.data.by == request.auth.uid || mioAtleta(resource.data.atleta))
         && (resource.data.stato == 'inviato' || (resource.data.stato == 'pagamento' && resource.data.get('bonifico', null) == null)));
     }
 

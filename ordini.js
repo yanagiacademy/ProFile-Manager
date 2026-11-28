@@ -9,7 +9,7 @@
        {atleta, nome, cognome, righe[], nota, stato:'inviato'|'ricevuto'|'evaso', by, at}. L'atleta lo legge e, finché è «inviato», lo annulla. */
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {getAuth,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,serverTimestamp} from "./fsx.js";
+import {getFirestore,doc,collection,onSnapshot,addDoc,setDoc,updateDoc,deleteDoc,getDoc,serverTimestamp} from "./fsx.js";
 import {doc as rdoc,collection as rcol,getDoc as rgetDoc,getDocs as rgetDocs,query as rquery,where as rwhere,addDoc as raddDoc,updateDoc as rupdate,deleteDoc as rdelete,onSnapshot as ronSnap,serverTimestamp as rts} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {firebaseConfig} from "./firebase-config.js";
 
@@ -108,8 +108,9 @@ function riepilogo(l){
     const x=m.get(k)||{r,qta:0,chi:[]};x.qta+=+r.qta||1;x.chi.push(nomeDi(o)+((+r.qta||1)>1?' (×'+r.qta+')':''));m.set(k,x)}));
   return [...m.values()].sort((a,b)=>String(a.r.nome).localeCompare(String(b.r.nome),'it'))}
 const rigaTxt=r=>[r.nome,r.misura&&'misura '+r.misura,r.colore&&r.colore,r.marchio&&r.marchio,r.altro&&(r.altroLabel||'')+' '+r.altro].filter(Boolean).join(', ');
-let payEv='';      /* modalità di pagamento dell'ASD: le scrive l'admin in Eventi → «Come pagare» */
-const payTxt=()=>payEv;
+/* modalità di pagamento degli ordini: le scrive l'admin in questa pagina (indipendenti da Eventi); stanno in sections/ordini/items/_pagamento */
+const payTxt=()=>(reg.find(r=>r.id==='_pagamento'&&r.kind==='config')||{}).pay||'';
+const salvaPay=t=>setDoc(doc(db,'sections','ordini','items','_pagamento'),{kind:'config',title:'Come pagare gli ordini',pay:t});
 function ordineHtml(o){
   const [lab,cl]=STATO[o.stato]||['',''];
   const chips=o.annullato?'<span class="chip bad">Annullato dall’atleta</span>':(dovuto(o)>0?`<span class="chip">${esc(eur(dovuto(o)))}</span>`:'')+(o.stato==='pagamento'?(o.pagato?'<span class="chip ok">Pagamento verificato</span>':o.bonifico?'<span class="chip warn">Bonifico dichiarato</span>':o.scelta?'<span class="chip">Scelta fatta · attesa bonifico</span>':'<span class="chip">Attende la scelta dell’atleta</span>'):`<span class="chip ${cl}">${lab}</span>`);
@@ -138,8 +139,10 @@ async function mandaMail(o){
   try{
     const {mailPronta,inviaDiretta}=await import('./notifiche-motore.js');
     if(!(await mailPronta()))throw new Error('la Mail non è ancora collegata (mail-config.js)');
-    const u=o.by?await rgetDoc(rdoc(db,'users',o.by)):null,to=u&&u.exists()?String(u.data().email||'').trim():'';
-    if(!to)throw new Error('non trovo l’indirizzo mail dell’account che ha inviato l’ordine');
+    let to='';
+    if(o.daAdmin){const mm=o.atleta?await rgetDoc(rdoc(db,'atletiMail',o.atleta)):null;to=mm&&mm.exists()?String(mm.data().email||'').trim():''}
+    else{const u=o.by?await rgetDoc(rdoc(db,'users',o.by)):null;to=u&&u.exists()?String(u.data().email||'').trim():''}
+    if(!to)throw new Error(o.daAdmin?'non trovo l’indirizzo mail dell’atleta (scheda Atleti)':'non trovo l’indirizzo mail dell’account che ha inviato l’ordine');
     const righe=(o.righe||[]).map(r=>'• '+(r.qta||1)+' × '+rigaTxt(r)+' — '+eur(rTot(r))).join('\n'),url=location.href.replace(/[^/]*$/,'')+'atleti.html';
     const testo=['Ciao,','','il tuo ordine ('+nomeDi(o)+') è pronto per il pagamento.','','Costo totale: '+eur(totRighe(o.righe)),'',righe,'','Puoi accettare tutto, solo alcuni articoli oppure nessuno: paghi solo ciò che accetti.',...(o.msgPag?['',o.msgPag]:[]),...(o.istruzioni?['','Come pagare:',o.istruzioni]:[]),'','Apri ProFile Manager → Atleti → «I miei ordini»: da lì scegli gli articoli, poi dichiari il bonifico effettuato oppure cancelli l’ordine.',url,'','Yanagi Academy'].join('\n');
     const r=await inviaDiretta(db,{key:'ord:'+o.id+':'+Date.now(),to,subject:'Ordine da pagare: '+eur(totRighe(o.righe)),text:testo});
@@ -151,18 +154,23 @@ function apriPrezzo(o){
     ${R.map((r,i)=>`<div class="fh" style="gap:8px;padding:5px 0;border-top:1px solid var(--ln);align-items:flex-start"><div style="flex:1;min-width:0"><b>${esc(r.qta||1)} × ${esc(r.nome)}</b><div class="mu">${esc([r.misura&&'Misura '+r.misura,r.colore,r.marchio,r.altro].filter(Boolean).join(' · '))}</div><div class="mu" id="ps_${i}"></div></div><div style="flex:none"><label for="pr_${i}" class="mu" style="margin:0">Prezzo (€)</label><input id="pr_${i}" type="text" inputmode="decimal" autocomplete="off" style="max-width:100px" placeholder="0,00" value="${num(r.prezzo)>0?esc(String(r.prezzo).replace('.',',')):''}"></div></div>`).join('')}
     <div class="fh" style="padding:8px 0;border-top:1px solid var(--ln)"><b>Totale</b><b id="ptotv">${esc(eur(0))}</b></div>
     <label for="pmsg">Messaggio per l’atleta (facoltativo)</label><textarea id="pmsg" maxlength="500" placeholder="es. Consegna prevista tra due settimane">${esc(o.msgPag||'')}</textarea>
-    <div class="mu" style="margin-top:8px"><b>Come pagherà</b> (dati dell’ASD, da Eventi → «Come pagare»)</div>
-    ${payTxt()?`<div class="fbox" style="white-space:pre-wrap">${esc(payTxt())}</div>`:'<div class="fbox"><span class="mu">Non hai ancora scritto le modalità di pagamento: aprile in Eventi → «Come pagare» (l’atleta le vedrebbe vuote).</span></div>'}
+    <label for="ppay">Come pagare (IBAN, intestatario, causale…)</label><textarea id="ppay" maxlength="800" style="min-height:110px" placeholder="Scrivilo qui: resta salvato per i prossimi ordini">${esc(o.istruzioni||payTxt())}</textarea>
     <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="pmail" checked style="width:auto;min-height:auto"> Invia anche una mail all’atleta</label>`,
     nuovo?'Invia richiesta':'Salva',async(mm,er)=>{
       const pr=R.map((r,i)=>Math.round(num(mm.querySelector('#pr_'+i).value)*100)/100);
       if(pr.some(v=>!(v>0))){er.textContent='Indica il prezzo di ogni articolo (maggiore di zero).';return false}
       if(!nuovo&&(o.scelta||o.bonifico)&&!confirm('L’atleta ha già risposto: cambiando i prezzi dovrà confermare di nuovo la scelta (e il bonifico dichiarato viene tolto). Continuare?'))return false;
-      const righe=R.map((r,i)=>({...r,prezzo:pr[i]})),tot=Math.round(totRighe(righe)*100)/100,msg=mm.querySelector('#pmsg').value.trim(),mail=mm.querySelector('#pmail').checked;
-      await cambiaStato(o.id,'pagamento',{righe,totale:tot,msgPag:msg,istruzioni:payTxt(),inPagAt:Date.now(),pagato:false,...(nuovo?{}:{scelta:null,bonifico:null})});
-      if(mail)setTimeout(()=>mandaMail({...o,righe,totale:tot,msgPag:msg,istruzioni:payTxt()}),0)});
+      const righe=R.map((r,i)=>({...r,prezzo:pr[i]})),tot=Math.round(totRighe(righe)*100)/100,msg=mm.querySelector('#pmsg').value.trim(),pay=mm.querySelector('#ppay').value.trim(),mail=mm.querySelector('#pmail').checked;
+      if(pay!==payTxt())await salvaPay(pay);
+      await cambiaStato(o.id,'pagamento',{righe,totale:tot,msgPag:msg,istruzioni:pay,inPagAt:Date.now(),pagato:false,...(nuovo?{}:{scelta:null,bonifico:null})});
+      if(mail)setTimeout(()=>mandaMail({...o,righe,totale:tot,msgPag:msg,istruzioni:pay}),0)});
   const rc=()=>{let t=0;R.forEach((r,i)=>{const v=num(m.querySelector('#pr_'+i).value),sub=v*(+r.qta||1);t+=sub;const e=m.querySelector('#ps_'+i);if(e)e.textContent=v>0&&(+r.qta||1)>1?'= '+eur(sub)+' ('+(+r.qta||1)+' pezzi)':''});m.querySelector('#ptotv').textContent=eur(t)};
   m.addEventListener('input',rc);rc()}
+async function apriIstruzioni(){
+  let t=payTxt();
+  if(!t){try{const sn=await getDoc(doc(db,'sections','eventi','meta','pagamenti'));if(sn.exists())t=sn.data().text||''}catch(x){}}      /* solo la prima volta: parte dal testo di Eventi, poi i due restano separati */
+  modal('Come pagano gli atleti',`<p class="mu" style="margin:4px 0 8px">Il testo proposto a ogni richiesta di pagamento degli ordini (IBAN, intestatario, causale…). È separato da quello di Eventi e si può cambiare anche ordine per ordine.</p><label for="ppay2">Come pagare</label><textarea id="ppay2" maxlength="800" style="min-height:140px" placeholder="IBAN, intestatario, causale…">${esc(t)}</textarea>`,'Salva',
+    async m=>{await salvaPay(m.querySelector('#ppay2').value.trim())})}
 async function azioneAdmin(a,id){
   const o=ordiniUniti().find(x=>x.id===id);
   if(a==='prezzo'){if(o)apriPrezzo(o)}
@@ -171,6 +179,7 @@ async function azioneAdmin(a,id){
   else if(a==='arrivato')await cambiaStato(id,'ricevuto',{ricevutoAt:Date.now()});
   else if(a==='consegnato')await cambiaStato(id,'evaso',{evasoAt:Date.now()});
   else if(a==='indietro'){if(o&&PREV[o.stato])await cambiaStato(id,PREV[o.stato])}
+  else if(a==='payEd')await apriIstruzioni();
   else if(a==='togli'){await rdelete(rdoc(db,'ordiniInviati',id));stag=stag.filter(x=>x.id!==id);renderBg()}
   else if(a==='elim'){
     if(!confirm('Eliminare questo ordine di '+(o?nomeDi(o):'')+'?'))return;
@@ -196,7 +205,7 @@ function faseHtml(k){
   let extra='';
   if(k==='pagamento'){
     const R=riepilogo(L.filter(o=>o.pagato&&!o.annullato));
-    extra=`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Come pagano gli atleti</b><a class="btn ghost sm" href="eventi.html" style="text-decoration:none">Modifica in Eventi</a></div><div class="mu" style="white-space:pre-wrap">${esc(payTxt()||'Non ancora scritte: aprile in Eventi → «Come pagare».')}</div></div>`
+    extra=`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Come pagano gli atleti</b>${scrive()?'<button class="btn ghost sm" data-a="payEd">Modifica</button>':''}</div><div class="mu" style="white-space:pre-wrap">${esc(payTxt()||'Non ancora scritte: le inserisci qui o quando imposti i prezzi.')}</div></div>`
       +(R.length?`<div class="card" style="margin-bottom:12px"><div class="fh"><b>Da ordinare ai fornitori (ordini già pagati)</b><button class="btn ghost sm" data-a="copia">Copia l’elenco</button></div>
       ${R.map(x=>`<div style="padding:5px 0;border-top:1px solid var(--ln)"><b>${x.qta} × ${esc(rigaTxt(x.r))}</b><div class="mu">${esc(x.chi.join(', '))}</div></div>`).join('')}</div>`:'')}
   return `${regErr?'<div class="card" style="margin-bottom:12px"><b>Dati non completi</b><div class="mu">Non riesco a leggere il catalogo e l’archivio ordini: sono su Telegram. Accedi dalla pagina <a href="chat.html">Chat</a> e riapri questa pagina.</div></div>':''}
@@ -226,10 +235,10 @@ async function caricaCatalogo(){
 const optSel=(id,lab,arr)=>(arr||[]).length?`<label for="${id}">${esc(lab)}</label><select id="${id}"><option value="">Scegli…</option>${arr.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select>`:'';
 const ALTRA='__altra';
 function ordinaHtml(){
-  const C=catAttivo(),W=chi(),sel=per===ALTRA||W.some(c=>c.id===per)?per:((W[0]||{}).id||ALTRA);
+  const C=catAttivo(),W=chi(),T=gest()?atlList.filter(a=>!W.some(c=>c.id===a.id)).map(a=>({id:a.id,n:nomeDi(a)})).sort((x,y)=>x.n.localeCompare(y.n,'it')):[],sel=per===ALTRA||W.some(c=>c.id===per)||T.some(c=>c.id===per)?per:((W[0]||{}).id||ALTRA);
   return `${mioMsg?`<div class="card" role="status" style="margin-bottom:12px"><b>${esc(mioMsg)}</b></div>`:''}
     ${catErr?`<div class="card" role="alert" style="margin-bottom:12px"><b>Catalogo non disponibile</b><div class="mu">${esc(catErr)}</div></div>`:''}
-    <label for="per">Per chi è l’ordine</label><select id="per">${W.map(c=>`<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}<option value="${ALTRA}" ${sel===ALTRA?'selected':''}>Un’altra persona (non atleta)…</option></select>
+    <label for="per">Per chi è l’ordine</label><select id="per">${W.map(c=>`<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}${T.length?`<optgroup label="Tutti gli atleti">${T.map(c=>`<option value="${esc(c.id)}" ${c.id===sel?'selected':''}>${esc(c.n||'Atleta')}</option>`).join('')}</optgroup>`:''}<option value="${ALTRA}" ${sel===ALTRA?'selected':''}>Un’altra persona (non atleta)…</option></select>
     ${sel===ALTRA?`<label for="pext">Nome e cognome della persona (obbligatorio)</label><input id="pext" type="text" autocomplete="off" required aria-required="true" value="${esc(extTxt)}" placeholder="es. Mario Rossi">`:''}
     <h2 style="margin:12px 0 6px">Prodotti</h2>
     ${C.length?C.map(p=>acc('a_'+p.id,esc(p.nome),p.prezzo?`<span class="mu">${esc(p.prezzo)}</span>`:'',`${p.descr?`<div class="mu">${esc(p.descr)}</div>`:''}
@@ -255,22 +264,23 @@ async function azioneAtleta(a,b){
     if(inInvio)return false;
     const nota=(($('#nota')||{}).value||'').trim().slice(0,1000);
     if(!carrello.length)return false;
-    const sel=($('#per')||{}).value||per;let atleta,nome,cognome,esterno=false;
+    const sel=($('#per')||{}).value||per;let atleta,nome,cognome,esterno=false,daAdmin=false;
     if(sel===ALTRA){
       const t=(($('#pext')||{}).value||'').trim().replace(/\s+/g,' ');
       if(!t){errInv('Scrivi il nome della persona per cui ordini: non può restare vuoto.');const f=$('#pext');if(f)f.focus();return false}
       esterno=true;nome=t;cognome='';
       atleta=(mio&&mio.ids[0])||'';      /* l'ordine resta legato all'account di chi lo invia */
     }else{
-      const pa=chi().find(c=>c.id===sel);
-      if(!pa){errInv('Scegli per chi è l’ordine.');return false}
-      const n=mio.nomi[sel]||{};
-      atleta=sel;nome=n.nome||'';cognome=n.cognome||''}
+      const pa=chi().find(c=>c.id===sel),pt=!pa&&gest()?atlList.find(a=>a.id===sel):null;
+      if(!pa&&!pt){errInv('Scegli per chi è l’ordine.');return false}
+      const n=pa?(mio.nomi[sel]||{}):pt;
+      atleta=sel;nome=n.nome||'';cognome=n.cognome||'';daAdmin=!!pt}      /* ordine fatto dall'admin a nome di un atleta */
     per=sel;inInvio=true;invErr='';
     const bt=document.querySelector('[data-a="invia"]');if(bt){bt.disabled=true;bt.textContent='Invio…'}
     try{
       const ordine={atleta,nome,cognome,righe:carrello.map(r=>({...r})),nota,stato:'inviato',by:uid,at:rts()};
-      if(esterno)ordine.esterno=true;      /* senza il campo per gli ordini normali: funziona anche con regole meno recenti */
+      if(esterno)ordine.esterno=true;
+      if(daAdmin)ordine.daAdmin=true;      /* l'atleta lo vede comunque nei suoi ordini e riceve la richiesta di pagamento */      /* senza il campo per gli ordini normali: funziona anche con regole meno recenti */
       await raddDoc(rcol(db,'ordiniInviati'),ordine);
       carrello=[];notaTxt='';extTxt='';nuovoForm=true;mioMsg=gest()?'Ordine inviato: lo trovi in Gestione.':'Ordine inviato: l’admin lo riceve. Lo trovi in «I miei ordini», nella tua scheda personale (Atleti).';await caricaCatalogo();return true
     }catch(x){console.error(x);errInv(((x&&x.code==='permission-denied')?'Invio non permesso da Firebase.':'Invio non riuscito. Controlla la connessione e riprova.')+'\nDiagnosi: '+[
@@ -349,7 +359,7 @@ if(firebaseConfig.apiKey==='INSERISCI'){app.innerHTML=box('Firebase non ancora c
 else{
   auth=getAuth(initializeApp(firebaseConfig));db=getFirestore(auth.app);
   onAuthStateChanged(auth,u=>{
-    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];stagOk=false;payEv='';catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
+    unsubs.forEach(f=>f());unsubs=[];started=false;mio=null;mioState='';reg=[];stag=[];stagOk=false;catalogo=[];miei=[];carrello=[];atlList=[];catErr='';
     if(!u){location.href='index.html';return}
     uid=u.uid;
     unsubs.push(onSnapshot(doc(db,'users',uid),sn=>{
@@ -361,7 +371,7 @@ else{
       started=true;
       if(gest()){
         unsubs.push(onSnapshot(collection(db,'sections','ordini','items'),s=>{reg=s.docs.map(d=>({id:d.id,...d.data()}));regErr=false;renderBg()},()=>{reg=[];regErr=true;renderBg()}));
-        unsubs.push(onSnapshot(doc(db,'sections','eventi','meta','pagamenti'),sn=>{payEv=sn.exists()?(sn.data().text||''):'';renderBg()},()=>{payEv=''}));
+        unsubs.push(onSnapshot(collection(db,'sections','atleti','items'),sn=>{atlList=sn.docs.map(d=>({id:d.id,...d.data()})).filter(a=>!a.kind||a.kind==='atleta');renderBg()},()=>{atlList=[]}));      /* per ordinare a nome di un atleta */
         unsubs.push(ronSnap(rcol(db,'ordiniInviati'),s=>{stag=s.docs.map(d=>({id:d.id,...d.data()}));stagOk=true;renderBg()},()=>{stag=[];stagOk=false}));}
       /* chi è anche un atleta (stessa email inserita dall'admin in Atleti) vede anche la parte «Ordina» */
       mioState='load';render();
