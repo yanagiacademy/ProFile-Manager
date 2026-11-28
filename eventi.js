@@ -513,7 +513,6 @@ function paintDetail(){
   const mieiCp=cpMiei().filter(c=>c.evento===ev.id&&couponOk(c).ok&&!couponEsaurito(c,c.usi)),
     asgCp=mieiCp.length?`<div class="mu" style="margin:6px 0 4px"><b>🎟 Coupon per te</b></div>${mieiCp.map(c=>`<div class="fr"><span><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b> · ${esc(couponTxt(c))}${c.scadenzaMs?' · fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):''}</span><button class="btn sm" data-a="cpa" data-c="${esc(c.codice)}" ${closed?'disabled':''}>Applica</button></div>`).join('')}`:'';
   /* all'apertura dell'evento: se ha un coupon assegnato (e non l'ha ancora applicato) lo vede subito, anche prima di scegliere «Partecipo» */
-  if(!si&&hasQ&&!closed&&!(my&&my.coupon)&&mieiCp.length)mine=`<div class="mu" style="margin:6px 0 4px"><b>🎟 Hai un coupon per questo evento</b></div>${mieiCp.map(c=>`<div class="fr"><span><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b> · ${esc(couponTxt(c))}${c.scadenzaMs?' · fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):''}</span></div>`).join('')}<div class="mu" style="margin:2px 0 6px">Lo applichi nella sezione «Pagamento» dopo aver scelto «Partecipo».</div>`+mine;
   const cpbox=!(si&&dv.lordo>0)?'':my.coupon?`<div class="mu" style="margin:2px 0 6px">Coupon <b>${esc(my.coupon)}</b> applicato: ${esc(couponTxt({tipo:my.cpTipo,valore:my.cpValore}))}${dv.sconto>0?' (− '+esc(money(dv.sconto))+')':''}${dv.tot<=0?' · nulla da pagare':''}</div>`:`${asgCp}<label for="cpi">${mieiCp.length?'Oppure scrivi un altro codice':'Hai un coupon?'} (facoltativo)</label><div class="fr"><input id="cpi" type="text" maxlength="24" autocomplete="off" autocapitalize="characters" spellcheck="false" ${closed?'disabled':''}><button class="btn ghost sm" data-a="cpa" ${closed?'disabled':''}>Applica</button></div><div class="mu" id="cpmsg" role="status" style="margin-bottom:4px"></div>`;
   if(si)mine+=`<h3>Pagamento${dv.tot>0?' · '+esc(money(dv.tot)):dv.lordo>0?' · nulla da pagare':''}<button class="btn ghost sm" data-a="pay">Come pagare</button></h3>${brk}${cpbox}
     ${mf.length?mf.map(f=>`<div class="fr"><button class="btn ghost sm" data-a="ob" data-i="${esc(f.id)}" data-s="${esc(my.id)}">${esc(f.nome)}</button>${my.pagatoOk?'<span class="chip ok">verificato</span>':`<button class="xb" data-a="rmf" data-i="${esc(f.id)}" aria-label="Togli questa copia">✕</button>`}</div>`).join(''):'<div class="mu">Nessuna copia del bonifico caricata.</div>'}
@@ -549,22 +548,29 @@ function paintDetail(){
   }
   const exb=adm&&ev.esterni?`<h3>Iscrizioni per esterni<button class="btn ghost sm" data-a="ext">Elenco e conferme</button></h3>
     <div class="mu" style="margin:2px 0 6px">Link del modulo da inviare alle altre associazioni:</div>
-    <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(ext.linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo per gli esterni" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>
-    <div class="acts" style="margin-top:8px"><button class="btn ghost sm" data-a="cpn">Coupon</button></div>`:'';
-  const cpx=adm&&!ev.esterni?`<h3>Coupon<button class="btn ghost sm" data-a="cpn">Gestisci coupon</button></h3><div class="mu" style="margin:2px 0 6px">Crea codici sconto o gratuità da dare ai tuoi atleti: lo scrivono nella sezione «Pagamento» dell’evento.</div>`:'';
-  /* sottomenu della scheda evento: 1 Info · 2 La mia partecipazione · 3 Iscrizione interni · 4 Iscrizione esterni · 5 Totale iscritti · 6 Check-in (3-6 solo admin; 4 e 6 solo se l'evento ha gli esterni) */
+    <div class="fr" style="gap:6px"><input type="text" readonly value="${esc(ext.linkEsterno(ev.id))}" onclick="this.select()" aria-label="Link del modulo per gli esterni" style="min-width:0;flex:1 1 auto"><button class="btn ghost sm" data-a="lnk">Copia</button>${navigator.share?'<button class="btn ghost sm" data-a="shr">Condividi</button>':''}</div>`:'';
+  /* sottomenu della scheda evento: Info · Coupon (admin; atleta solo se ha coupon) · La mia partecipazione · Iscrizione interni · Iscrizione esterni · Totale iscritti · Check-in (admin; esterni e check-in solo se l'evento ha gli esterni) */
   const exR=detail.exRegs||[],exChk=detail.exChk||new Set(),exConf=r=>r.stato==='confermata';
-  const tabs=[['info','Info evento'],['mia','La mia partecipazione']].concat(adm?[['int','Iscrizione interni']]:[],adm&&ev.esterni?[['est','Iscrizione esterni']]:[],adm?[['tot','Totale iscritti']]:[],adm&&ev.esterni?[['chk','Check-in evento']]:[]);
+  const mioCp=!!(my&&my.coupon),cpTab=adm||(hasQ&&(mieiCp.length>0||mioCp));
+  const tabs=[['info','Info evento']].concat(cpTab?[['cp','Coupon']]:[],[['mia','La mia partecipazione']]).concat(adm?[['int','Iscrizione interni']]:[],adm&&ev.esterni?[['est','Iscrizione esterni']]:[],adm?[['tot','Totale iscritti']]:[],adm&&ev.esterni?[['chk','Check-in evento']]:[]);
   let tab=detail.tab;if(!tabs.some(t=>t[0]===tab))tab='info';
   detail.tabIds=tabs.map(t=>t[0]);detail.tab=tab;
-  const tabsHtml=`<div class="dtabs" role="tablist" aria-label="Sezioni dell’evento">${tabs.map((t,n)=>`<button type="button" role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${t[0]===tab}" aria-pressed="${t[0]===tab}">${n+1}) ${t[1]}</button>`).join('')}</div>`;
+  const tabsHtml=`<div class="dtabs" role="tablist" aria-label="Sezioni dell’evento">${tabs.map(t=>`<button type="button" role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${t[0]===tab}" aria-pressed="${t[0]===tab}">${t[1]}</button>`).join('')}</div>`;
   const tl=(n,l,hot)=>`<div${hot?' class="hot"':''}><b>${n}</b><small>${l}</small></div>`;
   const payChip=r=>!hasQ?'':r.pagatoOk?'<span class="chip ok">✔ verificato</span>':dovuto(ev,r).tot<=0?'<span class="chip ok">nulla da pagare</span>':bonificiOf(r).length?'<span class="chip warn">da verificare</span>':'<span class="chip bad">in attesa del bonifico</span>';
   const cI=r=>`${gara&&r.peso?`<span class="chip">${esc(r.peso)} kg</span>`:''}${pE(ev,r)>1?`<span class="chip">👥 ${pE(ev,r)}</span>`:''}${pH(ev,r)>0?`<span class="chip">🏨 ${pH(ev,r)}</span>`:''}${payChip(r)}`;
   let corpo='';
   if(tab==='info')corpo=info;
   else if(tab==='mia')corpo=mine;
-  else if(tab==='int')corpo=rep+cpx;
+  else if(tab==='cp'){
+    /* coupon: l'atleta vede quelli assegnati a lui (e quello già applicato); l'admin li crea e li gestisce */
+    const cpL=c=>`<span><b style="font-family:ui-monospace,Menlo,Consolas,monospace">${esc(c.codice)}</b> · ${esc(couponTxt(c))}${c.scadenzaMs?' · fino al '+esc(new Date(c.scadenzaMs).toLocaleDateString('it-IT')):''}</span>`;
+    let mio='';
+    if(mioCp)mio=`<div class="mu" style="margin:2px 0 6px">Coupon <b>${esc(my.coupon)}</b> applicato: ${esc(couponTxt({tipo:my.cpTipo,valore:my.cpValore}))}${dv&&dv.sconto>0?' (− '+esc(money(dv.sconto))+')':''}${dv&&dv.tot<=0?' · nulla da pagare':''}</div>`;
+    else if(hasQ&&mieiCp.length)mio=si&&!closed?asgCp:`${mieiCp.map(c=>`<div class="fr">${cpL(c)}</div>`).join('')}<div class="mu" style="margin:2px 0 6px">${closed?'Le iscrizioni sono chiuse.':'Lo applichi nella scheda «La mia partecipazione», nella sezione «Pagamento», dopo aver scelto «Partecipo».'}</div>`;
+    else mio='<div class="mu">Nessun coupon disponibile per te.</div>';
+    corpo=`<h3>${adm?'I tuoi coupon':'Coupon'}</h3>${mio}`+(adm?`<h3>Gestione coupon<button class="btn ghost sm" data-a="cpn">Gestisci coupon</button></h3><div class="mu" style="margin:2px 0 6px">Crea, modifica e assegna codici sconto o gratuità: gli atleti li applicano nella sezione «Pagamento»${ev.esterni?', gli esterni nel modulo di iscrizione':''}.</div>`:'')}
+  else if(tab==='int')corpo=rep;
   else if(tab==='est')corpo=exb;
   else if(tab==='chk'){
     const pers=exR.filter(exConf).flatMap(r=>(r.persone||[]).filter(p=>p.codice)),ing=pers.filter(p=>exChk.has(p.codice)).length;
@@ -581,10 +587,10 @@ function paintDetail(){
     const tot=(si?1:0)+intYes.length+exAll.length;
     corpo=`<h3>Totale iscritti</h3>
       <div class="tiles">${tl(tot,'Totale iscritti')}${tl((si?1:0)+intYes.length,'Interni (con te)')}${ev.esterni?tl(exAll.length,'Esterni'):''}${ev.esterni&&exAttN>0?tl(exAttN,'Esterni in attesa',true):''}</div>
-      <div class="sep">1 · Io</div>${io}
-      <div class="sep">2 · Interni (${intYes.length})</div>${intYes.length?intYes.map(r=>`<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b></div><div class="l2">${cI(r)}</div></div>`).join(''):'<div class="mu">Nessun altro atleta interno ha confermato.</div>'}
-      ${ev.esterni?`<div class="sep">3 · Esterni · singoli (${exAll.length})</div>${exAll.length?exAll.map(({p,r})=>`<div class="ir"><div class="l1"><span><b>${esc(nomeP(p))}</b> <span class="mu">· ${esc(ruoloTxt(p.ruolo))} · ${esc(r.assoc||'')}</span></span><span class="chip ${exConf(r)?'ok':'warn'}">${exConf(r)?'Confermato':'In attesa'}</span></div></div>`).join(''):'<div class="mu">Nessuna iscrizione di esterni.</div>'}
-      <div class="sep">4 · Esterni · per associazione (${exAs.length})</div>${exAs.length?exAs.map(r=>{const pp=pers(r),na=pp.filter(p=>p.ruolo!=='tecnico').length,nt=pp.length-na;return `<div class="ir"><div class="l1"><b>${esc(r.assoc||'—')}</b><span class="chip ${exConf(r)?'ok':'warn'}">${exConf(r)?'Confermata':'In attesa'}</span></div><div class="l2"><span class="chip">${na} atleti</span><span class="chip">${nt} tecnici</span></div></div>`}).join(''):'<div class="mu">Nessuna associazione iscritta.</div>'}`:''}`}
+      <div class="sep">Io</div>${io}
+      <div class="sep">Interni (${intYes.length})</div>${intYes.length?intYes.map(r=>`<div class="ir"><div class="l1"><b>${esc(r.nome||'—')}</b></div><div class="l2">${cI(r)}</div></div>`).join(''):'<div class="mu">Nessun altro atleta interno ha confermato.</div>'}
+      ${ev.esterni?`<div class="sep">Esterni · singoli (${exAll.length})</div>${exAll.length?exAll.map(({p,r})=>`<div class="ir"><div class="l1"><span><b>${esc(nomeP(p))}</b> <span class="mu">· ${esc(ruoloTxt(p.ruolo))} · ${esc(r.assoc||'')}</span></span><span class="chip ${exConf(r)?'ok':'warn'}">${exConf(r)?'Confermato':'In attesa'}</span></div></div>`).join(''):'<div class="mu">Nessuna iscrizione di esterni.</div>'}
+      <div class="sep">Esterni · per associazione (${exAs.length})</div>${exAs.length?exAs.map(r=>{const pp=pers(r),na=pp.filter(p=>p.ruolo!=='tecnico').length,nt=pp.length-na;return `<div class="ir"><div class="l1"><b>${esc(r.assoc||'—')}</b><span class="chip ${exConf(r)?'ok':'warn'}">${exConf(r)?'Confermata':'In attesa'}</span></div><div class="l2"><span class="chip">${na} atleti</span><span class="chip">${nt} tecnici</span></div></div>`}).join(''):'<div class="mu">Nessuna associazione iscritta.</div>'}`:''}`}
   c.innerHTML=`<h2 style="margin:0">${esc(ev.nome)}</h2>
     <div class="chips" style="justify-content:flex-start;max-width:none;margin-top:6px"><span class="chip">${esc(catL(ev))}</span>${past?'<span class="chip">Concluso</span>':''}${ev.chiuso?`<span class="chip bad">Chiuso${ev.chiusoMotivo?': '+esc(ev.chiusoMotivo):''}</span>`:''}</div>
     ${tabsHtml}${corpo}

@@ -605,6 +605,13 @@ Generato da GitHub Actions: telegram-lib.js (non incluso nello zip)
 - Ora la funzione è chiamata con il solo evento (soglia sempre 10 giorni, come nella scheda Eventi, nei chip rossi e nelle notifiche). Vale per il riquadro «Da controllare» e per il numero sulla tessera Eventi.
 - File: index.html, RESOCONTO.md.
 
+## Eventi: sottomenu senza numeri e nuovo sottomenu «Coupon»
+- Tolti i numeri dai sottomenu (e dai titoli dentro «Totale iscritti»).
+- Nuovo sottomenu «Coupon» in seconda posizione: Info evento · Coupon · La mia partecipazione · Iscrizione interni · Iscrizione esterni · Totale iscritti · Check-in evento.
+- Atleta: vede i coupon assegnati a lui (codice, sconto, scadenza) o quello già applicato; con «Partecipo» lo applica da lì, altrimenti gli viene spiegato dove applicarlo. Il sottomenu compare solo se l'evento ha una quota e lui ha un coupon.
+- Admin: sempre visibile; in alto i propri coupon, sotto «Gestione coupon» con il pulsante «Gestisci coupon» (spostato qui dai sottomenu Iscrizione interni/esterni).
+- File: eventi.js, RESOCONTO.md.
+
 ## Coupon: modifica di un coupon già creato
 - In «Gestisci coupon» ogni coupon ha il pulsante «Modifica»: riempie il modulo in basso (che diventa «Modifica coupon …», con «Salva modifiche» e «Annulla modifica») e si possono cambiare destinatari (nessuno / tutti / scelti singolarmente o per gruppo), tipo e valore dello sconto, scadenza e utilizzi massimi. Il codice resta fisso.
 - Chi ha già applicato il coupon lo tiene; gli importi dovuti si ricalcolano con i nuovi valori. Il contatore «usato» si riallinea alle iscrizioni che usano il codice.
